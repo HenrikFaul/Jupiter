@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,8 +63,10 @@ import java.util.concurrent.TimeUnit
  *  - The [VideoView]'s own callbacks (prepared / completed / error) and a position ticker
  *    feed back into the ViewModel via [VideoPlayerViewModel.onPrepared] and friends.
  *
- * Lifecycle is handled cleanly: playback is paused when the host stops, and the surface
- * is released on disposal.
+ * Lifecycle is handled cleanly: playback is paused when the host stops, the surface is
+ * re-seeked to the last known position when the host returns to the foreground so a frame
+ * re-renders, and the underlying [VideoView]/MediaPlayer is released via the
+ * [AndroidView] `onRelease` callback on disposal.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,12 +105,24 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Pause playback when the host lifecycle stops; the surface itself is released on
-    // disposal (see DisposableEffect below).
+    // Pause playback when the host lifecycle stops. When the host returns to the
+    // foreground, Android has torn down the SurfaceView's surface, so re-seek the live
+    // VideoView to the last known position; this re-binds the surface and renders a frame
+    // instead of leaving a black stage. The VideoView itself is released in the
+    // AndroidView onRelease callback on disposal.
+    val currentState by rememberUpdatedState(state)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                viewModel.pause()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> viewModel.pause()
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
+                    val view = videoView
+                    if (view != null && currentState.isPrepared) {
+                        // Re-seek to re-bind the recreated surface so a frame renders.
+                        view.seekTo(currentState.positionMs)
+                    }
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -158,6 +173,7 @@ fun VideoPlayerScreen(
                 else -> VideoContent(
                     state = state,
                     onSurfaceReady = { view -> videoView = view },
+                    onSurfaceReleased = { videoView = null },
                     onPrepared = viewModel::onPrepared,
                     onCompleted = viewModel::onCompleted,
                     onError = viewModel::onError,
@@ -177,6 +193,7 @@ fun VideoPlayerScreen(
 private fun VideoContent(
     state: VideoPlayerUiState,
     onSurfaceReady: (VideoView) -> Unit,
+    onSurfaceReleased: () -> Unit,
     onPrepared: (Int) -> Unit,
     onCompleted: () -> Unit,
     onError: (String) -> Unit,
@@ -211,6 +228,13 @@ private fun VideoContent(
                             setVideoURI(Uri.fromFile(File(path)))
                             onSurfaceReady(this)
                         }
+                    },
+                    onRelease = { view ->
+                        // Release the VideoView's native MediaPlayer/decoder/surface so
+                        // repeatedly opening videos does not leak codecs from the limited
+                        // MediaCodec pool.
+                        view.stopPlayback()
+                        onSurfaceReleased()
                     },
                     modifier = Modifier.fillMaxSize(),
                 )

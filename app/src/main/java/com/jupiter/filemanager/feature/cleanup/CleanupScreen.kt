@@ -204,47 +204,52 @@ private fun CleanupContent(
             }
         }
 
-        item(key = "large-header") {
-            SectionHeader(
-                title = "Large files",
-                subtitle = if (largeFiles.isEmpty() && !isScanning) {
-                    "No large files found"
-                } else {
-                    formatItemCount(largeFiles.size)
-                },
-            )
-        }
-        items(largeFiles, key = { "large-" + it.path }) { file ->
-            SelectableFileRow(
-                item = file,
-                selected = file.path in selectedForDeletion,
-                onToggle = { onToggleSelection(file.path) },
-                onOpen = { onOpenFile(file) },
-            )
-        }
+        val hasScanned = overview != null || isScanning ||
+            largeFiles.isNotEmpty() || duplicateGroups.isNotEmpty()
 
-        item(key = "dup-header") {
-            SectionHeader(
-                title = "Duplicate files",
-                subtitle = if (duplicateGroups.isEmpty() && !isScanning) {
-                    "No duplicates found"
-                } else {
-                    val wasted = duplicateGroups.sumOf { it.wastedBytes }
-                    duplicateGroups.size.toString() + " groups - " + formatBytes(wasted) + " wasted"
-                },
-            )
-        }
-        duplicateGroups.forEachIndexed { index, group ->
-            item(key = "dup-group-header-" + group.hash + "-" + index) {
-                DuplicateGroupHeader(group = group)
+        if (hasScanned) {
+            item(key = "large-header") {
+                SectionHeader(
+                    title = "Large files",
+                    subtitle = if (largeFiles.isEmpty() && !isScanning) {
+                        "No large files found"
+                    } else {
+                        formatItemCount(largeFiles.size)
+                    },
+                )
             }
-            items(group.files, key = { "dup-" + group.hash + "-" + it.path }) { file ->
+            items(largeFiles, key = { "large-" + it.path }) { file ->
                 SelectableFileRow(
                     item = file,
                     selected = file.path in selectedForDeletion,
                     onToggle = { onToggleSelection(file.path) },
                     onOpen = { onOpenFile(file) },
                 )
+            }
+
+            item(key = "dup-header") {
+                SectionHeader(
+                    title = "Duplicate files",
+                    subtitle = if (duplicateGroups.isEmpty() && !isScanning) {
+                        "No duplicates found"
+                    } else {
+                        val wasted = duplicateGroups.sumOf { it.wastedBytes }
+                        duplicateGroups.size.toString() + " groups - " + formatBytes(wasted) + " wasted"
+                    },
+                )
+            }
+            duplicateGroups.forEachIndexed { index, group ->
+                item(key = "dup-group-header-" + group.hash + "-" + index) {
+                    DuplicateGroupHeader(group = group)
+                }
+                items(group.files, key = { "dup-" + group.hash + "-" + it.path }) { file ->
+                    SelectableFileRow(
+                        item = file,
+                        selected = file.path in selectedForDeletion,
+                        onToggle = { onToggleSelection(file.path) },
+                        onOpen = { onOpenFile(file) },
+                    )
+                }
             }
         }
 

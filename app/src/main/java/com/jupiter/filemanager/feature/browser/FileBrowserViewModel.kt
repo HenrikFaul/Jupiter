@@ -15,6 +15,7 @@ import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.ui.navigation.Destination
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,9 @@ class FileBrowserViewModel @Inject constructor(
 
     /** Tracks the active copy/move operation so it can be cancelled. */
     private var operationJob: Job? = null
+
+    /** Schedules auto-dismissal of a terminal operation card after a short delay. */
+    private var operationDismissJob: Job? = null
 
     init {
         val rawArg = savedStateHandle.get<String>(Destination.Browser.ARG_PATH)
@@ -189,6 +193,8 @@ class FileBrowserViewModel @Inject constructor(
 
     /** Cancels the in-flight copy/move operation, if any. */
     fun cancelOperation() {
+        operationDismissJob?.cancel()
+        operationDismissJob = null
         operationJob?.cancel()
         operationJob = null
         _uiState.value = _uiState.value.copy(operation = null)
@@ -210,36 +216,65 @@ class FileBrowserViewModel @Inject constructor(
 
     /**
      * Collects a copy/move progress [flow] into [FileBrowserUiState.operation].
-     * On terminal states the selection is cleared and the listing reloaded.
+     * On terminal states the selection is cleared and the listing reloaded; the
+     * terminal card ("Copied", "Moved", "… failed") is left visible so the user
+     * sees a completion confirmation, then auto-dismissed after a short delay.
      */
     private fun runOperation(
         flow: kotlinx.coroutines.flow.Flow<FileOperationProgress>,
         destinationPath: String,
     ) {
+        operationDismissJob?.cancel()
+        operationDismissJob = null
         operationJob?.cancel()
         operationJob = flow
             .onEach { progress ->
                 _uiState.value = _uiState.value.copy(operation = progress)
-                if (progress.state == OperationState.COMPLETED) {
-                    clearSelection()
-                    loadDirectory(_uiState.value.currentPath)
-                } else if (progress.state == OperationState.FAILED) {
-                    _uiState.value = _uiState.value.copy(
-                        error = progress.errorMessage ?: "Operation failed.",
-                    )
+                when (progress.state) {
+                    OperationState.COMPLETED -> {
+                        clearSelection()
+                        loadDirectory(_uiState.value.currentPath)
+                        // Re-apply the terminal progress; loadDirectory may have
+                        // replaced state, but the card must stay visible.
+                        _uiState.value = _uiState.value.copy(operation = progress)
+                        scheduleOperationDismiss(progress)
+                    }
+                    OperationState.FAILED -> {
+                        _uiState.value = _uiState.value.copy(
+                            error = progress.errorMessage ?: "Operation failed.",
+                        )
+                        scheduleOperationDismiss(progress)
+                    }
+                    else -> Unit
                 }
             }
             .onCompletion { cause ->
                 operationJob = null
-                // Clear an operation card only once it has finished or was cancelled.
-                val finished = _uiState.value.operation?.state
-                if (cause != null || finished == OperationState.COMPLETED ||
-                    finished == OperationState.FAILED || finished == OperationState.CANCELLED
-                ) {
+                // Only clear immediately on cancellation; terminal COMPLETED/FAILED
+                // cards stay visible and are dismissed by the scheduled delay so the
+                // user actually sees the completion confirmation.
+                if (cause != null) {
+                    operationDismissJob?.cancel()
+                    operationDismissJob = null
                     _uiState.value = _uiState.value.copy(operation = null)
                 }
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Keeps the terminal operation card visible briefly, then clears it (only if
+     * it is still showing the same terminal [progress], so a newer operation is
+     * never dismissed by an earlier one's timer).
+     */
+    private fun scheduleOperationDismiss(progress: FileOperationProgress) {
+        operationDismissJob?.cancel()
+        operationDismissJob = viewModelScope.launch {
+            delay(1_500)
+            if (_uiState.value.operation === progress) {
+                _uiState.value = _uiState.value.copy(operation = null)
+            }
+        }
     }
 
     /** Loads [path] into state, updating breadcrumbs and navigation flags. */

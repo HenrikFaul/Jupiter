@@ -1,25 +1,36 @@
 package com.jupiter.filemanager.feature.browser
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +42,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -41,11 +53,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FilterOption
+import com.jupiter.filemanager.domain.model.SortOption
+import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.feature.browser.components.Breadcrumbs
 import com.jupiter.filemanager.feature.browser.components.CreateFolderDialog
 import com.jupiter.filemanager.feature.browser.components.FileAction
@@ -57,6 +74,10 @@ import com.jupiter.filemanager.feature.browser.components.SortFilterSheet
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 
 /**
  * The file browser screen: lists the contents of a directory, supports
@@ -93,6 +114,11 @@ fun FileBrowserScreen(
     var actionTarget by remember { mutableStateOf<FileItem?>(null) }
     var renameTarget by remember { mutableStateOf<FileItem?>(null) }
 
+    // A pending copy/move that is waiting for the user to pick a destination
+    // folder. The selection in [uiState] is left intact while the chooser is
+    // open so the ViewModel can resolve the source items on confirm.
+    var pendingTransfer by remember { mutableStateOf<PendingTransfer?>(null) }
+
     // Surface errors via the snackbar, then clear them so they don't repeat.
     LaunchedEffect(uiState.error) {
         val message = uiState.error
@@ -120,12 +146,18 @@ fun FileBrowserScreen(
                     onClose = { viewModel.clearSelection() },
                     onDelete = { viewModel.deleteSelected() },
                     onCopy = {
-                        // Copy into the current directory as a sensible default
-                        // destination; a real picker would replace this.
-                        viewModel.copySelectedTo(uiState.currentPath)
+                        // Ask the user where to copy to via a folder chooser; the
+                        // selection is preserved until they confirm a destination.
+                        pendingTransfer = PendingTransfer(
+                            mode = TransferMode.COPY,
+                            startPath = uiState.currentPath,
+                        )
                     },
                     onMove = {
-                        viewModel.moveSelectedTo(uiState.currentPath)
+                        pendingTransfer = PendingTransfer(
+                            mode = TransferMode.MOVE,
+                            startPath = uiState.currentPath,
+                        )
                     },
                 )
             } else {
@@ -273,6 +305,7 @@ fun FileBrowserScreen(
                     viewModel = viewModel,
                     onOpenFile = onOpenFile,
                     onRequestRename = { renameTarget = it },
+                    onRequestTransfer = { transfer -> pendingTransfer = transfer },
                 )
             },
             onDismiss = { actionTarget = null },
@@ -290,7 +323,35 @@ fun FileBrowserScreen(
             onDismiss = { renameTarget = null },
         )
     }
+
+    val transfer = pendingTransfer
+    if (transfer != null) {
+        FolderChooserDialog(
+            title = when (transfer.mode) {
+                TransferMode.COPY -> "Copy to…"
+                TransferMode.MOVE -> "Move to…"
+            },
+            startPath = transfer.startPath,
+            onConfirm = { destinationPath ->
+                pendingTransfer = null
+                when (transfer.mode) {
+                    TransferMode.COPY -> viewModel.copySelectedTo(destinationPath)
+                    TransferMode.MOVE -> viewModel.moveSelectedTo(destinationPath)
+                }
+            },
+            onDismiss = { pendingTransfer = null },
+        )
+    }
 }
+
+/** Whether a pending bulk transfer is a copy or a move. */
+private enum class TransferMode { COPY, MOVE }
+
+/** A copy/move awaiting a user-chosen destination folder. */
+private data class PendingTransfer(
+    val mode: TransferMode,
+    val startPath: String,
+)
 
 /**
  * Routes a [FileAction] chosen from the per-item actions sheet to the
@@ -302,6 +363,7 @@ private fun handleFileAction(
     viewModel: FileBrowserViewModel,
     onOpenFile: (FileItem) -> Unit,
     onRequestRename: (FileItem) -> Unit,
+    onRequestTransfer: (PendingTransfer) -> Unit,
 ) {
     when (action) {
         FileAction.OPEN -> {
@@ -313,12 +375,23 @@ private fun handleFileAction(
             viewModel.deleteSelected()
         }
         FileAction.COPY -> {
+            // Select the item, then ask the user to choose a destination folder.
             viewModel.enterSelection(item)
-            viewModel.copySelectedTo(item.parentPath ?: item.path)
+            onRequestTransfer(
+                PendingTransfer(
+                    mode = TransferMode.COPY,
+                    startPath = item.parentPath ?: item.path,
+                ),
+            )
         }
         FileAction.MOVE -> {
             viewModel.enterSelection(item)
-            viewModel.moveSelectedTo(item.parentPath ?: item.path)
+            onRequestTransfer(
+                PendingTransfer(
+                    mode = TransferMode.MOVE,
+                    startPath = item.parentPath ?: item.path,
+                ),
+            )
         }
         FileAction.ADD_BOOKMARK -> viewModel.addBookmark(item)
         // SHARE, COMPRESS and DETAILS are handled by other layers / not yet wired.
@@ -468,6 +541,171 @@ private fun SelectionTopBar(
             }
         },
     )
+}
+
+/**
+ * Hilt entry point used to obtain the [FileRepository] from a Composable, where
+ * constructor injection is unavailable. This lets the folder chooser list
+ * directories without disturbing the browser's own listing state.
+ */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+private interface FileBrowserScreenEntryPoint {
+    fun fileRepository(): FileRepository
+}
+
+private fun fileRepositoryOf(context: Context): FileRepository =
+    EntryPointAccessors
+        .fromApplication(context.applicationContext, FileBrowserScreenEntryPoint::class.java)
+        .fileRepository()
+
+/**
+ * A self-contained folder chooser: starting at [startPath] the user can drill
+ * into subfolders, go up to the parent, and confirm the currently displayed
+ * directory as the destination via [onConfirm].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FolderChooserDialog(
+    title: String,
+    startPath: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val repository = remember(context) { fileRepositoryOf(context) }
+    val rootDirectory = remember(repository) { repository.rootDirectory() }
+
+    var currentPath by remember { mutableStateOf(startPath) }
+    var folders by remember { mutableStateOf<List<FileItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(currentPath) {
+        loading = true
+        loadError = null
+        when (
+            val result = repository.listFiles(
+                currentPath,
+                SortOption(),
+                FilterOption(),
+            )
+        ) {
+            is AppResult.Success -> {
+                folders = result.data.filter { it.isDirectory }
+                loadError = null
+            }
+            is AppResult.Failure -> {
+                folders = emptyList()
+                loadError = result.error.displayMessage
+            }
+        }
+        loading = false
+    }
+
+    val canGoUp = currentPath.trimEnd('/') != rootDirectory.trimEnd('/') &&
+        parentDirectoryOf(currentPath) != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = title) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = currentFolderTitle(currentPath),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                )
+
+                if (canGoUp) {
+                    FolderChooserRow(
+                        label = "..",
+                        icon = Icons.Filled.ArrowUpward,
+                        onClick = {
+                            parentDirectoryOf(currentPath)?.let { currentPath = it }
+                        },
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp, max = 280.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        loading -> Text(text = "Loading…")
+                        loadError != null -> Text(text = loadError ?: "Unable to open folder.")
+                        folders.isEmpty() -> Text(text = "No subfolders here.")
+                        else -> LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                            items(items = folders, key = { it.path }) { folder ->
+                                FolderChooserRow(
+                                    label = folder.name,
+                                    icon = Icons.Filled.Folder,
+                                    onClick = { currentPath = folder.path },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(currentPath) }) {
+                Text(text = "Select this folder")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Cancel")
+            }
+        },
+    )
+}
+
+/** A single tappable row inside the folder chooser. */
+@Composable
+private fun FolderChooserRow(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * Returns the parent directory of [path], or null when there is no meaningful
+ * parent (root or blank).
+ */
+private fun parentDirectoryOf(path: String): String? {
+    val normalized = path.trimEnd('/')
+    if (normalized.isEmpty() || normalized == "/") return null
+    val parent = normalized.substringBeforeLast('/', missingDelimiterValue = "")
+    return parent.ifEmpty { "/" }
 }
 
 /**

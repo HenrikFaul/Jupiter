@@ -11,8 +11,6 @@ sealed class Destination(val route: String) {
 
     data object Permission : Destination("permission")
 
-    data object Home : Destination("home")
-
     data object Browser : Destination("browser?path={path}") {
         const val ARG_PATH = "path"
         fun create(path: String): String = "browser?path=" + android.net.Uri.encode(path)

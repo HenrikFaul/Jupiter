@@ -213,7 +213,7 @@ private fun rememberMoreSections(): List<MoreSection> = listOf(
                 title = "Archive Manager",
                 subtitle = "Compress and extract files",
                 icon = Icons.Filled.Archive,
-                route = Destination.ArchiveManagerRoute.route,
+                route = Destination.ArchiveManagerRoute.create(""),
             ),
             MoreTool(
                 title = "Sync Conflicts",

@@ -17,7 +17,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -27,8 +26,9 @@ import javax.inject.Inject
  *
  * - **Encrypted files**: the number of items currently stored in the vault.
  * - **Hidden files**: a best-effort count of hidden entries directly under the
- *   primary external storage root (only meaningful when "show hidden" is on in
- *   settings; otherwise reported as 0 to avoid an unreliable scan).
+ *   primary external storage root. Counted independently of the "show hidden"
+ *   display preference, since the repository lists hidden entries regardless and
+ *   hidden files are a genuine privacy signal.
  * - **Shared links / apps with access**: 0, since those signals require a backend
  *   that is not part of this on-device build.
  *
@@ -76,8 +76,7 @@ class PrivacyDashboardViewModel @Inject constructor(
             is AppResult.Failure -> 0
         }
 
-        val showHidden = settings.showHidden.first()
-        val hiddenFiles = if (showHidden) countHiddenFiles() else 0
+        val hiddenFiles = countHiddenFiles()
 
         val sharedLinks = 0
         val appsWithAccess = 0

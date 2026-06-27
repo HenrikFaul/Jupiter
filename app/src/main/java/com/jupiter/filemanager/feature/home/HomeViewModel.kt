@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
+import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.StorageCategory
@@ -15,6 +16,7 @@ import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Drives the redesigned NEXUS-style Home dashboard.
@@ -48,6 +51,7 @@ class HomeViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
     private val bookmarkRepository: BookmarkRepository,
     private val settings: SettingsDataStore,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -68,33 +72,37 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            val volumes = fileRepository.storageVolumes()
+            val volumes = withContext(ioDispatcher) { fileRepository.storageVolumes() }
             val primary = volumes.firstOrNull { it.isPrimary } ?: volumes.firstOrNull()
 
             when (val overview = analyticsRepository.storageOverview()) {
                 is AppResult.Success -> {
                     val categories = overview.data.categories
+                    val quickAccess = withContext(ioDispatcher) { buildQuickAccess(categories) }
                     _uiState.update {
                         it.copy(
                             volumes = volumes,
                             primaryVolume = primary,
                             categories = categories,
-                            quickAccess = buildQuickAccess(categories),
+                            quickAccess = quickAccess,
                             isLoading = false,
                             error = null,
                         )
                     }
                 }
 
-                is AppResult.Failure -> _uiState.update {
-                    it.copy(
-                        volumes = volumes,
-                        primaryVolume = primary,
-                        categories = emptyList(),
-                        quickAccess = buildQuickAccess(emptyList()),
-                        isLoading = false,
-                        error = overview.error.displayMessage,
-                    )
+                is AppResult.Failure -> {
+                    val quickAccess = withContext(ioDispatcher) { buildQuickAccess(emptyList()) }
+                    _uiState.update {
+                        it.copy(
+                            volumes = volumes,
+                            primaryVolume = primary,
+                            categories = emptyList(),
+                            quickAccess = quickAccess,
+                            isLoading = false,
+                            error = overview.error.displayMessage,
+                        )
+                    }
                 }
             }
         }

@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -98,8 +97,11 @@ class CleanupViewModel @Inject constructor(
             loadOverview()
 
             val rootPath = fileRepository.rootDirectory()
-            launch { collectLargeFiles(rootPath) }
-            launch { collectDuplicates(rootPath) }
+            val largeFilesJob = launch { collectLargeFiles(rootPath) }
+            val duplicatesJob = launch { collectDuplicates(rootPath) }
+            largeFilesJob.join()
+            duplicatesJob.join()
+            _uiState.update { it.copy(isScanning = false) }
         }
     }
 
@@ -198,8 +200,7 @@ class CleanupViewModel @Inject constructor(
     }
 
     /**
-     * Streams large files under [rootPath] into the UI state as they are found,
-     * clearing the scanning flag when this stream completes.
+     * Streams large files under [rootPath] into the UI state as they are found.
      */
     private suspend fun collectLargeFiles(rootPath: String) {
         val collected = mutableListOf<FileItem>()
@@ -208,9 +209,6 @@ class CleanupViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(error = throwable.message ?: "Failed to scan large files.")
                 }
-            }
-            .onCompletion {
-                _uiState.update { it.copy(isScanning = false) }
             }
             .collect { item ->
                 collected.add(item)

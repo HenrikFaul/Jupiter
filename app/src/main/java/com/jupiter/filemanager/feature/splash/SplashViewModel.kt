@@ -3,7 +3,6 @@ package com.jupiter.filemanager.feature.splash
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.data.permission.StorageAccessManager
-import com.jupiter.filemanager.data.permission.StorageAccessState
 import com.jupiter.filemanager.data.preferences.AppStateDataStore
 import com.jupiter.filemanager.ui.navigation.Destination
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,7 +19,7 @@ import javax.inject.Inject
  * The decision is made once on init by reading whether onboarding has completed
  * and the current storage-access state:
  *  - onboarding not completed -> [Destination.Onboarding]
- *  - onboarding completed but no storage access -> [Destination.Permission]
+ *  - onboarding completed but no full file access -> [Destination.Permission]
  *  - otherwise -> [Destination.Main]
  *
  * The resolved route is published via [targetRoute] (null until resolved) so the
@@ -46,7 +45,7 @@ class SplashViewModel @Inject constructor(
             val onboardingCompleted = appState.onboardingCompleted.first()
             val route = when {
                 !onboardingCompleted -> Destination.Onboarding.route
-                storageAccessManager.currentState() == StorageAccessState.NONE ->
+                !storageAccessManager.hasAllFilesAccess() ->
                     Destination.Permission.route
                 else -> Destination.Main.route
             }

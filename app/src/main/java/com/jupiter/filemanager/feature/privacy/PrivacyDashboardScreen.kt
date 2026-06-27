@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.PrivacyLevel
 import com.jupiter.filemanager.domain.model.PrivacyReport
+import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.StatRow
@@ -107,6 +108,11 @@ fun PrivacyDashboardScreen(
                 uiState.report != null -> PrivacyContent(
                     report = uiState.report!!,
                     onViewDetails = { onOpenRoute(Destination.Vault.route) },
+                )
+                else -> EmptyView(
+                    title = "No privacy data",
+                    message = "We couldn't gather your privacy posture yet. Pull to refresh to try again.",
+                    icon = Icons.Outlined.PrivacyTip,
                 )
             }
         }

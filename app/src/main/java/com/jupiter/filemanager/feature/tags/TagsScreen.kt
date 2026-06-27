@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.tags
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -92,6 +93,8 @@ fun TagsScreen(
     var showAddDialog by remember { mutableStateOf(false) }
 
     val viewingTag = state.selectedTagId != null
+
+    BackHandler(enabled = viewingTag) { viewModel.clearSelection() }
 
     Scaffold(
         topBar = {
