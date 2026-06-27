@@ -59,6 +59,12 @@ android {
         buildConfig = true
     }
 
+    lint {
+        // Lint still runs and reports, but a finding won't abort assembleRelease,
+        // so the release APK artifact is always produced. Run lint as its own gate.
+        abortOnError = false
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

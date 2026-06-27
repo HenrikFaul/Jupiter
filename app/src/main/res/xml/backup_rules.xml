@@ -14,9 +14,4 @@
         domain="file"
         path="vault" />
 
-    <!-- Exclude any transient cache. -->
-    <exclude
-        domain="cache"
-        path="." />
-
 </full-backup-content>
