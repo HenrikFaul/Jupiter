@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.search
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,9 +8,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Clear
@@ -24,6 +28,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -31,15 +36,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.feature.browser.components.FileRow
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.ErrorView
+import com.jupiter.filemanager.ui.components.SectionHeader
+import com.jupiter.filemanager.ui.components.iconForFile
 
 /**
  * Search screen: a query field with an optional natural-language toggle, a
@@ -246,6 +255,49 @@ private fun InterpretingIndicator() {
 }
 
 /**
+ * Horizontal strip of image-type results, surfaced above the main vertical list
+ * so photos are easy to scan at a glance. Each tile is tappable and delegates to
+ * [onOpenFile].
+ */
+@Composable
+private fun ImageResultsRow(
+    images: List<FileItem>,
+    onOpenFile: (FileItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+    ) {
+        items(
+            items = images,
+            key = { it.path },
+        ) { item ->
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onOpenFile(item) },
+            ) {
+                Icon(
+                    imageVector = iconForFile(item),
+                    contentDescription = item.name,
+                    modifier = Modifier
+                        .padding(18.dp)
+                        .fillMaxSize(),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
  * Renders the body below the input area, choosing between error, empty and
  * results states. Streaming results are shown as soon as they arrive even while
  * the search is still running.
@@ -265,7 +317,25 @@ private fun SearchResults(
         }
 
         uiState.results.isNotEmpty() -> {
+            val imageResults = uiState.results.filter { it.type == FileType.IMAGE }
             LazyColumn(modifier = modifier) {
+                item {
+                    SectionHeader(
+                        title = if (uiState.naturalLanguage) "AI Results" else "Results",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+
+                if (imageResults.isNotEmpty()) {
+                    item {
+                        ImageResultsRow(
+                            images = imageResults,
+                            onOpenFile = onOpenFile,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                }
+
                 items(
                     items = uiState.results,
                     key = { it.path },

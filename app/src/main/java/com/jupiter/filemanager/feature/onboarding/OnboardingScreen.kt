@@ -44,7 +44,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
@@ -179,8 +182,21 @@ private fun OnboardingPanel(
 
         Spacer(modifier = Modifier.height(48.dp))
 
+        val accentColor = MaterialTheme.colorScheme.primary
+        val titleText = buildAnnotatedString {
+            val firstSpace = page.title.indexOf(' ')
+            if (firstSpace < 0) {
+                append(page.title)
+            } else {
+                append(page.title.substring(0, firstSpace + 1))
+                withStyle(SpanStyle(color = accentColor)) {
+                    append(page.title.substring(firstSpace + 1))
+                }
+            }
+        }
+
         Text(
-            text = page.title,
+            text = titleText,
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,

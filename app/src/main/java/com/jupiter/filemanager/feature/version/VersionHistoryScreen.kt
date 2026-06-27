@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
@@ -66,6 +67,10 @@ import com.jupiter.filemanager.ui.components.LoadingView
  * Each version offers a "Restore" action that delegates to
  * [VersionHistoryViewModel.restore]; the repository's honest not-configured failure
  * is surfaced in a snackbar rather than pretending the restore succeeded.
+ *
+ * A leading "View" action mirrors the Current/View pairing from the mock. No preview
+ * backend exists yet, so it is rendered as a disabled placeholder following the same
+ * empty-backend pattern used elsewhere on this screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,6 +150,8 @@ fun VersionHistoryScreen(
                     versions = uiState.versions,
                     isRestoring = uiState.isRestoring,
                     onRestore = viewModel::restore,
+                    // No preview backend yet; render "View" as a disabled placeholder.
+                    onView = null,
                     contentPadding = innerPadding,
                 )
             }
@@ -157,6 +164,7 @@ private fun VersionList(
     versions: List<FileVersion>,
     isRestoring: Boolean,
     onRestore: (FileVersion) -> Unit,
+    onView: ((FileVersion) -> Unit)?,
     contentPadding: PaddingValues,
 ) {
     LazyColumn(
@@ -177,6 +185,7 @@ private fun VersionList(
                 version = version,
                 isRestoring = isRestoring,
                 onRestore = { onRestore(version) },
+                onView = onView?.let { handler -> { handler(version) } },
             )
         }
     }
@@ -187,6 +196,7 @@ private fun VersionCard(
     version: FileVersion,
     isRestoring: Boolean,
     onRestore: () -> Unit,
+    onView: (() -> Unit)?,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -254,6 +264,19 @@ private fun VersionCard(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    TextButton(
+                        onClick = { onView?.invoke() },
+                        enabled = onView != null && !isRestoring,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Visibility,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("View")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
                     TextButton(
                         onClick = onRestore,
                         enabled = !isRestoring,

@@ -52,10 +52,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.filled.CloudDone
+import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.domain.model.CloudAccount
 import com.jupiter.filemanager.domain.model.CloudProvider
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.components.StorageBar
 
 /**
  * Cloud Hub screen. Lists the user's linked cloud storage accounts
@@ -203,29 +206,56 @@ private fun CloudAccountCard(
                 }
             }
             Spacer(modifier = Modifier.size(12.dp))
-            // Honest status: no provider auth backend exists yet, so every linked
-            // account is surfaced as not connected with a non-functional Connect.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
+            if (account.isConnected && account.totalBytes > 0L) {
+                // Connected account with real quota data: surface usage per the
+                // NEXUS spec via the shared StorageBar affordance.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Filled.CloudOff,
+                        imageVector = Icons.Filled.CloudDone,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Not connected",
+                        text = "Connected",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
-                TextButton(onClick = {}, enabled = false) {
-                    Text(text = "Connect (coming soon)")
+                Spacer(modifier = Modifier.size(12.dp))
+                StorageBar(
+                    label = formatBytes(account.usedBytes) +
+                        " of " + formatBytes(account.totalBytes),
+                    usedBytes = account.usedBytes,
+                    totalBytes = account.totalBytes,
+                )
+            } else {
+                // Honest status: no provider auth backend exists yet, so every
+                // linked account is surfaced as not connected with a
+                // non-functional Connect until real quota data exists.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.CloudOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Not connected",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = {}, enabled = false) {
+                        Text(text = "Connect (coming soon)")
+                    }
                 }
             }
         }

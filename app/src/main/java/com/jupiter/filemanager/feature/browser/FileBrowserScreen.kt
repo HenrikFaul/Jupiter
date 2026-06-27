@@ -2,7 +2,10 @@ package com.jupiter.filemanager.feature.browser
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +19,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
@@ -28,13 +36,16 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +54,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -53,14 +66,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.FilterOption
+import com.jupiter.filemanager.domain.model.SortField
 import com.jupiter.filemanager.domain.model.SortOption
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.feature.browser.components.Breadcrumbs
@@ -74,6 +91,7 @@ import com.jupiter.filemanager.feature.browser.components.SortFilterSheet
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.components.iconForFile
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -114,6 +132,13 @@ fun FileBrowserScreen(
     var actionTarget by remember { mutableStateOf<FileItem?>(null) }
     var renameTarget by remember { mutableStateOf<FileItem?>(null) }
 
+    // Inline name search: toggled from the top bar, drives FilterOption.query.
+    var searchActive by remember { mutableStateOf(false) }
+
+    // List vs. grid presentation of the directory listing. Kept screen-local so
+    // it never has to round-trip through the ViewModel/UiState.
+    var gridMode by remember { mutableStateOf(false) }
+
     // A pending copy/move that is waiting for the user to pick a destination
     // folder. The selection in [uiState] is left intact while the chooser is
     // open so the ViewModel can resolve the source items on confirm.
@@ -128,9 +153,15 @@ fun FileBrowserScreen(
         }
     }
 
-    // System back: leave selection, else go up a directory, else exit the screen.
+    // System back: close search, leave selection, else go up a directory, else exit.
     BackHandler(enabled = true) {
         when {
+            searchActive -> {
+                searchActive = false
+                if (uiState.filter.query.isNotEmpty()) {
+                    viewModel.setFilter(uiState.filter.copy(query = ""))
+                }
+            }
             uiState.selectionMode -> viewModel.clearSelection()
             uiState.canNavigateUp -> viewModel.navigateUp()
             else -> onBack()
@@ -163,6 +194,17 @@ fun FileBrowserScreen(
             } else {
                 BrowserTopBar(
                     title = currentFolderTitle(uiState.currentPath),
+                    searchActive = searchActive,
+                    searchQuery = uiState.filter.query,
+                    onSearchQueryChange = {
+                        viewModel.setFilter(uiState.filter.copy(query = it))
+                    },
+                    onSearchToggle = { active ->
+                        searchActive = active
+                        if (!active && uiState.filter.query.isNotEmpty()) {
+                            viewModel.setFilter(uiState.filter.copy(query = ""))
+                        }
+                    },
                     onBack = {
                         if (uiState.canNavigateUp) viewModel.navigateUp() else onBack()
                     },
@@ -203,6 +245,22 @@ fun FileBrowserScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            // Always-visible quick type filter chips (All / Photos / Docs / …).
+            FileTypeFilterRow(
+                selected = uiState.filter.typeFilter,
+                onSelect = { type ->
+                    viewModel.setFilter(uiState.filter.copy(typeFilter = type))
+                },
+            )
+
+            // Inline sort label + list/grid toggle, directly above the listing.
+            ListingHeaderRow(
+                sortLabel = sortOptionLabel(uiState.sortOption),
+                gridMode = gridMode,
+                onSortClick = { showSortSheet = true },
+                onToggleViewMode = { gridMode = !gridMode },
+            )
+
             val operation = uiState.operation
             if (operation != null) {
                 OperationProgressCard(
@@ -241,27 +299,38 @@ fun FileBrowserScreen(
                     }
 
                     else -> {
-                        FileList(
-                            items = uiState.items,
-                            selectedPaths = uiState.selectedPaths,
-                            selectionMode = uiState.selectionMode,
-                            onItemClick = { item ->
-                                if (uiState.selectionMode) {
-                                    viewModel.toggleSelection(item)
-                                } else if (item.isDirectory) {
-                                    viewModel.openDirectory(item.path)
-                                } else {
-                                    onOpenFile(item)
-                                }
-                            },
-                            onItemLongClick = { item ->
-                                if (uiState.selectionMode) {
-                                    viewModel.toggleSelection(item)
-                                } else {
-                                    actionTarget = item
-                                }
-                            },
-                        )
+                        val onItemClick: (FileItem) -> Unit = { item ->
+                            if (uiState.selectionMode) {
+                                viewModel.toggleSelection(item)
+                            } else if (item.isDirectory) {
+                                viewModel.openDirectory(item.path)
+                            } else {
+                                onOpenFile(item)
+                            }
+                        }
+                        val onItemLongClick: (FileItem) -> Unit = { item ->
+                            if (uiState.selectionMode) {
+                                viewModel.toggleSelection(item)
+                            } else {
+                                actionTarget = item
+                            }
+                        }
+                        if (gridMode) {
+                            FileGrid(
+                                items = uiState.items,
+                                selectedPaths = uiState.selectedPaths,
+                                onItemClick = onItemClick,
+                                onItemLongClick = onItemLongClick,
+                            )
+                        } else {
+                            FileList(
+                                items = uiState.items,
+                                selectedPaths = uiState.selectedPaths,
+                                selectionMode = uiState.selectionMode,
+                                onItemClick = onItemClick,
+                                onItemLongClick = onItemLongClick,
+                            )
+                        }
                     }
                 }
             }
@@ -401,6 +470,107 @@ private fun handleFileAction(
     }
 }
 
+/**
+ * Horizontally scrollable row of quick type-filter chips bound to
+ * [FilterOption.typeFilter]. The leading "All" chip clears the filter (null).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FileTypeFilterRow(
+    selected: FileType?,
+    onSelect: (FileType?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val options: List<Pair<String, FileType?>> = listOf(
+        "All" to null,
+        "Photos" to FileType.IMAGE,
+        "Docs" to FileType.DOCUMENT,
+        "Videos" to FileType.VIDEO,
+        "Audio" to FileType.AUDIO,
+    )
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEach { (label, type) ->
+            FilterChip(
+                selected = selected == type,
+                onClick = { onSelect(type) },
+                label = { Text(text = label) },
+            )
+        }
+    }
+}
+
+/**
+ * Thin header row above the listing: the active sort label (tap to open the sort
+ * sheet) on the left and a list/grid view toggle on the right.
+ */
+@Composable
+private fun ListingHeaderRow(
+    sortLabel: String,
+    gridMode: Boolean,
+    onSortClick: () -> Unit,
+    onToggleViewMode: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onSortClick)
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Sort,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = sortLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onToggleViewMode) {
+            Icon(
+                imageVector = if (gridMode) {
+                    Icons.AutoMirrored.Filled.ViewList
+                } else {
+                    Icons.Filled.GridView
+                },
+                contentDescription = if (gridMode) "Show as list" else "Show as grid",
+            )
+        }
+    }
+}
+
+/** A short, human-readable description of the active [SortOption]. */
+private fun sortOptionLabel(option: SortOption): String {
+    val field = when (option.field) {
+        SortField.NAME -> "Name"
+        SortField.SIZE -> "Size"
+        SortField.DATE_MODIFIED -> "Date"
+        SortField.TYPE -> "Type"
+    }
+    return "Sorted by $field"
+}
+
 /** Scrollable list of [FileRow]s for the current directory contents. */
 @Composable
 private fun FileList(
@@ -431,11 +601,99 @@ private fun FileList(
     }
 }
 
+/**
+ * Compact grid presentation of the directory contents: an adaptive grid of
+ * icon + name cells. Pairs with the list/grid toggle in [ListingHeaderRow].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FileGrid(
+    items: List<FileItem>,
+    selectedPaths: Set<String>,
+    onItemClick: (FileItem) -> Unit,
+    onItemLongClick: (FileItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 96.dp),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 8.dp,
+            end = 8.dp,
+            top = 4.dp,
+            bottom = 96.dp,
+        ),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        items(
+            items = items,
+            key = { it.path },
+        ) { item ->
+            FileGridCell(
+                item = item,
+                selected = item.path in selectedPaths,
+                onClick = { onItemClick(item) },
+                onLongClick = { onItemLongClick(item) },
+            )
+        }
+    }
+}
+
+/** A single compact icon + name cell used by [FileGrid]. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FileGridCell(
+    item: FileItem,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (selected) {
+        MaterialTheme.colorScheme.secondaryContainer
+    } else {
+        Color.Transparent
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
+            .padding(vertical = 12.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = iconForFile(item),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(40.dp),
+        )
+        Spacer(modifier = Modifier.size(6.dp))
+        Text(
+            text = item.name,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
 /** Standard browsing top app bar with back, sort/filter and an overflow menu. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BrowserTopBar(
     title: String,
+    searchActive: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchToggle: (Boolean) -> Unit,
     onBack: () -> Unit,
     onSortFilter: () -> Unit,
     overflowExpanded: Boolean,
@@ -444,48 +702,74 @@ private fun BrowserTopBar(
 ) {
     TopAppBar(
         title = {
-            Text(
-                text = title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleLarge,
-            )
+            if (searchActive) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text(text = "Search files…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                    ),
+                )
+            } else {
+                Text(
+                    text = title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+            }
         },
         navigationIcon = {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = { if (searchActive) onSearchToggle(false) else onBack() }) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    imageVector = if (searchActive) {
+                        Icons.Filled.Close
+                    } else {
+                        Icons.AutoMirrored.Filled.ArrowBack
+                    },
+                    contentDescription = if (searchActive) "Close search" else "Back",
                 )
             }
         },
         actions = {
-            IconButton(onClick = onSortFilter) {
-                Icon(
-                    imageVector = Icons.Filled.Sort,
-                    contentDescription = "Sort and filter",
-                )
-            }
-            IconButton(onClick = { onOverflowToggle(true) }) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = "More options",
-                )
-            }
-            DropdownMenu(
-                expanded = overflowExpanded,
-                onDismissRequest = { onOverflowToggle(false) },
-            ) {
-                DropdownMenuItem(
-                    text = { Text(text = "New folder") },
-                    onClick = onCreateFolder,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = null,
-                        )
-                    },
-                )
+            if (!searchActive) {
+                IconButton(onClick = { onSearchToggle(true) }) {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = "Search",
+                    )
+                }
+                IconButton(onClick = onSortFilter) {
+                    Icon(
+                        imageVector = Icons.Filled.Sort,
+                        contentDescription = "Sort and filter",
+                    )
+                }
+                IconButton(onClick = { onOverflowToggle(true) }) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More options",
+                    )
+                }
+                DropdownMenu(
+                    expanded = overflowExpanded,
+                    onDismissRequest = { onOverflowToggle(false) },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(text = "New folder") },
+                        onClick = onCreateFolder,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = null,
+                            )
+                        },
+                    )
+                }
             }
         },
     )

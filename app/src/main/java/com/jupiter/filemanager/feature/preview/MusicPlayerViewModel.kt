@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.preview
 
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -113,7 +114,7 @@ class MusicPlayerViewModel @Inject constructor(
         // Tear down any prior player before building a new one.
         releasePlayer()
 
-        val outcome: AppResult<Pair<MediaPlayer, Int>> = withContext(ioDispatcher) {
+        val outcome: AppResult<Triple<MediaPlayer, Int, String>> = withContext(ioDispatcher) {
             val file = File(item.path)
             if (!file.exists()) {
                 return@withContext AppResult.Failure(
@@ -130,7 +131,9 @@ class MusicPlayerViewModel @Inject constructor(
                 mp = MediaPlayer()
                 mp.setDataSource(item.path)
                 mp.prepare()
-                AppResult.Success(mp to mp.duration.coerceAtLeast(0))
+                AppResult.Success(
+                    Triple(mp, mp.duration.coerceAtLeast(0), readArtist(item.path)),
+                )
             } catch (e: IOException) {
                 mp?.release()
                 AppResult.Failure(
@@ -165,7 +168,7 @@ class MusicPlayerViewModel @Inject constructor(
 
         when (outcome) {
             is AppResult.Success -> {
-                val (mp, duration) = outcome.data
+                val (mp, duration, artist) = outcome.data
                 mp.setOnCompletionListener { onPlaybackCompleted() }
                 player = mp
                 _uiState.update {
@@ -175,6 +178,7 @@ class MusicPlayerViewModel @Inject constructor(
                         isPlaying = false,
                         positionMs = 0,
                         durationMs = duration,
+                        artist = artist,
                         error = null,
                     )
                 }
@@ -268,6 +272,29 @@ class MusicPlayerViewModel @Inject constructor(
         player?.currentPosition ?: 0
     } catch (_: IllegalStateException) {
         0
+    }
+
+    /**
+     * Reads the embedded artist tag for the track at [path] via
+     * [MediaMetadataRetriever], returning "" when it is absent or unreadable. Runs on
+     * the IO dispatcher (called from within [prepare]'s IO block).
+     */
+    private fun readArtist(path: String): String {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(path)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                ?.trim()
+                .orEmpty()
+        } catch (_: Exception) {
+            ""
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+                // Already released or never opened; ignore.
+            }
+        }
     }
 
     /** Releases the held [MediaPlayer] and stops the ticker. Safe to call repeatedly. */

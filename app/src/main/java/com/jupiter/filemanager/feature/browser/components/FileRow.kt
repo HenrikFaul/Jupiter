@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,16 +33,18 @@ import com.jupiter.filemanager.ui.components.iconForFile
  * Renders the type icon (via [iconForFile]), the file name, and a subtitle that
  * combines size/child-count and a relative last-modified time. When
  * [selectionMode] is active a leading [Checkbox] reflects [selected]. The whole
- * row is clickable and long-clickable via [combinedClickable].
+ * row is clickable and long-clickable via [combinedClickable]. When not in
+ * selection mode a trailing overflow button surfaces the per-item actions.
  *
  * This composable is pure UI: it performs no IO and delegates all interaction
- * to [onClick] / [onLongClick].
+ * to [onClick] / [onLongClick] / [onOverflowClick].
  *
  * @param item the file-system entry to render.
  * @param selected whether this item is currently selected.
  * @param selectionMode whether multi-select mode is active (controls checkbox visibility).
  * @param onClick invoked on a normal tap.
  * @param onLongClick invoked on a long press.
+ * @param onOverflowClick invoked when the trailing overflow button is tapped.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -50,6 +55,7 @@ fun FileRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onOverflowClick: () -> Unit = {},
 ) {
     Surface(
         color = if (selected) {
@@ -95,6 +101,16 @@ fun FileRow(
                 item = item,
                 modifier = Modifier.weight(1f),
             )
+
+            if (!selectionMode) {
+                IconButton(onClick = onOverflowClick) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More actions",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

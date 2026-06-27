@@ -12,6 +12,7 @@ import com.jupiter.filemanager.domain.model.FileItem
  * @property file the resolved [FileItem] for the audio track, or null before it loads
  *   (or when the path could not be resolved).
  * @property title a display title for the track (typically the file name).
+ * @property artist the track artist from embedded metadata, or "" when unknown.
  * @property isLoading whether the file metadata and player are still being prepared.
  * @property isPrepared whether the [android.media.MediaPlayer] has finished preparing
  *   and is ready to play/seek.
@@ -23,6 +24,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 data class MusicPlayerUiState(
     val file: FileItem? = null,
     val title: String = "",
+    val artist: String = "",
     val isLoading: Boolean = true,
     val isPrepared: Boolean = false,
     val isPlaying: Boolean = false,

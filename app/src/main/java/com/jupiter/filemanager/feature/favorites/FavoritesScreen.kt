@@ -43,6 +43,7 @@ import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.ui.components.SectionHeader
 import com.jupiter.filemanager.ui.components.iconForFile
 
 /**
@@ -79,30 +80,62 @@ fun FavoritesScreen(
                 }
 
                 else -> {
+                    val folders = uiState.entries.filter { it.isDirectory }
+                    val files = uiState.entries.filterNot { it.isDirectory }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(
-                            items = uiState.entries,
-                            key = { it.bookmark.path },
-                        ) { entry ->
-                            FavoriteRow(
-                                entry = entry,
-                                onClick = {
-                                    val item = entry.item
-                                    if (entry.isDirectory) {
-                                        onOpenPath(entry.bookmark.path)
-                                    } else if (item != null) {
-                                        onOpenFile(item)
-                                    } else {
-                                        // Unresolved file path: fall back to opening as a path.
-                                        onOpenPath(entry.bookmark.path)
-                                    }
-                                },
-                                onRemove = { viewModel.removeFavorite(entry.bookmark.path) },
-                            )
+                        if (folders.isNotEmpty()) {
+                            item(key = "header_folders") {
+                                SectionHeader(title = "Folders")
+                            }
+                            items(
+                                items = folders,
+                                key = { it.bookmark.path },
+                            ) { entry ->
+                                FavoriteRow(
+                                    entry = entry,
+                                    onClick = {
+                                        val item = entry.item
+                                        if (entry.isDirectory) {
+                                            onOpenPath(entry.bookmark.path)
+                                        } else if (item != null) {
+                                            onOpenFile(item)
+                                        } else {
+                                            // Unresolved file path: fall back to opening as a path.
+                                            onOpenPath(entry.bookmark.path)
+                                        }
+                                    },
+                                    onRemove = { viewModel.removeFavorite(entry.bookmark.path) },
+                                )
+                            }
+                        }
+                        if (files.isNotEmpty()) {
+                            item(key = "header_files") {
+                                SectionHeader(title = "Files")
+                            }
+                            items(
+                                items = files,
+                                key = { it.bookmark.path },
+                            ) { entry ->
+                                FavoriteRow(
+                                    entry = entry,
+                                    onClick = {
+                                        val item = entry.item
+                                        if (entry.isDirectory) {
+                                            onOpenPath(entry.bookmark.path)
+                                        } else if (item != null) {
+                                            onOpenFile(item)
+                                        } else {
+                                            // Unresolved file path: fall back to opening as a path.
+                                            onOpenPath(entry.bookmark.path)
+                                        }
+                                    },
+                                    onRemove = { viewModel.removeFavorite(entry.bookmark.path) },
+                                )
+                            }
                         }
                     }
                 }

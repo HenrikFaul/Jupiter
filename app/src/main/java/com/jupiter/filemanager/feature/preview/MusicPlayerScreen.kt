@@ -160,14 +160,19 @@ private fun PlayerBody(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        val subtitle = state.file?.let { formatBytes(it.sizeBytes) }
-        if (subtitle != null) {
+        // Subtitle: prefer the track artist (NEXUS title/artist pairing); fall back to
+        // the file size when no artist tag is present.
+        val sizeText = state.file?.let { formatBytes(it.sizeBytes) }
+        val subtitle = state.artist.ifBlank { sizeText.orEmpty() }
+        if (subtitle.isNotBlank()) {
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 

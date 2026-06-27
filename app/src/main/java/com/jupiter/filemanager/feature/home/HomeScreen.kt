@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentCopy
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -37,6 +39,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +67,7 @@ import com.jupiter.filemanager.ui.components.StorageBar
 import com.jupiter.filemanager.ui.components.ToolTile
 import com.jupiter.filemanager.ui.components.iconForFile
 import com.jupiter.filemanager.ui.navigation.Destination
+import kotlin.math.roundToInt
 
 /**
  * Home / Dashboard screen (NEXUS design language).
@@ -190,6 +194,15 @@ private fun HomeHeader() {
             .padding(top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        IconButton(onClick = { /* TODO: open navigation drawer / menu */ }) {
+            Icon(
+                imageVector = Icons.Filled.Menu,
+                contentDescription = "Menu",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        Spacer(modifier = Modifier.width(4.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Home",
@@ -260,6 +273,13 @@ private fun SearchEntry(onClick: () -> Unit) {
                 text = "Search files, AI, tags",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -379,11 +399,19 @@ private fun StorageOverviewCard(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             if (primary != null) {
-                StorageBar(
-                    label = "Internal storage",
-                    usedBytes = primary.usedBytes,
-                    totalBytes = primary.totalBytes,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    StorageBar(
+                        label = "Internal storage",
+                        usedBytes = primary.usedBytes,
+                        totalBytes = primary.totalBytes,
+                    )
+                    Text(
+                        text = "${(primary.usedFraction * 100).roundToInt()}% used",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
             } else {
                 Text(
                     text = "Storage information is unavailable.",

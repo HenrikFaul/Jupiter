@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
+import com.jupiter.filemanager.core.util.formatDate
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.ActivityEntry
 import com.jupiter.filemanager.domain.model.ActivityType
@@ -57,6 +58,7 @@ import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.SectionHeader
 import com.jupiter.filemanager.ui.components.iconForFile
+import java.util.Calendar
 
 /**
  * Recent tab: shows recently modified files across primary storage plus the
@@ -155,14 +157,48 @@ private fun RecentContent(
                 EmptyActivityCard()
             }
         } else {
-            items(
-                items = uiState.activity,
-                key = { "activity:" + it.id },
-            ) { entry ->
-                ActivityRow(entry = entry)
+            // Group the activity feed into Today / Yesterday / older date buckets,
+            // emitting a sub-header before each bucket's rows. Buckets preserve the
+            // incoming (already-sorted) order of entries.
+            val buckets = LinkedHashMap<String, MutableList<ActivityEntry>>()
+            for (entry in uiState.activity) {
+                val label = activityDayLabel(entry.timestamp)
+                buckets.getOrPut(label) { mutableListOf() }.add(entry)
+            }
+            buckets.forEach { (label, entries) ->
+                item(key = "activity-day:$label") {
+                    SectionHeader(title = label)
+                }
+                items(
+                    items = entries,
+                    key = { "activity:" + it.id },
+                ) { entry ->
+                    ActivityRow(entry = entry)
+                }
             }
         }
     }
+}
+
+/**
+ * Returns a day-bucket label for an activity [timestamp]: "Today", "Yesterday",
+ * or the absolute date via [formatDate] for anything older, using calendar-day
+ * comparison so entries are grouped by local day rather than elapsed time.
+ */
+private fun activityDayLabel(timestamp: Long): String {
+    val now = Calendar.getInstance()
+    val entryDay = Calendar.getInstance().apply { timeInMillis = timestamp }
+
+    fun sameDay(a: Calendar, b: Calendar): Boolean =
+        a.get(Calendar.YEAR) == b.get(Calendar.YEAR) &&
+            a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+
+    if (sameDay(now, entryDay)) return "Today"
+
+    val yesterday = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -1) }
+    if (sameDay(yesterday, entryDay)) return "Yesterday"
+
+    return formatDate(timestamp)
 }
 
 @Composable

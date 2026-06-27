@@ -173,6 +173,12 @@ private fun CleanupContent(
     onScan: () -> Unit,
     onExplainWithAi: () -> Unit,
 ) {
+    val hasScanned = overview != null || isScanning ||
+        largeFiles.isNotEmpty() || duplicateGroups.isNotEmpty()
+    val potentialReclaimBytes = largeFiles.sumOf { it.sizeBytes } +
+        duplicateGroups.sumOf { it.wastedBytes }
+    val safeToCleanBytes = duplicateGroups.sumOf { it.wastedBytes }
+
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
@@ -181,6 +187,28 @@ private fun CleanupContent(
         if (isScanning) {
             item(key = "scanning") {
                 ScanningCard()
+            }
+        }
+
+        if (hasScanned) {
+            item(key = "reclaim-hero") {
+                PotentialReclaimHero(totalBytes = potentialReclaimBytes)
+            }
+            if (safeToCleanBytes > 0L) {
+                item(key = "safe-to-clean") {
+                    SafeToCleanCard(
+                        safeBytes = safeToCleanBytes,
+                        onSelectSafe = {
+                            duplicateGroups.forEach { group ->
+                                group.files.drop(1).forEach { file ->
+                                    if (file.path !in selectedForDeletion) {
+                                        onToggleSelection(file.path)
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
             }
         }
 
@@ -203,9 +231,6 @@ private fun CleanupContent(
                 )
             }
         }
-
-        val hasScanned = overview != null || isScanning ||
-            largeFiles.isNotEmpty() || duplicateGroups.isNotEmpty()
 
         if (hasScanned) {
             item(key = "large-header") {
@@ -277,6 +302,89 @@ private fun ScanningCard() {
                 text = "Scanning storage...",
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+    }
+}
+
+/** Prominent hero summarizing the total space that could potentially be freed. */
+@Composable
+private fun PotentialReclaimHero(totalBytes: Long) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.CleaningServices,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(32.dp),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = formatBytes(totalBytes),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = "can be freed",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+/** Green-toned card summarizing safe-to-remove bytes with a one-tap select action. */
+@Composable
+private fun SafeToCleanCard(
+    safeBytes: Long,
+    onSelectSafe: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFE6F4EA),
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.CleaningServices,
+                contentDescription = null,
+                tint = Color(0xFF2E7D32),
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Safe to clean",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1B5E20),
+                )
+                Text(
+                    text = formatBytes(safeBytes) + " from duplicate copies",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF2E7D32),
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Button(onClick = onSelectSafe) {
+                Text(text = "Select safe items")
+            }
         }
     }
 }

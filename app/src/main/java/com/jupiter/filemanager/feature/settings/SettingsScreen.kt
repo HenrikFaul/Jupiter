@@ -11,12 +11,19 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -120,6 +127,60 @@ fun SettingsScreen(
                 subtitle = "Smart suggestions for naming, search and cleanup",
                 checked = uiState.aiEnabled,
                 onCheckedChange = viewModel::setAiEnabled,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Storage")
+            SettingsNavigationRow(
+                icon = Icons.Filled.Storage,
+                title = "Storage analysis",
+                subtitle = "Review usage and reclaim space",
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Transfers")
+            SettingsNavigationRow(
+                icon = Icons.Filled.SwapHoriz,
+                title = "Transfer history",
+                subtitle = "View recent copy, move and send tasks",
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Security")
+            SettingsNavigationRow(
+                icon = Icons.Filled.Lock,
+                title = "App lock",
+                subtitle = "Require authentication to open Jupiter",
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Cloud")
+            SettingsNavigationRow(
+                icon = Icons.Filled.Cloud,
+                title = "Connected accounts",
+                subtitle = "Manage linked cloud storage providers",
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Automation")
+            SettingsNavigationRow(
+                icon = Icons.Filled.PlayArrow,
+                title = "Rules",
+                subtitle = "Automate sorting and cleanup tasks",
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Advanced")
+            SettingsNavigationRow(
+                icon = Icons.Filled.DeleteSweep,
+                title = "Cache",
+                subtitle = "Clear thumbnails and temporary data",
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -268,6 +329,59 @@ private fun SettingsSwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
+/**
+ * A labelled row that navigates to a sub-screen. Visually mirrors
+ * [SettingsSwitchRow] but uses a trailing chevron instead of a switch.
+ * The [onClick] defaults to a no-op so sections can be surfaced before
+ * their backing destinations are wired up.
+ */
+@Composable
+private fun SettingsNavigationRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickableModifier { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp),
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 8.dp),
         )
     }

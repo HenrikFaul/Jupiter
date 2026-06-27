@@ -81,7 +81,17 @@ fun AiAssistantScreen(
                             tint = MaterialTheme.colorScheme.primary,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Nexus AI")
+                        Column {
+                            Text(
+                                "Nexus AI",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                "Your storage assistant",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 },
                 navigationIcon = {
