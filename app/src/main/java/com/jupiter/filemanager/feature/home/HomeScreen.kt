@@ -15,11 +15,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderZip
@@ -27,26 +30,24 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,23 +56,25 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.Bookmark
-import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageVolumeInfo
+import com.jupiter.filemanager.ui.components.SectionHeader
+import com.jupiter.filemanager.ui.components.StorageBar
+import com.jupiter.filemanager.ui.components.ToolTile
 import com.jupiter.filemanager.ui.components.iconForFile
 import com.jupiter.filemanager.ui.navigation.Destination
 
 /**
- * Home screen: the entry point after storage access is granted.
+ * Home / Dashboard screen (NEXUS design language).
  *
  * Surfaces, top to bottom:
- *  - a top "Internal storage" tile that opens the primary volume root,
- *  - per-volume storage usage cards with a [LinearProgressIndicator],
- *  - a horizontal row of category shortcuts,
- *  - quick-access tiles (Search / Cleanup / Vault / Settings),
- *  - recently visited locations,
- *  - user bookmarks.
+ *  - a branded "Home" header with a search entry-point ("Search files, AI, tags")
+ *    and a Pro chip,
+ *  - a Quick Access row (Downloads / Documents / Images) opening real folders,
+ *  - a Storage Overview card with Internal + Cloud [StorageBar]s,
+ *  - a Tools row (Clean Up / Duplicates / Secure Vault / Transfer),
+ *  - recently visited locations and user bookmarks.
  *
  * @param onOpenPath invoked with a filesystem path the user wants to browse.
  * @param onNavigate invoked with a [Destination] route string for top-level
@@ -86,62 +89,64 @@ fun HomeScreen(
     val viewModel: HomeViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val primaryRoot: String? = uiState.volumes
-        .firstOrNull { it.isPrimary }
-        ?.rootPath
-        ?: uiState.volumes.firstOrNull()?.rootPath
-
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(text = "Jupiter") })
-        },
-    ) { padding ->
+    Scaffold { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // Top internal-storage tile.
-            if (primaryRoot != null) {
-                item(key = "internal_tile") {
-                    InternalStorageTile(
-                        rootPath = primaryRoot,
-                        onClick = { onOpenPath(primaryRoot) },
-                    )
-                }
+            // Branded header.
+            item(key = "header") {
+                HomeHeader()
             }
 
-            // Per-volume usage cards.
-            if (uiState.volumes.isNotEmpty()) {
-                item(key = "volumes_header") {
-                    SectionHeader(title = "Storage")
-                }
-                items(uiState.volumes, key = { it.id }) { volume ->
-                    StorageVolumeCard(
-                        volume = volume,
-                        onClick = { onOpenPath(volume.rootPath) },
-                    )
-                }
+            // Search entry point.
+            item(key = "search") {
+                SearchEntry(onClick = { onNavigate(Destination.Search.route) })
             }
 
-            // Category shortcuts.
-            if (uiState.categories.isNotEmpty()) {
-                item(key = "categories_header") {
-                    SectionHeader(title = "Categories")
-                }
-                item(key = "categories_row") {
-                    CategoryShortcutsRow(categories = uiState.categories)
-                }
-            }
-
-            // Quick-access feature tiles.
+            // Quick access folders.
             item(key = "quick_access_header") {
-                SectionHeader(title = "Quick access")
+                SectionHeader(
+                    title = "Quick Access",
+                    actionLabel = "See All",
+                    onAction = { onNavigate(Destination.Search.route) },
+                )
             }
             item(key = "quick_access_row") {
-                QuickAccessRow(onNavigate = onNavigate)
+                QuickAccessRow(
+                    shortcuts = uiState.quickAccess,
+                    onOpenPath = onOpenPath,
+                )
+            }
+
+            // Storage overview.
+            item(key = "storage_header") {
+                SectionHeader(
+                    title = "Storage Overview",
+                    actionLabel = "Details",
+                    onAction = { onNavigate(Destination.StorageAnalytics.route) },
+                )
+            }
+            item(key = "storage_card") {
+                StorageOverviewCard(
+                    primary = uiState.primaryVolume,
+                    onClick = { onNavigate(Destination.StorageAnalytics.route) },
+                )
+            }
+
+            // Tools.
+            item(key = "tools_header") {
+                SectionHeader(
+                    title = "Tools",
+                    actionLabel = "See All",
+                    onAction = { onNavigate(Destination.More.route) },
+                )
+            }
+            item(key = "tools_grid") {
+                ToolsSection(onNavigate = onNavigate)
             }
 
             // Recents.
@@ -157,7 +162,7 @@ fun HomeScreen(
             // Bookmarks.
             if (uiState.bookmarks.isNotEmpty()) {
                 item(key = "bookmarks_header") {
-                    SectionHeader(title = "Bookmarks")
+                    SectionHeader(title = "Favorites")
                 }
                 items(uiState.bookmarks, key = { "bookmark_" + it.path }) { bookmark ->
                     BookmarkRow(bookmark = bookmark, onClick = { onOpenPath(bookmark.path) })
@@ -178,242 +183,274 @@ fun HomeScreen(
     }
 }
 
-/** A small uppercase-ish section label. */
+/** Branded greeting header with a Pro chip. */
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+private fun HomeHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Home",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = "Your files at a glance",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        ProChip()
+    }
 }
 
-/** Prominent tile that opens the primary volume root. */
+/** A small "Pro" chip with a crown. */
 @Composable
-private fun InternalStorageTile(
-    rootPath: String,
-    onClick: () -> Unit,
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
+private fun ProChip() {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.WorkspacePremium,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "Pro",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+/** Tappable search field that routes to the Search destination. */
+@Composable
+private fun SearchEntry(onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
-                imageVector = Icons.Filled.PhoneAndroid,
+                imageVector = Icons.Filled.Search,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(40.dp),
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Internal storage",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = rootPath,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-/** Usage card for one [StorageVolumeInfo] with a linear usage bar. */
-@Composable
-private fun StorageVolumeCard(
-    volume: StorageVolumeInfo,
-    onClick: () -> Unit,
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        colors = CardDefaults.elevatedCardColors(),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.Storage,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp),
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = volume.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (volume.isRemovable) {
-                    Text(
-                        text = "Removable",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            LinearProgressIndicator(
-                progress = { volume.usedFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = formatBytes(volume.usedBytes) + " used of " + formatBytes(volume.totalBytes) +
-                    "  •  " + formatBytes(volume.availableBytes) + " free",
-                style = MaterialTheme.typography.bodySmall,
+                text = "Search files, AI, tags",
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
 
-/** Horizontally-scrolling category shortcuts. */
+/** Horizontally-scrolling Quick Access folder tiles. */
 @Composable
-private fun CategoryShortcutsRow(categories: List<CategoryUsage>) {
+private fun QuickAccessRow(
+    shortcuts: List<QuickAccessShortcut>,
+    onOpenPath: (String) -> Unit,
+) {
+    if (shortcuts.isEmpty()) {
+        Text(
+            text = "No standard folders available yet.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        return
+    }
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 4.dp),
     ) {
-        items(categories, key = { it.category.name }) { usage ->
-            CategoryShortcut(usage = usage)
+        items(shortcuts, key = { it.id }) { shortcut ->
+            QuickAccessTile(
+                shortcut = shortcut,
+                onClick = { onOpenPath(shortcut.path) },
+            )
         }
     }
 }
 
-/** A single category chip showing icon, name and aggregated size/count. */
+/** A single Quick Access folder tile with icon, name and aggregated usage. */
 @Composable
-private fun CategoryShortcut(usage: CategoryUsage) {
-    Surface(
+private fun QuickAccessTile(
+    shortcut: QuickAccessShortcut,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.width(140.dp),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.width(120.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            CategoryIconBadge(category = usage.category)
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(44.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = iconForShortcut(shortcut.id),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
             Text(
-                text = labelFor(usage.category),
-                style = MaterialTheme.typography.labelLarge,
+                text = shortcut.label,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = formatBytes(usage.sizeBytes),
+                text = quickAccessSubtitle(shortcut),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = formatItemCount(usage.fileCount),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
-@Composable
-private fun CategoryIconBadge(category: StorageCategory) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(12.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = iconFor(category),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(28.dp),
-        )
+private fun quickAccessSubtitle(shortcut: QuickAccessShortcut): String {
+    val count = shortcut.itemCount
+    val size = shortcut.sizeBytes
+    return when {
+        count != null && size != null -> formatItemCount(count) + " • " + formatBytes(size)
+        count != null -> formatItemCount(count)
+        size != null -> formatBytes(size)
+        else -> "Open folder"
     }
 }
 
-/** Row of quick-access feature tiles routing to top-level destinations. */
+/** Storage Overview card with Internal + Cloud usage bars. */
 @Composable
-private fun QuickAccessRow(onNavigate: (String) -> Unit) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 4.dp),
-    ) {
-        item(key = "qa_search") {
-            QuickAccessTile(
-                icon = Icons.Filled.Search,
-                label = "Search",
-                onClick = { onNavigate(Destination.Search.route) },
-            )
-        }
-        item(key = "qa_cleanup") {
-            QuickAccessTile(
-                icon = Icons.Filled.CleaningServices,
-                label = "Cleanup",
-                onClick = { onNavigate(Destination.Cleanup.route) },
-            )
-        }
-        item(key = "qa_vault") {
-            QuickAccessTile(
-                icon = Icons.Filled.Lock,
-                label = "Vault",
-                onClick = { onNavigate(Destination.Vault.route) },
-            )
-        }
-        item(key = "qa_settings") {
-            QuickAccessTile(
-                icon = Icons.Filled.Settings,
-                label = "Settings",
-                onClick = { onNavigate(Destination.Settings.route) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuickAccessTile(
-    icon: ImageVector,
-    label: String,
+private fun StorageOverviewCard(
+    primary: StorageVolumeInfo?,
     onClick: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         onClick = onClick,
-        modifier = Modifier.width(110.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp),
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-            )
+            if (primary != null) {
+                StorageBar(
+                    label = "Internal storage",
+                    usedBytes = primary.usedBytes,
+                    totalBytes = primary.totalBytes,
+                )
+            } else {
+                Text(
+                    text = "Storage information is unavailable.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // Cloud storage is not connected yet — surface an honest empty bar
+            // with a clear affordance rather than fabricating usage figures.
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                StorageBar(
+                    label = "Cloud",
+                    usedBytes = 0L,
+                    totalBytes = 0L,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Cloud,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = "No cloud account connected",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
+    }
+}
+
+/** Tools section: Clean Up, Duplicates, Secure Vault, Transfer. */
+@Composable
+private fun ToolsSection(onNavigate: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ToolTile(
+            title = "Clean Up",
+            subtitle = "Free up space",
+            icon = Icons.Filled.CleaningServices,
+            onClick = { onNavigate(Destination.Cleanup.route) },
+        )
+        ToolTile(
+            title = "Duplicates",
+            subtitle = "Find duplicate files",
+            icon = Icons.Filled.ContentCopy,
+            onClick = { onNavigate(Destination.Duplicates.route) },
+        )
+        ToolTile(
+            title = "Secure Vault",
+            subtitle = "Protect private files",
+            icon = Icons.Filled.Lock,
+            onClick = { onNavigate(Destination.Vault.route) },
+        )
+        ToolTile(
+            title = "Transfer",
+            subtitle = "Send & receive files",
+            icon = Icons.Filled.SwapHoriz,
+            onClick = { onNavigate(Destination.TransferCenter.route) },
+        )
     }
 }
 
@@ -424,6 +461,7 @@ private fun RecentRow(
     onClick: () -> Unit,
 ) {
     ListItem(
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
         headlineContent = {
             Text(
                 text = item.name,
@@ -447,7 +485,10 @@ private fun RecentRow(
                 tint = MaterialTheme.colorScheme.primary,
             )
         },
-        modifier = Modifier.clickableRow(onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
     )
 }
 
@@ -458,6 +499,7 @@ private fun BookmarkRow(
     onClick: () -> Unit,
 ) {
     ListItem(
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
         headlineContent = {
             Text(
                 text = bookmark.label,
@@ -476,22 +518,27 @@ private fun BookmarkRow(
         },
         leadingContent = {
             Icon(
-                imageVector = Icons.Filled.Storage,
+                imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
         },
-        modifier = Modifier.clickableRow(onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
     )
 }
 
-/** Small helper that makes a [ListItem] fill width and respond to taps. */
-private fun Modifier.clickableRow(onClick: () -> Unit): Modifier =
-    this
-        .fillMaxWidth()
-        .clickable(onClick = onClick)
+private fun iconForShortcut(id: String): ImageVector = when (id) {
+    "downloads" -> Icons.Filled.Download
+    "documents" -> Icons.Filled.Description
+    "images" -> Icons.Filled.Image
+    else -> Icons.AutoMirrored.Filled.InsertDriveFile
+}
 
-private fun iconFor(category: StorageCategory): ImageVector = when (category) {
+@Suppress("unused")
+private fun iconForCategory(category: StorageCategory): ImageVector = when (category) {
     StorageCategory.IMAGES -> Icons.Filled.Image
     StorageCategory.VIDEOS -> Icons.Filled.Videocam
     StorageCategory.AUDIO -> Icons.Filled.Audiotrack
@@ -500,15 +547,4 @@ private fun iconFor(category: StorageCategory): ImageVector = when (category) {
     StorageCategory.APPS -> Icons.Filled.PhoneAndroid
     StorageCategory.DOWNLOADS -> Icons.Filled.Download
     StorageCategory.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
-}
-
-private fun labelFor(category: StorageCategory): String = when (category) {
-    StorageCategory.IMAGES -> "Images"
-    StorageCategory.VIDEOS -> "Videos"
-    StorageCategory.AUDIO -> "Audio"
-    StorageCategory.DOCUMENTS -> "Documents"
-    StorageCategory.ARCHIVES -> "Archives"
-    StorageCategory.APPS -> "Apps"
-    StorageCategory.DOWNLOADS -> "Downloads"
-    StorageCategory.OTHER -> "Other"
 }

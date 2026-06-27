@@ -1,17 +1,19 @@
 package com.jupiter.filemanager.feature.home
 
+import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
-import com.jupiter.filemanager.domain.model.Bookmark
+import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageVolumeInfo
 import com.jupiter.filemanager.domain.repository.BookmarkRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
-import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -25,32 +27,20 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * UI state for the Home screen.
+ * Drives the redesigned NEXUS-style Home dashboard.
  *
- * @property volumes the mounted storage volumes (internal storage, SD cards, etc.).
- * @property categories per-category storage usage from the storage overview.
- * @property recents recently visited locations, resolved to [FileItem]s.
- * @property bookmarks user-saved bookmarks.
- * @property isLoading whether a refresh is currently in progress.
- * @property error a human-readable error message, or null when there is none.
- */
-data class HomeUiState(
-    val volumes: List<StorageVolumeInfo> = emptyList(),
-    val categories: List<CategoryUsage> = emptyList(),
-    val recents: List<FileItem> = emptyList(),
-    val bookmarks: List<Bookmark> = emptyList(),
-    val isLoading: Boolean = false,
-    val error: String? = null,
-)
-
-/**
- * Drives the Home screen: surfaces storage volumes, a categorized storage
- * overview, recently visited locations, and user bookmarks.
+ * Surfaces:
+ *  - mounted storage volumes and the primary volume (storage overview card),
+ *  - Quick Access folder shortcuts (Downloads / Documents / Images) backed by
+ *    real well-known device directories and the categorized storage overview,
+ *  - a categorized storage breakdown,
+ *  - recently visited locations and user bookmarks (observed reactively).
  *
- * Bookmarks and recents are observed reactively so the home screen stays in sync
- * as the user pins/visits locations elsewhere. Volume listing and the (more
- * expensive) storage overview are loaded on demand via [refresh], which runs all
- * blocking work inside repository suspend functions on background dispatchers.
+ * Bookmarks and recents are observed reactively so the dashboard stays in sync
+ * as the user pins/visits locations elsewhere. Volume listing, the storage
+ * overview, and Quick Access resolution are loaded on demand via [refresh],
+ * which runs all blocking work inside repository suspend functions / coroutines
+ * on background dispatchers.
  */
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -70,35 +60,79 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Reloads storage volumes and the categorized storage overview. Bookmarks and
-     * recents update independently via their own observers and are not refetched
-     * here.
+     * Reloads storage volumes, the categorized storage overview and the Quick
+     * Access shortcuts. Bookmarks and recents update independently via their own
+     * observers and are not refetched here.
      */
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             val volumes = fileRepository.storageVolumes()
+            val primary = volumes.firstOrNull { it.isPrimary } ?: volumes.firstOrNull()
 
             when (val overview = analyticsRepository.storageOverview()) {
-                is AppResult.Success -> _uiState.update {
-                    it.copy(
-                        volumes = volumes,
-                        categories = overview.data.categories,
-                        isLoading = false,
-                        error = null,
-                    )
+                is AppResult.Success -> {
+                    val categories = overview.data.categories
+                    _uiState.update {
+                        it.copy(
+                            volumes = volumes,
+                            primaryVolume = primary,
+                            categories = categories,
+                            quickAccess = buildQuickAccess(categories),
+                            isLoading = false,
+                            error = null,
+                        )
+                    }
                 }
 
                 is AppResult.Failure -> _uiState.update {
                     it.copy(
                         volumes = volumes,
+                        primaryVolume = primary,
                         categories = emptyList(),
+                        quickAccess = buildQuickAccess(emptyList()),
                         isLoading = false,
                         error = overview.error.displayMessage,
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Builds the Quick Access shortcuts from well-known external storage
+     * directories, enriching each with the matching [CategoryUsage] aggregate
+     * when one is available. Only directories that actually exist on the device
+     * are surfaced, so the row reflects real, browsable folders.
+     */
+    private fun buildQuickAccess(categories: List<CategoryUsage>): List<QuickAccessShortcut> {
+        fun usageFor(category: StorageCategory): CategoryUsage? =
+            categories.firstOrNull { it.category == category }
+
+        val specs = listOf(
+            Triple("downloads", Environment.DIRECTORY_DOWNLOADS, StorageCategory.DOWNLOADS) to "Downloads",
+            Triple("documents", Environment.DIRECTORY_DOCUMENTS, StorageCategory.DOCUMENTS) to "Documents",
+            Triple("images", Environment.DIRECTORY_PICTURES, StorageCategory.IMAGES) to "Images",
+        )
+
+        return specs.mapNotNull { (spec, label) ->
+            val (id, dirName, category) = spec
+            val dir: File = try {
+                Environment.getExternalStoragePublicDirectory(dirName)
+            } catch (_: Throwable) {
+                null
+            } ?: return@mapNotNull null
+            if (!dir.exists() || !dir.isDirectory) return@mapNotNull null
+
+            val usage = usageFor(category)
+            QuickAccessShortcut(
+                id = id,
+                label = label,
+                path = dir.absolutePath,
+                itemCount = usage?.fileCount,
+                sizeBytes = usage?.sizeBytes,
+            )
         }
     }
 

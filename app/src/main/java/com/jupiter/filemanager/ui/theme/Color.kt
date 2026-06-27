@@ -6,88 +6,89 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
 // ---------------------------------------------------------------------------
-// Jupiter palette — an indigo primary paired with a teal secondary/tertiary.
-// Values are tuned to satisfy Material 3 tonal-contrast expectations for both
-// light and dark surfaces.
+// Jupiter palette — "NEXUS" brand refresh.
+// A vivid blue primary (blue 600 ≈ 0xFF2563EB) paired with a slate/indigo
+// secondary accent, clean near-white light surfaces and near-black dark
+// surfaces. Tuned for Material 3 tonal-contrast expectations.
 // ---------------------------------------------------------------------------
 
 // --- Brand seeds ---
-private val IndigoPrimaryLight = Color(0xFF4A55C7)
-private val IndigoPrimaryDark = Color(0xFFBAC3FF)
-private val TealSecondaryLight = Color(0xFF00696E)
-private val TealSecondaryDark = Color(0xFF4FD8DF)
+private val BluePrimaryLight = Color(0xFF2563EB) // blue 600
+private val BluePrimaryDark = Color(0xFFAAC7FF)
+private val SlateSecondaryLight = Color(0xFF4F5B92) // indigo/slate accent
+private val SlateSecondaryDark = Color(0xFFBBC4FF)
 
 // --- Light scheme colors ---
-private val md_light_primary = IndigoPrimaryLight
+private val md_light_primary = BluePrimaryLight
 private val md_light_onPrimary = Color(0xFFFFFFFF)
-private val md_light_primaryContainer = Color(0xFFDFE0FF)
-private val md_light_onPrimaryContainer = Color(0xFF000F5C)
+private val md_light_primaryContainer = Color(0xFFDBE6FF)
+private val md_light_onPrimaryContainer = Color(0xFF001A41)
 
-private val md_light_secondary = TealSecondaryLight
+private val md_light_secondary = SlateSecondaryLight
 private val md_light_onSecondary = Color(0xFFFFFFFF)
-private val md_light_secondaryContainer = Color(0xFF6FF6FE)
-private val md_light_onSecondaryContainer = Color(0xFF002022)
+private val md_light_secondaryContainer = Color(0xFFDFE0FF)
+private val md_light_onSecondaryContainer = Color(0xFF09164B)
 
-private val md_light_tertiary = Color(0xFF7E5260)
+private val md_light_tertiary = Color(0xFF0E7490) // cyan/teal accent
 private val md_light_onTertiary = Color(0xFFFFFFFF)
-private val md_light_tertiaryContainer = Color(0xFFFFD9E2)
-private val md_light_onTertiaryContainer = Color(0xFF31101D)
+private val md_light_tertiaryContainer = Color(0xFFB5EBFF)
+private val md_light_onTertiaryContainer = Color(0xFF001F2A)
 
 private val md_light_error = Color(0xFFBA1A1A)
 private val md_light_onError = Color(0xFFFFFFFF)
 private val md_light_errorContainer = Color(0xFFFFDAD6)
 private val md_light_onErrorContainer = Color(0xFF410002)
 
-private val md_light_background = Color(0xFFFEFBFF)
-private val md_light_onBackground = Color(0xFF1B1B1F)
-private val md_light_surface = Color(0xFFFEFBFF)
-private val md_light_onSurface = Color(0xFF1B1B1F)
-private val md_light_surfaceVariant = Color(0xFFE3E1EC)
-private val md_light_onSurfaceVariant = Color(0xFF46464F)
-private val md_light_outline = Color(0xFF777680)
-private val md_light_outlineVariant = Color(0xFFC7C5D0)
+private val md_light_background = Color(0xFFFBFCFF)
+private val md_light_onBackground = Color(0xFF1A1C1E)
+private val md_light_surface = Color(0xFFFBFCFF)
+private val md_light_onSurface = Color(0xFF1A1C1E)
+private val md_light_surfaceVariant = Color(0xFFE0E2EC)
+private val md_light_onSurfaceVariant = Color(0xFF43474E)
+private val md_light_outline = Color(0xFF73777F)
+private val md_light_outlineVariant = Color(0xFFC3C6CF)
 private val md_light_scrim = Color(0xFF000000)
-private val md_light_inverseSurface = Color(0xFF303034)
-private val md_light_inverseOnSurface = Color(0xFFF2EFF4)
-private val md_light_inversePrimary = IndigoPrimaryDark
-private val md_light_surfaceTint = IndigoPrimaryLight
+private val md_light_inverseSurface = Color(0xFF2F3033)
+private val md_light_inverseOnSurface = Color(0xFFF1F0F4)
+private val md_light_inversePrimary = BluePrimaryDark
+private val md_light_surfaceTint = BluePrimaryLight
 
 // --- Dark scheme colors ---
-private val md_dark_primary = IndigoPrimaryDark
-private val md_dark_onPrimary = Color(0xFF101C8C)
-private val md_dark_primaryContainer = Color(0xFF2E3AAD)
-private val md_dark_onPrimaryContainer = Color(0xFFDFE0FF)
+private val md_dark_primary = BluePrimaryDark
+private val md_dark_onPrimary = Color(0xFF002E69)
+private val md_dark_primaryContainer = Color(0xFF004494)
+private val md_dark_onPrimaryContainer = Color(0xFFDBE6FF)
 
-private val md_dark_secondary = TealSecondaryDark
-private val md_dark_onSecondary = Color(0xFF00363A)
-private val md_dark_secondaryContainer = Color(0xFF004F53)
-private val md_dark_onSecondaryContainer = Color(0xFF6FF6FE)
+private val md_dark_secondary = SlateSecondaryDark
+private val md_dark_onSecondary = Color(0xFF202C61)
+private val md_dark_secondaryContainer = Color(0xFF374379)
+private val md_dark_onSecondaryContainer = Color(0xFFDFE0FF)
 
-private val md_dark_tertiary = Color(0xFFEFB8C8)
-private val md_dark_onTertiary = Color(0xFF4A2532)
-private val md_dark_tertiaryContainer = Color(0xFF633B48)
-private val md_dark_onTertiaryContainer = Color(0xFFFFD9E2)
+private val md_dark_tertiary = Color(0xFF59D4F4)
+private val md_dark_onTertiary = Color(0xFF003545)
+private val md_dark_tertiaryContainer = Color(0xFF004D62)
+private val md_dark_onTertiaryContainer = Color(0xFFB5EBFF)
 
 private val md_dark_error = Color(0xFFFFB4AB)
 private val md_dark_onError = Color(0xFF690005)
 private val md_dark_errorContainer = Color(0xFF93000A)
 private val md_dark_onErrorContainer = Color(0xFFFFDAD6)
 
-private val md_dark_background = Color(0xFF1B1B1F)
-private val md_dark_onBackground = Color(0xFFE4E1E6)
-private val md_dark_surface = Color(0xFF1B1B1F)
-private val md_dark_onSurface = Color(0xFFE4E1E6)
-private val md_dark_surfaceVariant = Color(0xFF46464F)
-private val md_dark_onSurfaceVariant = Color(0xFFC7C5D0)
-private val md_dark_outline = Color(0xFF918F9A)
-private val md_dark_outlineVariant = Color(0xFF46464F)
+private val md_dark_background = Color(0xFF111318)
+private val md_dark_onBackground = Color(0xFFE2E2E6)
+private val md_dark_surface = Color(0xFF111318)
+private val md_dark_onSurface = Color(0xFFE2E2E6)
+private val md_dark_surfaceVariant = Color(0xFF43474E)
+private val md_dark_onSurfaceVariant = Color(0xFFC3C6CF)
+private val md_dark_outline = Color(0xFF8D9199)
+private val md_dark_outlineVariant = Color(0xFF43474E)
 private val md_dark_scrim = Color(0xFF000000)
-private val md_dark_inverseSurface = Color(0xFFE4E1E6)
-private val md_dark_inverseOnSurface = Color(0xFF303034)
-private val md_dark_inversePrimary = IndigoPrimaryLight
-private val md_dark_surfaceTint = IndigoPrimaryDark
+private val md_dark_inverseSurface = Color(0xFFE2E2E6)
+private val md_dark_inverseOnSurface = Color(0xFF2F3033)
+private val md_dark_inversePrimary = BluePrimaryLight
+private val md_dark_surfaceTint = BluePrimaryDark
 
-/** Light Material 3 color scheme for Jupiter (indigo / teal). */
+/** Light Material 3 color scheme for Jupiter (NEXUS vivid-blue brand). */
 val JupiterLightColors: ColorScheme = lightColorScheme(
     primary = md_light_primary,
     onPrimary = md_light_onPrimary,
@@ -120,7 +121,7 @@ val JupiterLightColors: ColorScheme = lightColorScheme(
     surfaceTint = md_light_surfaceTint,
 )
 
-/** Dark Material 3 color scheme for Jupiter (indigo / teal). */
+/** Dark Material 3 color scheme for Jupiter (NEXUS vivid-blue brand). */
 val JupiterDarkColors: ColorScheme = darkColorScheme(
     primary = md_dark_primary,
     onPrimary = md_dark_onPrimary,

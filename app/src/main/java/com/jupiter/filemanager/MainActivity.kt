@@ -24,7 +24,8 @@ import dagger.hilt.android.AndroidEntryPoint
  * Annotated with [AndroidEntryPoint] so Hilt can inject the view models obtained
  * via [hiltViewModel]. Sets up the Compose content tree: applies the persisted
  * [ThemeMode] through [JupiterTheme] and hosts the navigation graph starting at
- * the permission gate.
+ * the splash screen, which decides whether to route on to onboarding, the
+ * permission gate, or the main shell.
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -44,7 +45,7 @@ class MainActivity : ComponentActivity() {
                     val navController = rememberNavController()
                     JupiterNavHost(
                         navController = navController,
-                        startDestination = Destination.Permission.route,
+                        startDestination = Destination.Splash.route,
                     )
                 }
             }

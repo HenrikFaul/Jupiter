@@ -16,7 +16,7 @@ import com.jupiter.filemanager.domain.model.ThemeMode
  * @param themeMode resolves whether the dark scheme is used: [ThemeMode.LIGHT] forces light,
  *   [ThemeMode.DARK] forces dark, and [ThemeMode.SYSTEM] follows the device setting.
  * @param dynamicColor when true and running on Android 12 (S) or newer, uses the wallpaper-based
- *   dynamic color scheme; otherwise the brand indigo/teal schemes are applied.
+ *   dynamic color scheme; otherwise the NEXUS vivid-blue brand schemes are applied.
  */
 @Composable
 fun JupiterTheme(
