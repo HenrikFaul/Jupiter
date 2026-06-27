@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+        Base application theme.
+
+        The full visual theming is provided at runtime by Jetpack Compose
+        (see com.jupiter.filemanager.ui.theme.JupiterTheme), so this XML theme
+        only needs to supply a Material 3 DayNight foundation with no action bar
+        and an edge-to-edge friendly, transparent system bar configuration that
+        Compose / enableEdgeToEdge() can take over.
+    -->
+    <style name="Theme.Jupiter" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+
+</resources>

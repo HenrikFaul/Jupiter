@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Legacy auto-backup rules (android:fullBackupContent) used on API levels below
+    31. Application preferences (DataStore) are backed up; the encrypted Vault
+    directory is excluded because its contents are protected by a device-bound
+    key that cannot be restored on another device.
+
+    See https://developer.android.com/guide/topics/data/autobackup
+-->
+<full-backup-content>
+
+    <!-- Exclude the encrypted vault storage; keys are not portable across devices. -->
+    <exclude
+        domain="file"
+        path="vault" />
+
+    <!-- Exclude any transient cache. -->
+    <exclude
+        domain="cache"
+        path="." />
+
+</full-backup-content>

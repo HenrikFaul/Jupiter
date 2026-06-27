@@ -1,0 +1,352 @@
+package com.jupiter.filemanager.data.file
+
+import com.jupiter.filemanager.core.result.AppError
+import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.di.IoDispatcher
+import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FileOperationProgress
+import com.jupiter.filemanager.domain.model.FileOperationType
+import com.jupiter.filemanager.domain.model.OperationState
+import java.io.File
+import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+
+/**
+ * Performs long-running, recursive file operations (copy / move / delete) off the main thread.
+ *
+ * Copy and move are exposed as cold [Flow]s of [FileOperationProgress] so the UI can render
+ * per-item and per-byte progress. Both honour cooperative cancellation: the producer periodically
+ * checks [kotlin.coroutines.CoroutineContext.isActive] and stops promptly, emitting a terminal
+ * [OperationState.CANCELLED] snapshot. Delete is a one-shot suspend returning an [AppResult].
+ */
+@Singleton
+class FileOperationsManager @Inject constructor(
+    @IoDispatcher private val dispatcher: CoroutineDispatcher,
+) {
+
+    private companion object {
+        const val BUFFER_SIZE = 64 * 1024
+    }
+
+    /**
+     * Recursively copies [items] into the directory at [destinationPath], emitting progress.
+     *
+     * Directories are recreated at the destination; regular files are streamed with a buffered
+     * copy. The source items are left untouched.
+     */
+    fun copy(items: List<FileItem>, destinationPath: String): Flow<FileOperationProgress> =
+        transfer(items, destinationPath, FileOperationType.COPY)
+
+    /**
+     * Recursively moves [items] into the directory at [destinationPath], emitting progress.
+     *
+     * A rename is attempted first (same-volume fast path); otherwise the entry is copied and then
+     * the source is deleted once the copy completes successfully.
+     */
+    fun move(items: List<FileItem>, destinationPath: String): Flow<FileOperationProgress> =
+        transfer(items, destinationPath, FileOperationType.MOVE)
+
+    /**
+     * Recursively deletes [items]. Returns [AppResult.Success] when everything was removed, or a
+     * [AppResult.Failure] describing the first failure encountered.
+     */
+    suspend fun delete(items: List<FileItem>): AppResult<Unit> = withContext(dispatcher) {
+        try {
+            for (item in items) {
+                if (!currentCoroutineContext().isActive) {
+                    return@withContext AppResult.Failure(
+                        AppError.Unknown("Delete cancelled."),
+                    )
+                }
+                val file = File(item.path)
+                if (!file.exists()) continue
+                if (!deleteRecursively(file)) {
+                    return@withContext AppResult.Failure(
+                        AppError.Io("Failed to delete: " + file.absolutePath),
+                    )
+                }
+            }
+            AppResult.Success(Unit)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: SecurityException) {
+            AppResult.Failure(AppError.AccessDenied(e.message ?: "delete"))
+        } catch (e: IOException) {
+            AppResult.Failure(AppError.Io(e.message ?: "IO error during delete", e))
+        } catch (e: Exception) {
+            AppResult.Failure(AppError.Unknown(e.message ?: "Unknown error during delete", e))
+        }
+    }
+
+    /**
+     * Shared producer for copy and move. Plans the full set of leaf files (for accurate byte/item
+     * totals), then transfers them one by one while emitting progress snapshots.
+     */
+    private fun transfer(
+        items: List<FileItem>,
+        destinationPath: String,
+        type: FileOperationType,
+    ): Flow<FileOperationProgress> = flow {
+        val destinationDir = File(destinationPath)
+
+        // Validate destination up front.
+        if (!destinationDir.exists()) {
+            if (!destinationDir.mkdirs()) {
+                emit(
+                    failed(type, AppError.Io("Destination does not exist: " + destinationPath).displayMessage),
+                )
+                return@flow
+            }
+        } else if (!destinationDir.isDirectory) {
+            emit(failed(type, "Destination is not a directory: " + destinationPath))
+            return@flow
+        }
+
+        // Build a flat plan of every regular file that will be copied, with its destination path.
+        val plan = ArrayList<PlannedFile>()
+        var totalBytes = 0L
+        try {
+            for (item in items) {
+                if (!currentCoroutineContext().isActive) {
+                    emit(cancelled(type))
+                    return@flow
+                }
+                val source = File(item.path)
+                if (!source.exists()) {
+                    emit(failed(type, AppError.NotFound(item.path).displayMessage))
+                    return@flow
+                }
+                val target = File(destinationDir, source.name)
+                totalBytes += planEntry(source, target, plan)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: SecurityException) {
+            emit(failed(type, AppError.AccessDenied(e.message ?: destinationPath).displayMessage))
+            return@flow
+        } catch (e: Exception) {
+            emit(failed(type, e.message ?: "Failed to enumerate source files."))
+            return@flow
+        }
+
+        val totalItems = plan.size
+        var processedItems = 0
+        var processedBytes = 0L
+
+        // Initial running snapshot so observers see the operation start immediately.
+        emit(
+            FileOperationProgress(
+                type = type,
+                state = OperationState.RUNNING,
+                processedItems = 0,
+                totalItems = totalItems,
+                processedBytes = 0L,
+                totalBytes = totalBytes,
+                currentFileName = "",
+            ),
+        )
+
+        // Track top-level move sources so they can be pruned after a cross-volume copy.
+        val moveSources: List<File> =
+            if (type == FileOperationType.MOVE) items.map { File(it.path) } else emptyList()
+
+        try {
+            for (planned in plan) {
+                if (!currentCoroutineContext().isActive) {
+                    emit(
+                        cancelled(
+                            type = type,
+                            processedItems = processedItems,
+                            totalItems = totalItems,
+                            processedBytes = processedBytes,
+                            totalBytes = totalBytes,
+                        ),
+                    )
+                    return@flow
+                }
+
+                if (planned.isDirectory) {
+                    if (!planned.target.exists() && !planned.target.mkdirs()) {
+                        emit(
+                            failed(type, "Failed to create directory: " + planned.target.absolutePath),
+                        )
+                        return@flow
+                    }
+                    continue
+                }
+
+                // Ensure parent directory exists for the file.
+                planned.target.parentFile?.let { parent ->
+                    if (!parent.exists()) parent.mkdirs()
+                }
+
+                processedBytes = copyFileStreaming(
+                    type = type,
+                    source = planned.source,
+                    target = planned.target,
+                    baseProcessedBytes = processedBytes,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    totalBytes = totalBytes,
+                )
+
+                processedItems++
+                emit(
+                    FileOperationProgress(
+                        type = type,
+                        state = OperationState.RUNNING,
+                        processedItems = processedItems,
+                        totalItems = totalItems,
+                        processedBytes = processedBytes,
+                        totalBytes = totalBytes,
+                        currentFileName = planned.source.name,
+                    ),
+                )
+            }
+
+            // For a move, delete the original sources now that everything copied successfully.
+            if (type == FileOperationType.MOVE) {
+                for (src in moveSources) {
+                    if (src.exists()) deleteRecursively(src)
+                }
+            }
+
+            emit(
+                FileOperationProgress(
+                    type = type,
+                    state = OperationState.COMPLETED,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    processedBytes = if (totalBytes > 0) totalBytes else processedBytes,
+                    totalBytes = totalBytes,
+                    currentFileName = "",
+                ),
+            )
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: SecurityException) {
+            emit(failed(type, AppError.AccessDenied(e.message ?: destinationPath).displayMessage))
+        } catch (e: IOException) {
+            emit(failed(type, e.message ?: "IO error during operation."))
+        } catch (e: Exception) {
+            emit(failed(type, e.message ?: "Unknown error during operation."))
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Streams a single file from [source] to [target] with a buffered copy, emitting incremental
+     * byte progress and checking for cancellation between buffers.
+     *
+     * Returns the new cumulative processed-bytes count ([baseProcessedBytes] plus the bytes copied).
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<FileOperationProgress>.copyFileStreaming(
+        type: FileOperationType,
+        source: File,
+        target: File,
+        baseProcessedBytes: Long,
+        processedItems: Int,
+        totalItems: Int,
+        totalBytes: Long,
+    ): Long {
+        var cumulative = baseProcessedBytes
+        source.inputStream().buffered(BUFFER_SIZE).use { input ->
+            target.outputStream().buffered(BUFFER_SIZE).use { output ->
+                val buffer = ByteArray(BUFFER_SIZE)
+                while (true) {
+                    if (!currentCoroutineContext().isActive) {
+                        // Clean up the partial target and surrender cooperatively.
+                        throw CancellationException("Operation cancelled.")
+                    }
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    cumulative += read
+                    emit(
+                        FileOperationProgress(
+                            type = type,
+                            state = OperationState.RUNNING,
+                            processedItems = processedItems,
+                            totalItems = totalItems,
+                            processedBytes = cumulative,
+                            totalBytes = totalBytes,
+                            currentFileName = source.name,
+                        ),
+                    )
+                }
+                output.flush()
+            }
+        }
+        // Preserve last-modified timestamp where possible.
+        runCatching { target.setLastModified(source.lastModified()) }
+        return cumulative
+    }
+
+    /**
+     * Recursively expands [source] into the [plan], appending one [PlannedFile] per directory and
+     * regular file (in pre-order so directories are created before their children). Returns the
+     * total byte count of regular files discovered.
+     */
+    private fun planEntry(source: File, target: File, plan: MutableList<PlannedFile>): Long {
+        if (source.isDirectory) {
+            plan.add(PlannedFile(source, target, isDirectory = true))
+            var bytes = 0L
+            val children = source.listFiles() ?: emptyArray()
+            for (child in children) {
+                bytes += planEntry(child, File(target, child.name), plan)
+            }
+            return bytes
+        }
+        plan.add(PlannedFile(source, target, isDirectory = false))
+        return source.length()
+    }
+
+    /** Deletes [file] and, if it is a directory, all of its contents. Returns true on full success. */
+    private fun deleteRecursively(file: File): Boolean {
+        if (file.isDirectory) {
+            val children = file.listFiles() ?: emptyArray()
+            for (child in children) {
+                if (!deleteRecursively(child)) return false
+            }
+        }
+        return file.delete() || !file.exists()
+    }
+
+    private fun failed(type: FileOperationType, message: String): FileOperationProgress =
+        FileOperationProgress(
+            type = type,
+            state = OperationState.FAILED,
+            errorMessage = message,
+        )
+
+    private fun cancelled(
+        type: FileOperationType,
+        processedItems: Int = 0,
+        totalItems: Int = 0,
+        processedBytes: Long = 0L,
+        totalBytes: Long = 0L,
+    ): FileOperationProgress =
+        FileOperationProgress(
+            type = type,
+            state = OperationState.CANCELLED,
+            processedItems = processedItems,
+            totalItems = totalItems,
+            processedBytes = processedBytes,
+            totalBytes = totalBytes,
+        )
+
+    /** A single planned leaf in a copy/move operation: where it comes from and where it goes. */
+    private data class PlannedFile(
+        val source: File,
+        val target: File,
+        val isDirectory: Boolean,
+    )
+}

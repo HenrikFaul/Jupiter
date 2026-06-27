@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- App identity -->
+    <string name="app_name">Jupiter</string>
+
+    <!-- Generic actions -->
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_close">Close</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_back">Back</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_move">Move</string>
+    <string name="action_share">Share</string>
+    <string name="action_open">Open</string>
+    <string name="action_compress">Compress</string>
+    <string name="action_extract">Extract</string>
+    <string name="action_details">Details</string>
+    <string name="action_create_folder">New folder</string>
+    <string name="action_add_bookmark">Add bookmark</string>
+    <string name="action_select_all">Select all</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_done">Done</string>
+
+    <!-- Common labels -->
+    <string name="label_search">Search</string>
+    <string name="label_settings">Settings</string>
+    <string name="label_home">Home</string>
+    <string name="label_storage">Storage</string>
+    <string name="label_recents">Recent</string>
+    <string name="label_bookmarks">Bookmarks</string>
+    <string name="label_cleanup">Cleanup</string>
+    <string name="label_vault">Vault</string>
+    <string name="label_transfer">Transfer</string>
+    <string name="label_loading">Loading…</string>
+
+    <!-- Empty / error states -->
+    <string name="empty_folder_title">Nothing here</string>
+    <string name="empty_folder_message">This folder is empty.</string>
+    <string name="error_generic">Something went wrong.</string>
+    <string name="error_permission">Storage permission is required.</string>
+
+    <!-- Permission flow -->
+    <string name="permission_title">Allow file access</string>
+    <string name="permission_message">Jupiter needs access to your files to browse and manage storage.</string>
+    <string name="permission_grant">Grant access</string>
+
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Brand palette mirroring the Compose theme (indigo primary / teal accent). -->
+    <color name="jupiter_indigo">#4A55C7</color>
+    <color name="jupiter_indigo_dark">#2E3AAD</color>
+    <color name="jupiter_teal">#00696E</color>
+
+    <!-- Common base colors. -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+</resources>

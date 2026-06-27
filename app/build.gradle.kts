@@ -80,6 +80,8 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
+    // View-based Material Components: provides the XML launch theme parent (Theme.Material3.*)
+    implementation(libs.material)
     debugImplementation(libs.androidx.ui.tooling)
 
     // Navigation

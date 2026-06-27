@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Data transfer rules (android:dataExtractionRules) used on API level 31+.
+    Distinguishes between cloud backups and device-to-device transfer. The
+    encrypted Vault directory is excluded from both because its master key is
+    bound to the originating device's keystore and cannot be restored elsewhere.
+
+    See https://developer.android.com/about/versions/12/backup-restore
+-->
+<data-extraction-rules>
+
+    <cloud-backup>
+        <!-- Encrypted vault contents are not portable; exclude from cloud backup. -->
+        <exclude
+            domain="file"
+            path="vault" />
+        <exclude
+            domain="cache"
+            path="." />
+    </cloud-backup>
+
+    <device-transfer>
+        <!-- Likewise exclude the device-bound vault from direct transfer. -->
+        <exclude
+            domain="file"
+            path="vault" />
+        <exclude
+            domain="cache"
+            path="." />
+    </device-transfer>
+
+</data-extraction-rules>
