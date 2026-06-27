@@ -141,8 +141,6 @@ fun HomeScreen(
             item(key = "tools_header") {
                 SectionHeader(
                     title = "Tools",
-                    actionLabel = "See All",
-                    onAction = { onNavigate(Destination.More.route) },
                 )
             }
             item(key = "tools_grid") {

@@ -2,7 +2,7 @@ package com.jupiter.filemanager.feature.splash
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -65,7 +65,7 @@ fun SplashScreen(
 @Composable
 private fun SplashContent() {
     val transition = rememberInfiniteTransition(label = "splash-pulse")
-    val pulse by transition.animateFloatAsState(
+    val pulse by transition.animateFloat(
         initialValue = 0.85f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
