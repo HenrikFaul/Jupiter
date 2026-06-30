@@ -19,6 +19,25 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        // Google Drive OAuth Web client id. Supply your own (Google Cloud Console →
+        // OAuth client of type "Web application") via a Gradle property, e.g. in
+        // ~/.gradle/gradle.properties or -PJUPITER_GDRIVE_WEB_CLIENT_ID=... . When empty
+        // the app shows a "set up Google Drive" notice instead of attempting sign-in.
+        val gdriveWebClientId = (project.findProperty("JUPITER_GDRIVE_WEB_CLIENT_ID") as String?).orEmpty()
+        buildConfigField("String", "GDRIVE_WEB_CLIENT_ID", "\"$gdriveWebClientId\"")
+    }
+
+    // Fixed debug keystore committed to the repo so the signing certificate (and thus
+    // its SHA-1) is STABLE across machines/CI — required for Google Sign-In, whose
+    // Android OAuth client is keyed to (package + SHA-1). Standard debug credentials.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("keystore/jupiter-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -122,8 +141,15 @@ dependencies {
     implementation(libs.smbj)          // SMB2/3
     implementation(libs.commons.net)   // FTP/FTPS
     implementation(libs.jsch)          // SFTP
-    implementation(libs.okhttp)        // WebDAV + cloud REST
+    implementation(libs.okhttp)        // WebDAV + cloud REST (incl. Google Drive v3)
     implementation(libs.nanohttpd)     // embedded HTTP server for Wi-Fi desktop transfer
+
+    // Google account sign-in + Drive authorization (Credential Manager + Identity).
+    // The Drive REST v3 calls go through OkHttp above; no heavyweight google-api client.
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
+    implementation(libs.play.services.auth)
 
     // Extended archive formats
     implementation(libs.commons.compress)  // tar / gz / bzip2 / 7z
