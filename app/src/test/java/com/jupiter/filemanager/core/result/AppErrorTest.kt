@@ -111,7 +111,10 @@ class AppErrorTest {
 
     @Test
     fun differentVariants_areNotEqual() {
-        assertNotEquals<AppError>(AppError.NotFound("/x"), AppError.AccessDenied("/x"))
+        assertNotEquals(
+            AppError.NotFound("/x") as AppError,
+            AppError.AccessDenied("/x") as AppError,
+        )
     }
 
     @Test
