@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Semantic design tokens — single source of truth for theming (FORGE Law 5).
+   DEFAULT is a light, friendly theme (clean white surfaces, blue accent, soft borders),
+   inspired by approachable consumer disk tools. Dark theme available via .dark on <html>. */
+:root {
+  --bg: 241 244 249;        /* cool enterprise page */
+  --surface: 255 255 255;   /* white cards */
+  --surface-2: 236 240 246; /* subtle inset / hover */
+  --border: 220 226 234;    /* light hairline */
+  --text: 17 27 42;         /* deep navy-slate ink */
+  --muted: 96 110 133;      /* slate */
+  --accent: 15 118 110;     /* brand teal #0f766e — deeper, premium "safe/keep" */
+  --cyan: 34 211 238;       /* signal cyan — highlights */
+  --ok: 13 148 136;         /* teal-emerald */
+  --warn: 217 119 6;        /* amber-600 — "needs review" */
+  --danger: 225 29 72;      /* rose-600 — destructive only */
+  --shadow: 15 27 50;       /* navy, used at low alpha */
+  /* Brand sidebar (always dark navy — the enterprise identity, independent of theme). */
+  --sidebar: 11 23 48;
+  --sidebar-2: 16 31 60;
+  --sidebar-text: 205 214 230;
+  --sidebar-muted: 120 138 168;
+  --sidebar-border: 255 255 255;
+}
+
+.dark {
+  --bg: 13 17 27;
+  --surface: 20 26 38;
+  --surface-2: 28 35 50;
+  --border: 42 52 70;
+  --text: 226 232 244;
+  --muted: 142 154 176;
+  --accent: 45 212 191;     /* teal-400 — brand on dark */
+  --cyan: 103 232 249;
+  --ok: 45 212 191;
+  --warn: 251 191 36;
+  --danger: 251 113 133;
+  --shadow: 0 0 0;
+  --sidebar: 9 16 33;
+  --sidebar-2: 14 24 46;
+  --sidebar-text: 205 214 230;
+  --sidebar-muted: 120 138 168;
+  --sidebar-border: 255 255 255;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--text));
+  /* Enterprise typeface: self-hosted Inter Variable (imported in main.tsx), with a
+     refined system fallback. Inter's tighter, neutral letterforms read far more
+     premium/enterprise than the default Segoe UI. */
+  font-family: "Inter Variable", "Inter", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  font-size: 13px;
+  letter-spacing: -0.006em;
+  font-feature-settings: "cv05" 1, "ss03" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Visible focus everywhere (FORGE Law 4 / WCAG 2.2 AA). */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+
+/* Dense, scannable tables. Light, subtle separators. */
+.cell {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgb(var(--border) / 0.7);
+}
+
+/* Buttons — clean, soft-shadowed, friendly. */
+.btn {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--surface));
+  color: rgb(var(--text));
+  cursor: pointer;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgb(var(--shadow) / 0.06);
+  transition: border-color 0.12s, background 0.12s, transform 0.04s;
+}
+.btn:hover:not(:disabled) {
+  border-color: rgb(var(--accent));
+  background: rgb(var(--surface-2));
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Primary call-to-action: filled blue. */
+.btn-primary {
+  background: rgb(var(--accent));
+  border-color: rgb(var(--accent));
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  background: rgb(var(--accent));
+}
+.btn.danger {
+  border-color: rgb(var(--danger) / 0.55);
+  color: rgb(var(--danger));
+  background: rgb(var(--danger) / 0.06);
+}
+.btn.danger:hover:not(:disabled) {
+  background: rgb(var(--danger) / 0.12);
+  border-color: rgb(var(--danger));
+}
+
+.chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--surface));
+}
+.chip.online {
+  color: rgb(var(--ok));
+  border-color: rgb(var(--ok) / 0.45);
+  background: rgb(var(--ok) / 0.08);
+}
+.chip.offline {
+  color: rgb(var(--muted));
+}
+
+/* ---- Enterprise polish (additive) ---- */
+/* Premium layered card elevation (soft contact + a long, low ambient shadow). */
+.elev {
+  box-shadow: 0 1px 2px rgb(var(--shadow) / 0.05), 0 14px 34px -18px rgb(var(--shadow) / 0.2);
+}
+::selection {
+  background: rgb(var(--accent) / 0.22);
+}
+*::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--muted) / 0.35);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted) / 0.55);
+  background-clip: content-box;
+}
+.bg-sidebar *::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.16);
+  background-clip: content-box;
+}
+/* Premium primary CTA — subtle inner highlight + lift. */
+.btn-primary {
+  box-shadow: 0 1px 2px rgb(var(--shadow) / 0.22), inset 0 1px 0 rgb(255 255 255 / 0.14);
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* Range input (size slider) accent. */
+input[type="range"] {
+  accent-color: rgb(var(--accent));
+}
+/* Checkbox accent for the friendlier look. */
+input[type="checkbox"] {
+  accent-color: rgb(var(--accent));
+  width: 15px;
+  height: 15px;
+}

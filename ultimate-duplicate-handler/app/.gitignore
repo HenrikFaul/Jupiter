@@ -1,0 +1,19 @@
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Node / Vite
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local index & logs (never commit a user's index)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
