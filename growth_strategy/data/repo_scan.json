@@ -1,0 +1,73 @@
+{
+  "scanned_at": "2026-06-30T04:50:04.548965",
+  "scan_root": "/home/user/Jupiter",
+  "total_files": 237,
+  "total_loc": 33932,
+  "languages": [
+    {
+      "language": "Kotlin",
+      "files": 212,
+      "loc": 33932
+    },
+    {
+      "language": ".xml",
+      "files": 12,
+      "loc": 0
+    },
+    {
+      "language": ".kts",
+      "files": 3,
+      "loc": 0
+    },
+    {
+      "language": "Markdown",
+      "files": 3,
+      "loc": 0
+    },
+    {
+      "language": ".properties",
+      "files": 2,
+      "loc": 0
+    },
+    {
+      "language": "(no ext)",
+      "files": 1,
+      "loc": 0
+    },
+    {
+      "language": ".bat",
+      "files": 1,
+      "loc": 0
+    },
+    {
+      "language": ".pro",
+      "files": 1,
+      "loc": 0
+    },
+    {
+      "language": "TOML",
+      "files": 1,
+      "loc": 0
+    },
+    {
+      "language": ".jar",
+      "files": 1,
+      "loc": 0
+    }
+  ],
+  "detected_stack": [
+    "Kotlin/Gradle"
+  ],
+  "detected_manifests": [
+    "build.gradle.kts"
+  ],
+  "dependency_hints": [],
+  "git": {
+    "first_commit": "2026-06-30T03:45:00+00:00",
+    "last_commit": "2026-06-30T03:45:00+00:00",
+    "commit_count": 16,
+    "contributor_count": 0,
+    "branch": "claude/android-file-manager-app-d5y6i7",
+    "remote_url": "http://local_proxy@127.0.0.1:41729/git/HenrikFaul/Jupiter"
+  }
+}

@@ -1,0 +1,471 @@
+{
+  "_comment": "Software Valuation & Technical Due-Diligence — Jupiter (native privacy-first Android file manager). Numbers grounded in growth_strategy/data/repo_scan.json.",
+  "executive_summary": {
+    "description": "Jupiter is a <b>native, privacy-first Android file manager</b> (single <i>:app</i> module, <i>com.jupiter.filemanager</i>) that aims to be <b>as simple as Files by Google but as powerful as Solid Explorer / X-plore</b>. It pairs everyday local file management with <b>real LAN/remote backends</b> (SMB, SFTP, FTP, WebDAV), an embedded <b>Wi-Fi desktop-transfer server</b>, an <b>AES-GCM encrypted vault</b> with biometric unlock, broad <b>archive support</b> (zip/tar/gz/7z/rar), <b>WorkManager automation</b>, an in-app PDF/media viewer, and an <b>optional on-device Claude (Anthropic) AI assistant</b> gated behind a user-supplied key. The product is explicitly <b>no-ads, no-dark-patterns</b>. It targets power users, creators, office/students, privacy-conscious users, and LAN/NAS users. Stage: <b>feature-complete pre-revenue MVP</b> — no users yet, not monetised.",
+    "kpis_title": "Key Statistics (from repository scan)",
+    "kpis": [
+      { "label": "Kotlin Files", "value": "212" },
+      { "label": "Lines of Kotlin", "value": "33,932" },
+      { "label": "Total Files", "value": "237" },
+      { "label": "Feature Packages", "value": "~27" },
+      { "label": "Domain Repositories", "value": "12" },
+      { "label": "Git Commits", "value": "16" }
+    ],
+    "tables": [
+      {
+        "title": "Build Effort Summary",
+        "headers": ["Metric", "Low", "Most Likely", "High"],
+        "col_widths": [180, 100, 120, 100],
+        "rows": [
+          ["Person-hours", "2,106", "3,159", "4,940"],
+          ["Person-months (160 h/mo)", "13.2", "19.7", "30.9"],
+          ["Calendar months (2–3 person team)", "5", "7", "11"]
+        ]
+      },
+      {
+        "title": "Build Cost Summary",
+        "headers": ["Scenario", "Low", "Most Likely", "High"],
+        "col_widths": [180, 100, 120, 100],
+        "rows": [
+          ["CEE / blended (lean team)", "€110,000", "€168,000", "€255,000"],
+          ["Western EU agency", "€250,000", "€370,000", "€540,000"],
+          ["Mixed CEE + WEU lead", "€155,000", "€225,000", "€330,000"]
+        ]
+      },
+      {
+        "title": "Market Value Summary",
+        "headers": ["Scenario", "Estimated Range", "Central Estimate"],
+        "col_widths": [200, 150, 150],
+        "rows": [
+          ["Pre-revenue IP / asset sale", "€140K – €320K", "€220K"],
+          ["Early traction (10–50K MAU, ad-free)", "€350K – €900K", "€550K"],
+          ["Subscription PMF (€100–300K ARR)", "€800K – €2.4M", "€1.5M"],
+          ["Strategic acquisition (acqui-hire / portfolio)", "€250K – €700K", "€420K"]
+        ]
+      }
+    ],
+    "callout": "⚠  <b>Biggest Uncertainty Driver:</b> Jupiter has <b>zero users and zero revenue</b> — it is a pre-monetisation MVP. With no installs, retention, or ARR signal, market value is anchored almost entirely to <b>replacement/IP value (€140K–€320K)</b>. A single proof point — a few thousand retained installs or even €10–30K ARR from a privacy-focused subscription — would shift the central estimate from the IP floor (~€220K) toward the €500K–€900K early-traction band."
+  },
+  "product_reconstruction": {
+    "intro": "Reconstructed from direct inspection of the <i>com.jupiter.filemanager</i> source tree, <i>app/build.gradle.kts</i>, and the Gradle version catalog.",
+    "h2_blocks": [
+      {
+        "title": "Technical Architecture",
+        "tables": [
+          {
+            "headers": ["Layer", "Technology", "Version / Notes"],
+            "col_widths": [150, 220, 130],
+            "rows": [
+              ["Language", "Kotlin", "2.0"],
+              ["UI", "Jetpack Compose + Material 3", "Compose BOM"],
+              ["Architecture", "MVVM + Clean Architecture", "domain / data / feature"],
+              ["DI", "Hilt (KSP) + Hilt-Work", "—"],
+              ["Async", "Coroutines + Flow", "—"],
+              ["Navigation", "Navigation-Compose", "single-Activity"],
+              ["Persistence", "DataStore Preferences + DocumentFile", "SAF-aware"],
+              ["Security / Vault", "Jetpack Security EncryptedFile + Biometric", "AES-GCM, MasterKey"],
+              ["Background", "WorkManager", "automation rules"],
+              ["Build", "Gradle 8.14.3 / AGP 8.7.3", "minSdk 26 / target+compileSdk 35"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Feature Module Map",
+        "tables": [
+          {
+            "headers": ["Module", "Key Capabilities"],
+            "col_widths": [160, 350],
+            "rows": [
+              ["Browser & File Ops", "Local browsing, copy/move/delete/rename, sort/filter, selection, SAF storage volumes"],
+              ["Remote / LAN Backends", "SMB2/3 (SMBJ), SFTP (JSch), FTP/FTPS (commons-net), WebDAV (OkHttp) with a credential store"],
+              ["Wi-Fi Desktop Transfer", "Embedded NanoHTTPD server for browser-based file transfer over LAN"],
+              ["Encrypted Vault", "EncryptedFile AES-GCM entries + plaintext meta sidecar, biometric/Master-key unlock"],
+              ["Archive", "zip/tar/gz/bzip2/7z (commons-compress + xz) and RAR extraction (junrar)"],
+              ["Cloud / Sync / Automation", "Sync + automation repositories driven by WorkManager scheduling"],
+              ["Preview & Editor", "In-app PdfRenderer viewer, image/video thumbnails (Coil), text editor"],
+              ["AI Assistant", "Anthropic Claude Messages API, gated on a user-supplied key; NoOp fallback when absent"],
+              ["Cleanup & Analytics", "Duplicate/merge detection, storage analytics, recent/downloads/favorites"],
+              ["Tags / Workspaces / Versions", "Tagging, multi-workspace, file version history, activity log"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scope_decomposition": {
+    "h2_blocks": [
+      {
+        "title": "Complexity Ratings by Area",
+        "tables": [
+          {
+            "headers": ["Feature Area", "Complexity", "Hidden Cost Drivers"],
+            "col_widths": [140, 90, 270],
+            "rows": [
+              ["Local File Ops & SAF", "Medium-High", "Scoped storage, SAF/DocumentFile, Android 11+ permission model"],
+              ["Remote / LAN Backends", "Very High", "Four protocols (SMB/SFTP/FTP/WebDAV), connection lifecycle, credential security, flaky-network handling"],
+              ["Wi-Fi Transfer Server", "High", "Embedded HTTP server, lifecycle, multipart upload, LAN discovery"],
+              ["Encrypted Vault", "High", "AES-GCM via EncryptedFile, MasterKey, biometric prompt, sidecar metadata"],
+              ["Archive Engine", "Medium-High", "Five formats, streaming extraction, large-file memory pressure"],
+              ["Automation / Sync", "Medium-High", "WorkManager constraints, idempotency, Hilt-Work integration"],
+              ["AI Assistant", "Medium", "Anthropic Messages API, key gating, graceful no-key fallback"],
+              ["Compose UI / Navigation", "Medium-High", "Material 3, 27 feature screens, state hoisting, theming"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Complexity Multipliers",
+        "tables": [
+          {
+            "headers": ["Factor", "Impact", "Rationale"],
+            "col_widths": [170, 70, 260],
+            "rows": [
+              ["Four real LAN protocols", "+20%", "Each backend (SMB/SFTP/FTP/WebDAV) is an integration project; testing requires live servers"],
+              ["Security-critical vault", "+15%", "Crypto correctness, key management, biometric flows carry zero error tolerance"],
+              ["AI-accelerated build", "−30%", "16 commits in one rapid push reflect heavy AI tooling; traditional teams take 2–3× longer"],
+              ["Thin automated test coverage", "+15%", "Unit tests exist for models/utils; backends and UI lean on manual QA"],
+              ["Android fragmentation", "+10%", "minSdk 26 → SDK 35: storage/permission behaviour differs widely across versions/OEMs"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "methodology": {
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "Bottom-Up Estimation",
+            "body": "The 33,932 lines of Kotlin across 212 files and ~27 feature packages were decomposed into 12 functional areas. Each area was estimated from code volume, number of integrated protocols/SDKs, UI interaction surface, and security/edge-case burden evidenced in the source."
+          },
+          {
+            "title": "Three-Point PERT",
+            "body": "Optimistic / Most Likely / Pessimistic hours per area, combined as E = (O + 4·M + P) / 6, with SD = (P − O) / 6. Ranges are reported throughout — never single points."
+          },
+          {
+            "title": "Analogous Estimation",
+            "body": "Calibrated against comparable Android file managers (Solid Explorer, X-plore, Cx File Explorer, Material Files, Files by Google) and public engineering norms for multi-protocol Android utilities."
+          }
+        ]
+      },
+      {
+        "title": "Important Distinctions",
+        "bullets": [
+          "<b>Effort ≠ Duration:</b> ~3,159 person-hours can ship in ~7 months (2–3 FTE) or stretch to 18+ months (1 FTE).",
+          "<b>Build Cost ≠ Market Value:</b> Replacement cost is the floor; installs, retention and revenue multiply it.",
+          "<b>Code ≠ Product:</b> A shipped app also needs Play Store assets, store optimisation, support and onboarding not visible in the repo.",
+          "<b>AI-assisted ≠ Traditional:</b> The 16-commit single-push build reflects AI-accelerated development; a conventional team would take 2–3× longer."
+        ]
+      }
+    ]
+  },
+  "team_composition": {
+    "h2_blocks": [
+      {
+        "title": "Required Roles",
+        "tables": [
+          {
+            "headers": ["Role", "Why Needed", "Phase", "Effort %"],
+            "col_widths": [150, 195, 75, 70],
+            "rows": [
+              ["Senior Android Engineer", "Architecture, Compose, Hilt, storage/SAF, remote backends", "All", "40%"],
+              ["Mid Android Engineer", "Feature screens, archive, preview, automation, vault UI", "2–8", "27%"],
+              ["Backend/Network Engineer", "SMB/SFTP/FTP/WebDAV integration, Wi-Fi transfer server", "2–6", "13%"],
+              ["UX/UI Designer", "Material 3 system, iconography, onboarding, empty states", "1–2, 4–5", "9%"],
+              ["QA Engineer", "Device-matrix testing, protocol/vault verification", "3–8", "6%"],
+              ["Product / PM", "Scope, prioritisation, store readiness", "All", "5%"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Delivery Team Options",
+        "callouts": [
+          "<b>Solo / Lean (1–2 people, 9–12 months)</b><br/>1× Senior Android · 0.5× Designer<br/><i>Lowest cost; matches a bootstrapped indie founder. Likely how this MVP was built.</i>",
+          "<b>Balanced (3 people, 6–8 months)</b><br/>1× Senior Android · 1× Mid Android · 1× Backend/Network (shared Designer/QA)<br/><i>Recommended for a funded indie or small studio. Parallel local/remote tracks.</i>",
+          "<b>Studio Delivery (5 people, 4–6 months)</b><br/>2× Senior · 1× Mid · 1× Backend/Network · 1× Designer (shared QA/PM)<br/><i>Maximum velocity. Suitable for agency delivery with hard deadlines.</i>"
+        ]
+      }
+    ]
+  },
+  "effort_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Area-by-Area Breakdown (PERT)",
+        "tables": [
+          {
+            "headers": ["Feature Area", "Opt. (h)", "ML (h)", "Pess. (h)", "PERT (h)"],
+            "col_widths": [180, 70, 70, 75, 70],
+            "rows": [
+              ["Local File Ops & SAF Storage", "120", "180", "270", "183"],
+              ["Browser UI & Core File Operations", "220", "320", "470", "318"],
+              ["Remote / LAN Backends (SMB/SFTP/FTP/WebDAV)", "240", "350", "520", "360"],
+              ["Wi-Fi Transfer Server (NanoHTTPD)", "90", "140", "210", "140"],
+              ["Encrypted Vault + Biometrics", "110", "160", "240", "161"],
+              ["Archive Engine (zip/tar/gz/7z/rar)", "90", "130", "200", "131"],
+              ["Cloud / Sync / Automation (WorkManager)", "150", "220", "330", "223"],
+              ["AI Assistant (Anthropic Claude)", "70", "110", "170", "113"],
+              ["Preview / Viewers / Editor (PdfRenderer)", "120", "180", "270", "183"],
+              ["Cleanup / Analytics / Tags / Workspaces / Versions", "160", "240", "360", "243"],
+              ["Compose UI / Theme / Navigation / Onboarding", "180", "270", "410", "273"],
+              ["DI / Architecture / Core / Result", "70", "100", "150", "102"],
+              ["Subtotal (coding)", "1,620", "2,400", "3,600", "2,430"],
+              ["+ 30% overhead (QA, PM, design, DevOps, docs)", "486", "720", "1,080", "729"],
+              ["TOTAL", "2,106", "3,120", "4,680", "3,159"]
+            ],
+            "highlight_penultimate": true,
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Summary in Multiple Units",
+        "tables": [
+          {
+            "headers": ["Metric", "Low", "Most Likely", "High"],
+            "col_widths": [180, 95, 120, 95],
+            "rows": [
+              ["Person-hours", "2,106", "3,159", "4,940"],
+              ["Person-days (8h)", "263", "395", "618"],
+              ["Person-months (160h)", "13.2", "19.7", "30.9"],
+              ["Calendar months (2–3 person core)", "5", "7", "11"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cost_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Detailed Cost Model — Most Likely (CEE Blended Rates)",
+        "tables": [
+          {
+            "headers": ["Role", "Share", "Hours", "Rate", "Cost"],
+            "col_widths": [165, 60, 70, 70, 90],
+            "rows": [
+              ["Senior Android Engineer", "40%", "1,264", "€70/h", "€88,480"],
+              ["Mid Android Engineer", "27%", "853", "€48/h", "€40,944"],
+              ["Backend / Network Engineer", "13%", "411", "€58/h", "€23,838"],
+              ["UX/UI Designer", "9%", "284", "€45/h", "€12,780"],
+              ["QA Engineer", "6%", "190", "€40/h", "€7,600"],
+              ["Product / PM", "5%", "158", "€55/h", "€8,690"],
+              ["Direct Labour", "", "3,159", "", "€182,332"],
+              ["Overhead (15%) − AI-build credit", "", "", "", "−€18,000"],
+              ["Contingency (12%)", "", "", "", "€19,720"],
+              ["TOTAL", "", "", "", "€168,000"]
+            ],
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Cost Ranges by Scenario",
+        "tables": [
+          {
+            "headers": ["Scenario", "Low", "Most Likely", "High"],
+            "col_widths": [180, 95, 120, 95],
+            "rows": [
+              ["CEE / blended (lean team)", "€110,000", "€168,000", "€255,000"],
+              ["Western EU agency", "€250,000", "€370,000", "€540,000"],
+              ["Mixed CEE + WEU lead", "€155,000", "€225,000", "€330,000"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_comparison": {
+    "h2_blocks": [
+      {
+        "title": "Comparable Android File Managers",
+        "tables": [
+          {
+            "headers": ["Product", "Model", "Notes"],
+            "col_widths": [110, 110, 290],
+            "rows": [
+              ["Solid Explorer", "Paid (~€2–3 one-off)", "Closest power-user peer; cloud + LAN (SMB/FTP/WebDAV), strong UX. The bar Jupiter targets on power."],
+              ["X-plore File Manager", "Free + paid Donate", "Dual-pane, deep LAN/cloud, Wi-Fi PC sharing; very feature-dense, dated UI."],
+              ["Cx File Explorer", "Free (ad-supported)", "Clean UX, network (SMB/FTP/WebDAV) support; large install base."],
+              ["Material Files", "Free / open-source", "Modern Material UI, archive + FTP/SFTP/SMB; closest design/architecture analogue."],
+              ["Files by Google", "Free (Google)", "Massive reach, dead-simple UX, cleanup nudges; no real LAN/remote depth. The bar Jupiter targets on simplicity."],
+              ["FX File Explorer", "Free + Plus (~€2–4)", "Privacy-positioned (no ads in Plus), network + media tools; closest privacy-stance peer."]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Consumer Android Utility Value Drivers",
+        "tables": [
+          {
+            "headers": ["Driver", "Typical Signal", "Relevance to Jupiter"],
+            "col_widths": [150, 170, 180],
+            "rows": [
+              ["Install base / MAU", "100K–10M+ for top utilities", "Currently zero — the dominant gap"],
+              ["Monetisation", "One-off €2–4 or ad-supported", "Not yet chosen; ad-free stance favours paid/subscription"],
+              ["Retention (D30)", "15–30% for sticky utilities", "Unknown — no telemetry"],
+              ["Differentiation", "LAN depth, privacy, AI", "Real LAN + vault + on-device-keyed AI = credible wedge"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_value_estimate": {
+    "intro": "Five valuation lenses are applied and triangulated. Because Jupiter is pre-revenue with no users, the estimate is anchored to replacement/IP value and converges on the project baseline of <b>€140K–€320K</b>.",
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "Lens 1: Replacement / IP Value",
+            "body": "Build cost at CEE blended rates is €110K–€255K (most likely €168K). As a clean, marketed IP asset with real LAN backends and an encrypted vault, a 1.0–1.3× multiplier applies. Result: <b>€140,000 – €320,000</b> — the floor, with zero revenue."
+          },
+          {
+            "title": "Lens 2: Comparable-Based Valuation",
+            "body": "Comparable Android file managers monetise via one-off €2–4 purchases or ads. Pre-traction, comparables imply little above replacement cost; value only compounds with installs. At 10–50K engaged users an ad-free app could support <b>€350K–€900K</b>; at €100–300K ARR, <b>€800K–€2.4M</b>."
+          },
+          {
+            "title": "Lens 3: Feature-Depth Premium",
+            "body": "Four real LAN protocols, an embedded Wi-Fi transfer server, an AES-GCM vault, five archive formats, and an optional Claude assistant exceed what most free file managers ship. Against the replacement floor this supports a <b>1.1–1.3×</b> depth premium — already folded into Lens 1's upper bound."
+          },
+          {
+            "title": "Lens 4: Risk Adjustment",
+            "body": "Haircuts: zero users/retention proof (−15%), thin automated test coverage on backends/UI (−10%), single-contributor key-person risk (−10%), unproven monetisation (−10%). Offsetting: modern Kotlin/Compose/Clean stack (+10%), privacy/no-ads positioning (+5%), CI building debug+release APKs (+5%). Net: ≈ −25%, which keeps the central estimate near the IP floor."
+          },
+          {
+            "title": "Lens 5: Strategic / Acqui-Hire Value",
+            "body": "To a privacy-focused app portfolio, an OEM, or a NAS vendor (e.g. Synology/QNAP-adjacent), the LAN stack + vault + clean architecture have acqui-hire value of <b>1.5–2.2× IP</b> for the team and codebase. Range: <b>€250K – €700K</b> in a strategic deal."
+          }
+        ]
+      },
+      {
+        "title": "Final Market Value Ranges",
+        "tables": [
+          {
+            "headers": ["Scenario", "Range", "Central Estimate"],
+            "col_widths": [200, 145, 145],
+            "rows": [
+              ["Pre-revenue IP / asset sale (current state)", "€140K – €320K", "€220K"],
+              ["Early traction (10–50K MAU, ad-free)", "€350K – €900K", "€550K"],
+              ["Subscription PMF (€100–300K ARR)", "€800K – €2.4M", "€1.5M"],
+              ["Strategic / acqui-hire deal", "€250K – €700K", "€420K"],
+              ["Triangulated current value", "€140K – €320K", "€220K"]
+            ],
+            "highlight_last": true
+          }
+        ]
+      }
+    ],
+    "callout": "<b>Triangulated Current Value: €140K – €320K (central ≈ €220K).</b> As a pre-revenue, zero-user MVP, Jupiter is valued essentially at replacement/IP cost. Demonstrating retained installs or modest ARR is the single highest-leverage way to move into the €350K–€900K early-traction band."
+  },
+  "assumptions_limitations": {
+    "h2_blocks": [
+      {
+        "title": "Hard Evidence (Known)",
+        "bullet_marker": "✓",
+        "bullets": [
+          "Full source: 212 Kotlin files, 33,932 lines of Kotlin, 237 files total (repo scan)",
+          "Stack confirmed: Kotlin 2.0 / Compose / Material 3 / MVVM + Clean / Hilt / Coroutines; Gradle 8.14.3 + AGP 8.7.3; minSdk 26 / target+compileSdk 35",
+          "Real LAN backends in code: SMBJ (SMB), JSch (SFTP), commons-net (FTP), OkHttp (WebDAV); NanoHTTPD Wi-Fi server",
+          "EncryptedFile/MasterKey vault, WorkManager automation, PdfRenderer viewer, archive (commons-compress + xz + junrar)",
+          "Anthropic Claude assistant gated on a user key with a NoOp fallback; JUnit unit tests; CI builds debug + release APKs",
+          "Git: 16 commits, single rapid push; version 0.1.0"
+        ]
+      },
+      {
+        "title": "Inferred (Not Directly Observed)",
+        "bullet_marker": "~",
+        "bullets": [
+          "Build effort (estimated from code volume, protocol count, and security complexity)",
+          "Rate assumptions (CEE blended €45–€75/h market norms)",
+          "Comparable products and their monetisation (public store listings)",
+          "AI-acceleration credit on cost (inferred from 16 commits in one push)"
+        ]
+      },
+      {
+        "title": "Unknown / Missing",
+        "bullet_marker": "✗",
+        "bullets": [
+          "Users / installs / MAU — none; the app is unreleased",
+          "Revenue / ARR / monetisation model — not yet chosen; most dominant valuation variable",
+          "Retention, crash-free rate, store ratings — no telemetry or Play Console data",
+          "Real signing keystore — release currently signed with the debug key (placeholder)"
+        ]
+      }
+    ]
+  },
+  "next_steps": {
+    "h2_blocks": [
+      {
+        "title": "For Valuation Uplift (Sale / Fundraising)",
+        "bullet_marker": "→",
+        "bullets": [
+          "Ship to Play Store and instrument installs/retention — even 5–20K engaged users changes the valuation band",
+          "Pick a monetisation model (one-off unlock or privacy-first subscription) and prove €10–30K early ARR",
+          "Publish a landing page and ASO assets emphasising the no-ads / privacy / real-LAN wedge"
+        ]
+      },
+      {
+        "title": "For Technical Hardening",
+        "bullet_marker": "→",
+        "bullets": [
+          "Replace the debug signing config with a real release keystore before publishing",
+          "Expand automated coverage to the four remote backends and the vault (highest-risk, lowest-tested areas)",
+          "Add crash reporting and privacy-respecting analytics to generate the retention evidence valuation needs"
+        ]
+      },
+      {
+        "title": "For Product Differentiation",
+        "bullet_marker": "→",
+        "bullets": [
+          "Lean into the Claude assistant as a marketed feature (smart rename, cleanup, search) with clear key-bring-your-own UX",
+          "Polish onboarding to hit the 'as simple as Files by Google' bar for non-power users",
+          "Document NAS/LAN setup flows to win the LAN/NAS persona against Solid Explorer / X-plore"
+        ]
+      }
+    ]
+  },
+  "appendix": {
+    "h2_blocks": [
+      {
+        "title": "A. Domain Repository Inventory",
+        "tables": [
+          {
+            "headers": ["Repository", "Responsibility"],
+            "col_widths": [180, 320],
+            "rows": [
+              ["FileRepository", "Local file listing and operations"],
+              ["RemoteAccessRepository", "SMB/SFTP/FTP/WebDAV remote access"],
+              ["ConnectionRepository", "Saved remote connections + credentials"],
+              ["VaultRepository", "Encrypted vault entries (EncryptedFile)"],
+              ["TransferRepository", "Wi-Fi / desktop transfer sessions"],
+              ["AutomationRepository", "WorkManager-driven automation rules"],
+              ["SyncRepository", "Folder sync"],
+              ["StorageAnalyticsRepository", "Storage usage / cleanup analytics"],
+              ["TagRepository / BookmarkRepository", "Tagging and bookmarks"],
+              ["WorkspaceRepository / VersionRepository / ActivityRepository", "Workspaces, file versions, activity log"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "B. Confidence Assessment",
+        "tables": [
+          {
+            "headers": ["Dimension", "Confidence", "Rationale"],
+            "col_widths": [170, 120, 210],
+            "rows": [
+              ["Build effort estimate", "High (±20%)", "Full codebase; clear architecture and protocol surface"],
+              ["Cost estimate (CEE)", "Medium-High (±25%)", "Blended rate data available; AI-build credit inferred"],
+              ["Market value (pre-revenue)", "Medium (±40%)", "No users/revenue; anchored to IP floor"],
+              ["Market value (with traction)", "Low-Medium (±50%)", "Monetisation model unchosen; comparables are one-off/ad-based"]
+            ]
+          }
+        ]
+      }
+    ],
+    "closing": "<i>This report was produced by AI-assisted technical due-diligence combining direct repository inspection of the Jupiter Android codebase and external market research on consumer Android file managers. It is for informational purposes and does not constitute financial advice.</i>"
+  }
+}

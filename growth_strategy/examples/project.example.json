@@ -1,0 +1,51 @@
+{
+  "_comment": "EXAMPLE project config — Effectime Enterprise. When dropping this folder into a NEW repo, copy this to data/project.json and replace every value with your product's details.",
+
+  "product_name": "Effectime Enterprise",
+  "logo_letter": "E",
+  "tagline": "Multi-tenant HR leave management & workforce planning SaaS",
+  "tagline_translations": {
+    "en": "Multi-tenant HR leave management & workforce planning SaaS",
+    "hu": "Multi-tenant HR szabadságkezelő és munkaerő-tervező SaaS"
+  },
+
+  "languages": ["en", "hu"],
+  "language_names": { "en": "English", "hu": "Magyar", "de": "Deutsch" },
+
+  "repository": "owner/effectime-app-enterprise",
+  "version": "v2.6.0+",
+  "prepared_date": "2026-05-15",
+  "confidence_label": "Medium-High",
+
+  "baseline_valuation": "€580k–€1.05M",
+  "target_valuation": "€5.3M–€10.3M",
+  "value_multiple": "8–10×",
+
+  "title_translations": {
+    "en": "TOP 10 VALUE-ROCKET\\nGROWTH STRATEGY",
+    "hu": "TOP 10 ÉRTÉKNÖVELŐ\\nNÖVEKEDÉSI STRATÉGIA"
+  },
+  "subtitle_translations": {
+    "en": "How Effectime Becomes the Market Leader in Workforce Intelligence",
+    "hu": "Hogyan válik az Effectime a munkaerő-intelligencia piacának vezetőjévé"
+  },
+  "valuation_title_translations": {
+    "en": "Software Valuation & Technical Due-Diligence Report",
+    "hu": "Szoftver Értékelési és Technikai Átvilágítási Jelentés"
+  },
+
+  "output_slug": "growth-strategy",
+  "valuation_output_slug": "valuation-report",
+
+  "author": "AI-assisted Strategic Intelligence",
+
+  "brand": {
+    "primary": "#6366F1",
+    "primary_dark": "#0F172A",
+    "primary_mid": "#1E293B",
+    "accent": "#818CF8",
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "danger": "#EF4444"
+  }
+}
