@@ -42,10 +42,22 @@
             "Register Pro product + subscription in Play Console"
           ],
           "metrics": [
-            ["Business model", "Pre-revenue -> revenue-generating"],
-            ["Valuation re-rating", "Build-cost+IP -> revenue multiple"],
-            ["Install->Pro conversion", "2–4% (utility freemium benchmark)"],
-            ["Regression risk", "Zero (default UNLOCKED)"]
+            [
+              "Business model",
+              "Pre-revenue -> revenue-generating"
+            ],
+            [
+              "Valuation re-rating",
+              "Build-cost+IP -> revenue multiple"
+            ],
+            [
+              "Install->Pro conversion",
+              "2–4% (utility freemium benchmark)"
+            ],
+            [
+              "Regression risk",
+              "Zero (default UNLOCKED)"
+            ]
           ],
           "regen": "Analyze Jupiter (com.jupiter.filemanager, native Kotlin/Compose/Hilt Android file manager) and produce a Jupiter Pro monetization & entitlement plan. Cover: (1) why freemium/Play Billing is the #1 pre-revenue valuation lever, citing Solid Explorer/X-plore/FX/Files by Google models, (2) core/entitlement EntitlementManager + Feature enum + Tier with default-UNLOCKED non-regression design, (3) feature/billing BillingClient wrapper + PaywallScreen + UpgradeViewModel, gate checks at vault/cloud/ai/dual-pane/cleanup, (4) valuation re-rating impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -87,14 +99,27 @@
             "Pro termék + előfizetés regisztrálása a Play Console-ban"
           ],
           "metrics": [
-            ["Üzleti modell", "Bevétel előtti -> bevételt termelő"],
-            ["Értékelési átminősítés", "Építési költség+IP -> bevétel-szorzó"],
-            ["Telepítés->Pro konverzió", "2–4% (segédprogram freemium referencia)"],
-            ["Regressziós kockázat", "Nulla (alapból FELOLDOTT)"]
+            [
+              "Üzleti modell",
+              "Bevétel előtti -> bevételt termelő"
+            ],
+            [
+              "Értékelési átminősítés",
+              "Építési költség+IP -> bevétel-szorzó"
+            ],
+            [
+              "Telepítés->Pro konverzió",
+              "2–4% (segédprogram freemium referencia)"
+            ],
+            [
+              "Regressziós kockázat",
+              "Nulla (alapból FELOLDOTT)"
+            ]
           ],
           "regen": "Elemezze a Jupitert (com.jupiter.filemanager, natív Kotlin/Compose/Hilt Android fájlkezelő) és készítsen Jupiter Pro monetizációs és jogosultságkezelési tervet. Fedje le: (1) miért a freemium/Play Billing a #1 bevétel előtti értéknövelő tényező, Solid Explorer/X-plore/FX/Files by Google modellek alapján, (2) core/entitlement EntitlementManager + Feature enum + Tier alapból-FELOLDOTT regressziómentes tervezéssel, (3) feature/billing BillingClient wrapper + PaywallScreen + UpgradeViewModel, kapuellenőrzések a vault/cloud/ai/kétpanel/cleanup pontokon, (4) értékelési átminősítési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "L"
     },
     {
       "value": "+€220k–€420k",
@@ -129,10 +154,22 @@
             "Gradle: add net.openid:appauth + okhttp (already present)"
           ],
           "metrics": [
-            ["Feature parity", "Closes #1 gap vs Solid Explorer/FX/X-plore"],
-            ["Pro upsell driver", "Cloud = top paid-conversion trigger"],
-            ["Reuse", "100% of existing RemoteFileSource abstraction"],
-            ["New providers", "Drive + Dropbox + OneDrive live"]
+            [
+              "Feature parity",
+              "Closes #1 gap vs Solid Explorer/FX/X-plore"
+            ],
+            [
+              "Pro upsell driver",
+              "Cloud = top paid-conversion trigger"
+            ],
+            [
+              "Reuse",
+              "100% of existing RemoteFileSource abstraction"
+            ],
+            [
+              "New providers",
+              "Drive + Dropbox + OneDrive live"
+            ]
           ],
           "regen": "Analyze Jupiter and design real cloud storage (Google Drive/Dropbox/OneDrive) on top of the existing Cloud Hub scaffold. Cover: (1) competitive gap vs Solid Explorer/FX/Files by Google and pay-conversion rationale, (2) data/cloud AppAuth PKCE OAuth + per-provider OkHttp REST sources implementing domain/remote/RemoteFileSource, mirroring SMB/SFTP/FTP/WebDAV in data/remote, (3) wiring via ConnectionRepositoryImpl + CloudAccount + CredentialStore, CloudHubViewModel going live, (4) parity/upsell valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -166,14 +203,27 @@
             "Gradle: net.openid:appauth + okhttp (már jelen van)"
           ],
           "metrics": [
-            ["Funkció-paritás", "Lezárja a #1 hiányt a Solid Explorer/FX/X-plore-hoz"],
-            ["Pro upsell hajtóerő", "Felhő = top fizetős-konverziós kiváltó"],
-            ["Újrahasznosítás", "A meglévő RemoteFileSource absztrakció 100%-a"],
-            ["Új szolgáltatók", "Drive + Dropbox + OneDrive élesben"]
+            [
+              "Funkció-paritás",
+              "Lezárja a #1 hiányt a Solid Explorer/FX/X-plore-hoz"
+            ],
+            [
+              "Pro upsell hajtóerő",
+              "Felhő = top fizetős-konverziós kiváltó"
+            ],
+            [
+              "Újrahasznosítás",
+              "A meglévő RemoteFileSource absztrakció 100%-a"
+            ],
+            [
+              "Új szolgáltatók",
+              "Drive + Dropbox + OneDrive élesben"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen valódi felhőtárhelyet (Google Drive/Dropbox/OneDrive) a meglévő Felhő Hub vázra. Fedje le: (1) versenyhiány a Solid Explorer/FX/Files by Google-höz és fizetős-konverziós indoklás, (2) data/cloud AppAuth PKCE OAuth + szolgáltatónkénti OkHttp REST források a domain/remote/RemoteFileSource implementálásával, az SMB/SFTP/FTP/WebDAV mintájára a data/remote-ban, (3) bekötés ConnectionRepositoryImpl + CloudAccount + CredentialStore által, CloudHubViewModel élesítése, (4) paritás/upsell értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "L"
     },
     {
       "value": "+€120k–€260k",
@@ -202,10 +252,22 @@
             "Strings-only change: zero behavioral regression"
           ],
           "metrics": [
-            ["Addressable install base", "English-only -> 12+ locales"],
-            ["Listing conversion lift", "Higher in non-English markets"],
-            ["Regression risk", "Minimal (strings only)"],
-            ["Trust signal", "DACH/FR/JP privacy-sensitive markets"]
+            [
+              "Addressable install base",
+              "English-only -> 12+ locales"
+            ],
+            [
+              "Listing conversion lift",
+              "Higher in non-English markets"
+            ],
+            [
+              "Regression risk",
+              "Minimal (strings only)"
+            ],
+            [
+              "Trust signal",
+              "DACH/FR/JP privacy-sensitive markets"
+            ]
           ],
           "regen": "Analyze Jupiter and design a localization plan for 12+ languages. Cover: (1) install-base multiplier rationale for a global utility, citing Files by Google/Solid Explorer localization and Play listing conversion, (2) extract hardcoded literals from feature/* Compose screens into res/values/strings.xml with stringResource refactors, add res/values-<lang> for hu/de/es/fr/pt/it/... , plurals/format handling, (3) regression-safe strings-only scope, (4) addressable-base valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -233,14 +295,27 @@
             "Csak-szöveg változtatás: nulla viselkedési regresszió"
           ],
           "metrics": [
-            ["Megcélozható telepítési bázis", "Csak-angol -> 12+ nyelv"],
-            ["Listázási konverzió-növekedés", "Magasabb nem angol piacokon"],
-            ["Regressziós kockázat", "Minimális (csak szövegek)"],
-            ["Bizalmi jelzés", "DACH/FR/JP adatvédelem-érzékeny piacok"]
+            [
+              "Megcélozható telepítési bázis",
+              "Csak-angol -> 12+ nyelv"
+            ],
+            [
+              "Listázási konverzió-növekedés",
+              "Magasabb nem angol piacokon"
+            ],
+            [
+              "Regressziós kockázat",
+              "Minimális (csak szövegek)"
+            ],
+            [
+              "Bizalmi jelzés",
+              "DACH/FR/JP adatvédelem-érzékeny piacok"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen lokalizációs tervet 12+ nyelvre. Fedje le: (1) telepítésszám-szorzó indoklás egy globális segédprogramhoz, Files by Google/Solid Explorer lokalizáció és Play listázási konverzió alapján, (2) beégetett literálok kiemelése a feature/* Compose képernyőkről a res/values/strings.xml-be stringResource refaktorral, res/values-<lang> hozzáadása hu/de/es/fr/pt/it/...-hez, plurals/format kezelés, (3) regressziómentes csak-szöveg hatókör, (4) megcélozható-bázis értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "M"
     },
     {
       "value": "+€160k–€320k",
@@ -273,10 +348,22 @@
             "Gate behind Feature.AI_SUITE (entitlement, initiative #1)"
           ],
           "metrics": [
-            ["Category differentiation", "Only AI-native Android file manager"],
-            ["Pro/subscription anchor", "Marquee paid tier feature"],
-            ["Privacy posture", "BYO-key, confirm-before-apply, no hallucination"],
-            ["Reuse", "Extends existing AnthropicAiAssistant"]
+            [
+              "Category differentiation",
+              "Only AI-native Android file manager"
+            ],
+            [
+              "Pro/subscription anchor",
+              "Marquee paid tier feature"
+            ],
+            [
+              "Privacy posture",
+              "BYO-key, confirm-before-apply, no hallucination"
+            ],
+            [
+              "Reuse",
+              "Extends existing AnthropicAiAssistant"
+            ]
           ],
           "regen": "Analyze Jupiter and design an AI Pro Suite (Claude) extending the existing key-gated AnthropicAiAssistant. Cover: (1) why AI-native is a unique differentiator vs Solid Explorer/X-plore/FX/Files by Google and anchors the Pro tier, (2) extend feature/ai/AiAssistant.kt with summarize/proposeOrganization/semanticQuery, implement in AnthropicAiAssistant.kt via Anthropic Messages API + tool-use, NoOp mirror, AiAssistantScreen/ViewModel + universal-action sheet + SearchViewModel semantic ranking + cleanup auto-organize, confirm-before-apply through data/file, (3) BYO-key privacy posture, (4) differentiation/upsell valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -308,14 +395,27 @@
             "Kapuzás Feature.AI_SUITE mögé (jogosultság, #1 kezdeményezés)"
           ],
           "metrics": [
-            ["Kategória-megkülönböztetés", "Egyetlen AI-natív Android fájlkezelő"],
-            ["Pro/előfizetés horgony", "Kirakat fizetős-szint funkció"],
-            ["Adatvédelmi tartás", "Saját-kulcs, megerősítés-előtt, hallucináció nélkül"],
-            ["Újrahasznosítás", "A meglévő AnthropicAiAssistant bővítése"]
+            [
+              "Kategória-megkülönböztetés",
+              "Egyetlen AI-natív Android fájlkezelő"
+            ],
+            [
+              "Pro/előfizetés horgony",
+              "Kirakat fizetős-szint funkció"
+            ],
+            [
+              "Adatvédelmi tartás",
+              "Saját-kulcs, megerősítés-előtt, hallucináció nélkül"
+            ],
+            [
+              "Újrahasznosítás",
+              "A meglévő AnthropicAiAssistant bővítése"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen AI Pro Csomagot (Claude) a meglévő kulccsal kapuzott AnthropicAiAssistant bővítésével. Fedje le: (1) miért egyedi megkülönböztető az AI-natív a Solid Explorer/X-plore/FX/Files by Google-höz és horgonyozza a Pro szintet, (2) a feature/ai/AiAssistant.kt bővítése summarize/proposeOrganization/semanticQuery-vel, implementáció az AnthropicAiAssistant.kt-ben Anthropic Messages API + tool-use által, NoOp tükör, AiAssistantScreen/ViewModel + univerzális-akció lap + SearchViewModel szemantikus rangsor + cleanup auto-rendszerezés, megerősítés-előtt a data/file-on át, (3) saját-kulcs adatvédelmi tartás, (4) megkülönböztetés/upsell értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "L"
     },
     {
       "value": "+€90k–€180k",
@@ -345,10 +445,22 @@
             "Pure additions: no regression to existing screens"
           ],
           "metrics": [
-            ["DAU / retention", "Always-present home-screen surface"],
-            ["Time-to-task", "One tap to Cleanup/Search/Vault"],
-            ["Regression risk", "Zero (additive components)"],
-            ["Reuse", "StorageAnalyticsRepository + feature/cleanup"]
+            [
+              "DAU / retention",
+              "Always-present home-screen surface"
+            ],
+            [
+              "Time-to-task",
+              "One tap to Cleanup/Search/Vault"
+            ],
+            [
+              "Regression risk",
+              "Zero (additive components)"
+            ],
+            [
+              "Reuse",
+              "StorageAnalyticsRepository + feature/cleanup"
+            ]
           ],
           "regen": "Analyze Jupiter and design home-screen widgets, app shortcuts and a Quick-Settings tile. Cover: (1) DAU/retention rationale citing Files by Google/Samsung My Files surfacing, (2) app/widget Glance GlanceAppWidget+receiver reading StorageAnalyticsRepository, app/shortcuts static+dynamic ShortcutManager (Search/Cleanup/Vault), app/tile TileService reusing feature/cleanup, manifest registration, add androidx.glance:glance-appwidget, (3) additive zero-regression scope, (4) engagement valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -377,14 +489,27 @@
             "Tiszta kiegészítések: nincs regresszió a meglévő képernyőkön"
           ],
           "metrics": [
-            ["DAU / megtartás", "Mindig jelenlévő kezdőképernyő-felület"],
-            ["Feladatig eltelt idő", "Egy érintés a Tisztítás/Keresés/Széf felé"],
-            ["Regressziós kockázat", "Nulla (additív komponensek)"],
-            ["Újrahasznosítás", "StorageAnalyticsRepository + feature/cleanup"]
+            [
+              "DAU / megtartás",
+              "Mindig jelenlévő kezdőképernyő-felület"
+            ],
+            [
+              "Feladatig eltelt idő",
+              "Egy érintés a Tisztítás/Keresés/Széf felé"
+            ],
+            [
+              "Regressziós kockázat",
+              "Nulla (additív komponensek)"
+            ],
+            [
+              "Újrahasznosítás",
+              "StorageAnalyticsRepository + feature/cleanup"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen kezdőképernyő-widgeteket, app parancsikonokat és Gyorsbeállítás csempét. Fedje le: (1) DAU/megtartás indoklás a Files by Google/Samsung My Files megjelenítés alapján, (2) app/widget Glance GlanceAppWidget+fogadó a StorageAnalyticsRepository olvasásával, app/shortcuts statikus+dinamikus ShortcutManager (Keresés/Tisztítás/Széf), app/tile TileService a feature/cleanup újrahasznosításával, manifeszt regisztráció, androidx.glance:glance-appwidget hozzáadása, (3) additív nulla-regressziós hatókör, (4) elköteleződési értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "M"
     },
     {
       "value": "+€80k–€170k",
@@ -413,10 +538,22 @@
             "Default ships NoOp: literally measures nothing until opted in"
           ],
           "metrics": [
-            ["Measurability", "Activation/retention/conversion visible"],
-            ["Acquirer diligence", "Funnel + stability data on demand"],
-            ["Privacy posture", "Opt-in default OFF, no PII, no trackers"],
-            ["Default behavior", "NoOp (zero data) until consent"]
+            [
+              "Measurability",
+              "Activation/retention/conversion visible"
+            ],
+            [
+              "Acquirer diligence",
+              "Funnel + stability data on demand"
+            ],
+            [
+              "Privacy posture",
+              "Opt-in default OFF, no PII, no trackers"
+            ],
+            [
+              "Default behavior",
+              "NoOp (zero data) until consent"
+            ]
           ],
           "regen": "Analyze Jupiter and design privacy-first opt-in analytics & crash reporting. Cover: (1) why measurement is needed yet must not break the privacy-first promise, contrast vs default-collection competitors, (2) core/analytics Analytics interface + AnalyticsEvent + NoOpAnalytics default + consent gate via data/preferences, feature/settings toggle default OFF, typed funnel instrumentation no-op until consent, crash reporting same contract, (3) GDPR-by-design posture, (4) diligence/measurability valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -444,14 +581,27 @@
             "Alapból NoOp: szó szerint semmit sem mér az opt-inig"
           ],
           "metrics": [
-            ["Mérhetőség", "Aktiváció/megtartás/konverzió láthatóvá válik"],
-            ["Felvásárlói átvilágítás", "Tölcsér + stabilitás adat igény szerint"],
-            ["Adatvédelmi tartás", "Opt-in alapból KI, nincs PII, nincs követő"],
-            ["Alapviselkedés", "NoOp (nulla adat) a beleegyezésig"]
+            [
+              "Mérhetőség",
+              "Aktiváció/megtartás/konverzió láthatóvá válik"
+            ],
+            [
+              "Felvásárlói átvilágítás",
+              "Tölcsér + stabilitás adat igény szerint"
+            ],
+            [
+              "Adatvédelmi tartás",
+              "Opt-in alapból KI, nincs PII, nincs követő"
+            ],
+            [
+              "Alapviselkedés",
+              "NoOp (nulla adat) a beleegyezésig"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen adatvédelem-központú opt-in analitikát és összeomlás-jelentést. Fedje le: (1) miért szükséges a mérés, mégsem szabad megtörnie az adatvédelem-központú ígéretet, kontraszt az alapból-gyűjtő versenytársakkal, (2) core/analytics Analytics interfész + AnalyticsEvent + NoOpAnalytics alapértelmezett + beleegyezési kapu a data/preferences-en át, feature/settings kapcsoló alapból KI, típusos tölcsér-műszerezés no-op a beleegyezésig, összeomlás-jelentés ugyanaz a szerződés, (3) GDPR-by-design tartás, (4) átvilágítás/mérhetőség értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "S"
     },
     {
       "value": "+€90k–€190k",
@@ -481,10 +631,22 @@
             "Additive: no change to existing browse/file flows"
           ],
           "metrics": [
-            ["Activation rate", "Instrumented onboarding completion"],
-            ["7-/30-day retention", "What's-New + re-engagement uplift"],
-            ["Store rating", "In-app review at peak satisfaction"],
-            ["Posture", "Re-engagement opt-in, value-led, default OFF"]
+            [
+              "Activation rate",
+              "Instrumented onboarding completion"
+            ],
+            [
+              "7-/30-day retention",
+              "What's-New + re-engagement uplift"
+            ],
+            [
+              "Store rating",
+              "In-app review at peak satisfaction"
+            ],
+            [
+              "Posture",
+              "Re-engagement opt-in, value-led, default OFF"
+            ]
           ],
           "regen": "Analyze Jupiter and design an activation & retention loop. Cover: (1) why closing the loop lifts activation and 7/30-day retention, Files by Google comparable, (2) instrument onboarding completion via AppStateDataStore + analytics, feature/whatsnew Compose sheet on version bump, com.google.android.play:review-ktx in-app review after positive action, opt-in WorkManager re-engagement notification from StorageAnalyticsRepository default OFF, (3) additive privacy-respecting scope, (4) activation/retention valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -513,14 +675,27 @@
             "Additív: nincs változás a meglévő böngészési/fájl folyamatokon"
           ],
           "metrics": [
-            ["Aktivációs arány", "Műszerezett onboarding befejezés"],
-            ["7/30 napos megtartás", "Újdonságok + visszacsábítás növekedés"],
-            ["Áruházi értékelés", "Alkalmazáson belüli értékelés csúcselégedettségnél"],
-            ["Tartás", "Visszacsábítás opt-in, érték-vezérelt, alapból KI"]
+            [
+              "Aktivációs arány",
+              "Műszerezett onboarding befejezés"
+            ],
+            [
+              "7/30 napos megtartás",
+              "Újdonságok + visszacsábítás növekedés"
+            ],
+            [
+              "Áruházi értékelés",
+              "Alkalmazáson belüli értékelés csúcselégedettségnél"
+            ],
+            [
+              "Tartás",
+              "Visszacsábítás opt-in, érték-vezérelt, alapból KI"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen aktivációs és megtartási hurkot. Fedje le: (1) miért emeli a hurok zárása az aktivációt és a 7/30 napos megtartást, Files by Google összehasonlítás, (2) onboarding befejezés műszerezése AppStateDataStore + analitika által, feature/whatsnew Compose lap verzióemeléskor, com.google.android.play:review-ktx alkalmazáson belüli értékelés pozitív akció után, opt-in WorkManager visszacsábító értesítés a StorageAnalyticsRepository-ból alapból KI, (3) additív adatvédelmet tisztelő hatókör, (4) aktiváció/megtartás értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "M"
     },
     {
       "value": "+€110k–€220k",
@@ -550,10 +725,22 @@
             "Gradle: add androidx.room (runtime, ktx, compiler)"
           ],
           "metrics": [
-            ["Search latency", "Filesystem walk -> instant FTS lookup"],
-            ["Power-user moat", "Content + saved search vs Files by Google"],
-            ["Stickiness", "Saved searches = stored user state"],
-            ["Reuse", "Additive alongside existing SearchViewModel"]
+            [
+              "Search latency",
+              "Filesystem walk -> instant FTS lookup"
+            ],
+            [
+              "Power-user moat",
+              "Content + saved search vs Files by Google"
+            ],
+            [
+              "Stickiness",
+              "Saved searches = stored user state"
+            ],
+            [
+              "Reuse",
+              "Additive alongside existing SearchViewModel"
+            ]
           ],
           "regen": "Analyze Jupiter and design a Room FTS search index with saved searches and content search. Cover: (1) why instant/content search is a power-user moat vs X-plore/Solid Explorer/Files by Google, (2) data/search Room DB + FileIndexEntity + FTS4 + WorkManager indexer Worker, domain repository, SearchViewModel querying index first with filesystem fallback, saved/recent searches + opt-in content search in SearchScreen, add androidx.room, (3) additive non-regression scope, (4) performance/stickiness valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -582,14 +769,27 @@
             "Gradle: androidx.room hozzáadása (runtime, ktx, compiler)"
           ],
           "metrics": [
-            ["Keresési késleltetés", "Fájlrendszer-bejárás -> azonnali FTS keresés"],
-            ["Erős-felhasználói védőárok", "Tartalom + mentett keresés a Files by Google-höz"],
-            ["Ragadósság", "Mentett keresések = tárolt felhasználói állapot"],
-            ["Újrahasznosítás", "Additív a meglévő SearchViewModel mellett"]
+            [
+              "Keresési késleltetés",
+              "Fájlrendszer-bejárás -> azonnali FTS keresés"
+            ],
+            [
+              "Erős-felhasználói védőárok",
+              "Tartalom + mentett keresés a Files by Google-höz"
+            ],
+            [
+              "Ragadósság",
+              "Mentett keresések = tárolt felhasználói állapot"
+            ],
+            [
+              "Újrahasznosítás",
+              "Additív a meglévő SearchViewModel mellett"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen Room FTS keresési indexet mentett keresésekkel és tartalomkereséssel. Fedje le: (1) miért erős-felhasználói védőárok az azonnali/tartalomkeresés az X-plore/Solid Explorer/Files by Google-höz, (2) data/search Room DB + FileIndexEntity + FTS4 + WorkManager indexelő Worker, domain repository, SearchViewModel először az indexet kérdezi le fájlrendszer-visszaeséssel, mentett/legutóbbi keresések + opt-in tartalomkeresés a SearchScreen-ben, androidx.room hozzáadása, (3) additív regressziómentes hatókör, (4) teljesítmény/ragadósság értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "L"
     },
     {
       "value": "+€70k–€150k",
@@ -618,10 +818,22 @@
             "Additive: base theme stays free; no regression"
           ],
           "metrics": [
-            ["Retention / identity", "Customized app = lower churn"],
-            ["Pro cosmetic upsell", "Premium themes/icon packs"],
-            ["Persona fit", "AMOLED black for power/privacy users"],
-            ["Reuse", "Extends existing JupiterTheme"]
+            [
+              "Retention / identity",
+              "Customized app = lower churn"
+            ],
+            [
+              "Pro cosmetic upsell",
+              "Premium themes/icon packs"
+            ],
+            [
+              "Persona fit",
+              "AMOLED black for power/privacy users"
+            ],
+            [
+              "Reuse",
+              "Extends existing JupiterTheme"
+            ]
           ],
           "regen": "Analyze Jupiter and design personalization & theming on top of the existing JupiterTheme. Cover: (1) retention/identity + Pro upsell rationale citing Solid Explorer themes and Material You expectations, (2) extend ui/theme/Theme.kt + Color.kt for runtime ThemeConfig (accent seed, dark/AMOLED, density, Material You), persist via SettingsDataStore, SettingsScreen/ViewModel live-preview picker, apply in MainActivity, premium themes gated by Feature, (3) additive non-regression scope, (4) retention/upsell valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -649,14 +861,27 @@
             "Additív: az alaptéma ingyenes marad; nincs regresszió"
           ],
           "metrics": [
-            ["Megtartás / identitás", "Testreszabott app = alacsonyabb lemorzsolódás"],
-            ["Pro kozmetikai upsell", "Prémium témák/ikoncsomagok"],
-            ["Persona illeszkedés", "AMOLED fekete az erős/adatvédelem-felhasználóknak"],
-            ["Újrahasznosítás", "A meglévő JupiterTheme bővítése"]
+            [
+              "Megtartás / identitás",
+              "Testreszabott app = alacsonyabb lemorzsolódás"
+            ],
+            [
+              "Pro kozmetikai upsell",
+              "Prémium témák/ikoncsomagok"
+            ],
+            [
+              "Persona illeszkedés",
+              "AMOLED fekete az erős/adatvédelem-felhasználóknak"
+            ],
+            [
+              "Újrahasznosítás",
+              "A meglévő JupiterTheme bővítése"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen személyre szabást és témázást a meglévő JupiterTheme-re. Fedje le: (1) megtartás/identitás + Pro upsell indoklás a Solid Explorer témák és Material You elvárások alapján, (2) ui/theme/Theme.kt + Color.kt bővítése futásidejű ThemeConfig-hoz (kiemelő mag, sötét/AMOLED, sűrűség, Material You), perzisztálás SettingsDataStore-on át, SettingsScreen/ViewModel élő-előnézetű választó, alkalmazás a MainActivity-ben, prémium témák Feature-rel kapuzva, (3) additív regressziómentes hatókör, (4) megtartás/upsell értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "M"
     },
     {
       "value": "+€100k–€200k",
@@ -686,10 +911,22 @@
             "Additive via manifest + new components; data/file reused"
           ],
           "metrics": [
-            ["Virality", "Appears in every app's share sheet"],
-            ["Interop stickiness", "SAF provider in system file pickers"],
-            ["Trust entry point", "'Save to Jupiter' direct to vault"],
-            ["Reuse", "data/file + NanoHTTPD Wi-Fi server + transfer"]
+            [
+              "Virality",
+              "Appears in every app's share sheet"
+            ],
+            [
+              "Interop stickiness",
+              "SAF provider in system file pickers"
+            ],
+            [
+              "Trust entry point",
+              "'Save to Jupiter' direct to vault"
+            ],
+            [
+              "Reuse",
+              "data/file + NanoHTTPD Wi-Fi server + transfer"
+            ]
           ],
           "regen": "Analyze Jupiter and design a Share & Interop Hub. Cover: (1) virality/stickiness rationale citing Files by Google/Samsung My Files share-target and document-provider embedding, (2) AndroidManifest ACTION_SEND/SEND_MULTIPLE intent-filters + <provider>, feature/share ReceiveShareActivity/Screen writing via data/file incl. vault, data/saf JupiterDocumentsProvider extending DocumentsProvider over data/file, quick-share reusing NanoHTTPD Wi-Fi server + transfer, (3) additive manifest + new components scope, (4) virality/stickiness valuation impact, (5) regeneration meta-prompt. Point 1-5 structure."
         },
@@ -718,14 +955,27 @@
             "Additív a manifeszten + új komponenseken át; data/file újrahasznosítva"
           ],
           "metrics": [
-            ["Viralitás", "Megjelenik minden alkalmazás megosztási lapján"],
-            ["Együttműködési ragadósság", "SAF szolgáltató a rendszer-fájlválasztókban"],
-            ["Bizalmi belépési pont", "'Mentés a Jupiterbe' egyenesen a széfbe"],
-            ["Újrahasznosítás", "data/file + NanoHTTPD Wi-Fi szerver + átvitel"]
+            [
+              "Viralitás",
+              "Megjelenik minden alkalmazás megosztási lapján"
+            ],
+            [
+              "Együttműködési ragadósság",
+              "SAF szolgáltató a rendszer-fájlválasztókban"
+            ],
+            [
+              "Bizalmi belépési pont",
+              "'Mentés a Jupiterbe' egyenesen a széfbe"
+            ],
+            [
+              "Újrahasznosítás",
+              "data/file + NanoHTTPD Wi-Fi szerver + átvitel"
+            ]
           ],
           "regen": "Elemezze a Jupitert és tervezzen Megosztás és Együttműködési Hubot. Fedje le: (1) viralitás/ragadósság indoklás a Files by Google/Samsung My Files megosztási-cél és dokumentumszolgáltató beágyazás alapján, (2) AndroidManifest ACTION_SEND/SEND_MULTIPLE intent-filterek + <provider>, feature/share ReceiveShareActivity/Screen a data/file-on át írva a széfet is beleértve, data/saf JupiterDocumentsProvider a DocumentsProvider kiterjesztésével a data/file felett, gyorsmegosztás NanoHTTPD Wi-Fi szerver + átvitel újrahasznosításával, (3) additív manifeszt + új komponensek hatókör, (4) viralitás/ragadósság értéknövelési hatás, (5) újragenerálási meta-prompt. 1–5. pont struktúra."
         }
-      }
+      },
+      "effort": "M"
     }
   ]
 }
