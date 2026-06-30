@@ -6,11 +6,13 @@ import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
@@ -32,9 +34,18 @@ class AiAssistantViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
-        AiAssistantUiState(isEnabled = aiAssistant.isEnabled),
+        AiAssistantUiState(isEnabled = false),
     )
     val uiState: StateFlow<AiAssistantUiState> = _uiState.asStateFlow()
+
+    init {
+        // Resolve availability off the main thread; never block in the field
+        // initializer. The assistant's isEnabled is backed by a cached value.
+        viewModelScope.launch {
+            val enabled = withContext(Dispatchers.IO) { aiAssistant.isEnabled }
+            _uiState.update { it.copy(isEnabled = enabled) }
+        }
+    }
 
     /** Updates the composer text. */
     fun onInputChange(value: String) {

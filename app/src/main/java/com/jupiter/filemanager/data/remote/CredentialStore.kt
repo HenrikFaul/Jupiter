@@ -73,9 +73,44 @@ class CredentialStore @Inject constructor(
         }
     }
 
+    private fun secretKeyFor(key: String): String = SECRET_PREFIX + key
+
+    /**
+     * Persists an arbitrary secret [value] under [key] in the same
+     * [EncryptedSharedPreferences] store used for passwords. A null [value]
+     * removes the entry. Crash-safe: persistence failures are swallowed so the
+     * caller is never crashed by a KeyStore/IO error.
+     */
+    fun saveSecret(key: String, value: String?) {
+        try {
+            val editor = prefs.edit()
+            if (value == null) {
+                editor.remove(secretKeyFor(key))
+            } else {
+                editor.putString(secretKeyFor(key), value)
+            }
+            editor.apply()
+        } catch (t: Throwable) {
+            // Swallow — persistence failures must not crash the caller.
+        }
+    }
+
+    /**
+     * Reads a secret previously stored via [saveSecret], or null if absent or on
+     * any KeyStore/crypto/IO failure.
+     */
+    fun getSecret(key: String): String? {
+        return try {
+            prefs.getString(secretKeyFor(key), null)
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
     private companion object {
         const val ENCRYPTED_PREFS_NAME = "jupiter_remote_credentials"
         const val FALLBACK_PREFS_NAME = "jupiter_remote_credentials_fallback"
         const val KEY_PREFIX = "pwd_"
+        const val SECRET_PREFIX = "secret_"
     }
 }

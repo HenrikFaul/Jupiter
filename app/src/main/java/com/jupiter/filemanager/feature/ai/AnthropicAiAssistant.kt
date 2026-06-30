@@ -8,8 +8,12 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FilterOption
 import com.jupiter.filemanager.domain.model.StorageOverview
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -48,14 +52,36 @@ class AnthropicAiAssistant @Inject constructor(
         .build()
 
     /**
+     * Long-lived scope (this is a process [Singleton]) used to observe the persisted
+     * Claude API key off the main thread so [isEnabled] can be served from a cached
+     * value without ever blocking.
+     */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + io)
+
+    /**
+     * Cached "is a non-blank API key persisted?" flag, kept up to date by collecting
+     * [SettingsDataStore.aiApiKey] on [scope]. Defaults to `false` until the first
+     * value arrives, and falls back to `false` on any read error.
+     */
+    @Volatile
+    private var enabledCache: Boolean = false
+
+    init {
+        settings.aiApiKey
+            .onEach { key -> enabledCache = key.isNotBlank() }
+            .catch { enabledCache = false }
+            .launchIn(scope)
+    }
+
+    /**
      * Whether a non-blank Claude API key is currently persisted.
      *
-     * Read synchronously via [runBlocking] so the property can satisfy the
-     * non-suspending [AiAssistant.isEnabled] contract; the underlying DataStore read
-     * is fast and falls back to "disabled" on any error.
+     * Served from [enabledCache], which is updated off the main thread by an
+     * observer on [SettingsDataStore.aiApiKey]; reading this property never blocks
+     * and never touches DataStore directly.
      */
     override val isEnabled: Boolean
-        get() = currentKey().isNotBlank()
+        get() = enabledCache
 
     override suspend fun suggestName(item: FileItem): AppResult<String> {
         val key = currentKey()
@@ -120,11 +146,15 @@ class AnthropicAiAssistant @Inject constructor(
     /**
      * Reads the persisted Claude API key. Returns "" on any error so callers treat
      * the assistant as not configured rather than crashing.
+     *
+     * Suspends and reads on [io] so it never blocks the main thread.
      */
-    private fun currentKey(): String = try {
-        runBlocking { settings.aiApiKey.first() }
-    } catch (_: Throwable) {
-        ""
+    private suspend fun currentKey(): String = withContext(io) {
+        try {
+            settings.aiApiKey.first()
+        } catch (_: Throwable) {
+            ""
+        }
     }
 
     /**

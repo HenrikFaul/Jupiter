@@ -48,7 +48,7 @@ fun JupiterTheme(
         // An explicit accent override always wins over dynamic color.
         accentColorArgb != 0L -> {
             val base = if (darkTheme) JupiterDarkColors else JupiterLightColors
-            base.withAccent(Color(accentColorArgb.toULong()), darkTheme)
+            base.withAccent(Color(accentColorArgb), darkTheme)
         }
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)

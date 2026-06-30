@@ -52,6 +52,21 @@ class FileBrowserViewModel @Inject constructor(
     /** Schedules auto-dismissal of a terminal operation card after a short delay. */
     private var operationDismissJob: Job? = null
 
+    /**
+     * The most recently loaded directory listing, sorted and filtered by
+     * everything EXCEPT the name [FilterOption.query] (i.e. it reflects the
+     * current path, sort, [FilterOption.showHidden] and [FilterOption.typeFilter]).
+     *
+     * Caching this lets a query-only change (every search keystroke) re-derive the
+     * visible [FileBrowserUiState.items] in memory instead of re-listing from disk,
+     * which removes the per-keystroke lag/flicker. It is refreshed by
+     * [loadDirectory] whenever the on-disk listing is actually re-read.
+     */
+    private var queryUnfilteredItems: List<FileItem> = emptyList()
+
+    /** The (path, showHidden, typeFilter) signature [queryUnfilteredItems] was loaded under. */
+    private var queryUnfilteredSignature: ListingSignature? = null
+
     init {
         val rawArg = savedStateHandle.get<String>(Destination.Browser.ARG_PATH)
         val decoded = rawArg?.takeIf { it.isNotBlank() }
@@ -127,13 +142,55 @@ class FileBrowserViewModel @Inject constructor(
         }
     }
 
-    /** Applies a new [filter] and reloads the listing. */
+    /**
+     * Applies a new [filter].
+     *
+     * Hidden-file visibility and the type filter affect which entries the
+     * repository returns from disk, so changing either (or losing the cache for
+     * the current directory) triggers a disk re-list. The persisted
+     * [FilterOption.showHidden] preference is only written when it actually
+     * changes. A pure name-[FilterOption.query] change — the common case while
+     * typing in the search field — instead re-derives the visible listing in
+     * memory from the cached, query-unfiltered items, avoiding a disk re-list and
+     * the associated lag/flicker on every keystroke.
+     */
     fun setFilter(filter: FilterOption) {
+        val previous = _uiState.value.filter
         _uiState.value = _uiState.value.copy(filter = filter)
+
+        val showHiddenChanged = filter.showHidden != previous.showHidden
+        val typeFilterChanged = filter.typeFilter != previous.typeFilter
+        val cacheValid = queryUnfilteredSignature == ListingSignature(
+            path = _uiState.value.currentPath,
+            showHidden = filter.showHidden,
+            typeFilter = filter.typeFilter,
+        )
+
+        if (!showHiddenChanged && !typeFilterChanged && cacheValid) {
+            // Query-only change: filter the already-loaded items in memory.
+            _uiState.value = _uiState.value.copy(
+                items = applyQuery(queryUnfilteredItems, filter.query),
+            )
+            return
+        }
+
         viewModelScope.launch {
-            settings.setShowHidden(filter.showHidden)
+            if (showHiddenChanged) {
+                settings.setShowHidden(filter.showHidden)
+            }
             loadDirectory(_uiState.value.currentPath)
         }
+    }
+
+    /**
+     * Narrows [items] (already sorted and filtered by everything except the name
+     * query) by the case-insensitive substring [query], mirroring the
+     * repository's own name matching so results stay identical to a disk re-list.
+     */
+    private fun applyQuery(items: List<FileItem>, query: String): List<FileItem> {
+        val needle = query.trim().lowercase()
+        if (needle.isEmpty()) return items
+        return items.filter { it.name.lowercase().contains(needle) }
     }
 
     /** Creates a new folder named [name] inside the current directory. */
@@ -370,12 +427,23 @@ class FileBrowserViewModel @Inject constructor(
             error = null,
         )
         val state = _uiState.value
-        when (val result = fileRepository.listFiles(path, state.sortOption, state.filter)) {
+        // List from disk WITHOUT the name query so the result can be cached and a
+        // later query-only change can be served from memory (see [setFilter]); the
+        // query is then applied in memory below so the visible listing is identical
+        // to a fully-filtered disk read.
+        val diskFilter = state.filter.copy(query = "")
+        when (val result = fileRepository.listFiles(path, state.sortOption, diskFilter)) {
             is AppResult.Success -> {
+                queryUnfilteredItems = result.data
+                queryUnfilteredSignature = ListingSignature(
+                    path = path,
+                    showHidden = state.filter.showHidden,
+                    typeFilter = state.filter.typeFilter,
+                )
                 _uiState.value = _uiState.value.copy(
                     currentPath = path,
                     breadcrumbs = buildBreadcrumbs(path),
-                    items = result.data,
+                    items = applyQuery(result.data, state.filter.query),
                     isLoading = false,
                     error = null,
                     canNavigateUp = parentOf(path) != null,
@@ -383,6 +451,8 @@ class FileBrowserViewModel @Inject constructor(
                 )
             }
             is AppResult.Failure -> {
+                queryUnfilteredItems = emptyList()
+                queryUnfilteredSignature = null
                 _uiState.value = _uiState.value.copy(
                     currentPath = path,
                     breadcrumbs = buildBreadcrumbs(path),
@@ -394,6 +464,13 @@ class FileBrowserViewModel @Inject constructor(
             }
         }
     }
+
+    /** The (path, showHidden, typeFilter) a cached query-unfiltered listing was loaded under. */
+    private data class ListingSignature(
+        val path: String,
+        val showHidden: Boolean,
+        val typeFilter: com.jupiter.filemanager.domain.model.FileType?,
+    )
 
     /**
      * Returns a tab list with the currently active tab updated to reflect [path], so

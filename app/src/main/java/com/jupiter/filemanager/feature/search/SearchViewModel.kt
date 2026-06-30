@@ -8,6 +8,7 @@ import com.jupiter.filemanager.domain.model.FilterOption
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.feature.ai.AiAssistant
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -140,7 +142,10 @@ class SearchViewModel @Inject constructor(
     private suspend fun resolveFilter(rawQuery: String): FilterOption {
         val plainFilter = FilterOption(query = rawQuery, showHidden = false)
 
-        if (!_uiState.value.naturalLanguage || !aiAssistant.isEnabled) {
+        // Read availability off the main thread. isEnabled is backed by a cached
+        // value, so this never blocks; reading it on IO keeps the contract explicit.
+        val aiAvailable = withContext(Dispatchers.IO) { aiAssistant.isEnabled }
+        if (!_uiState.value.naturalLanguage || !aiAvailable) {
             return plainFilter
         }
 

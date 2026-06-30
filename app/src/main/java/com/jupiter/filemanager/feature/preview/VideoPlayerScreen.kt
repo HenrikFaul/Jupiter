@@ -81,6 +81,13 @@ fun VideoPlayerScreen(
     // the control effects below.
     var videoView by remember { mutableStateOf<VideoView?>(null) }
 
+    // While the user is scrubbing, the slider should reflect the seek target rather than
+    // the live player clock. isSeeking stays true until the player's reported position
+    // converges to within SEEK_CONVERGE_TOLERANCE_MS of the target; until then the
+    // position ticker is suppressed so it cannot snap the slider back.
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekTargetMs by remember { mutableStateOf(0) }
+
     // Apply play/pause intent from state onto the live VideoView.
     LaunchedEffect(state.isPlaying, state.isPrepared, videoView) {
         val view = videoView ?: return@LaunchedEffect
@@ -99,7 +106,19 @@ fun VideoPlayerScreen(
         val view = videoView ?: return@LaunchedEffect
         while (true) {
             if (view.isPlaying) {
-                viewModel.onPositionChanged(view.currentPosition)
+                val position = view.currentPosition
+                if (isSeeking) {
+                    // Suppress ticker-driven updates until the player has actually moved
+                    // to (close to) the user's seek target, so an in-flight seek is not
+                    // snapped back by a stale clock reading. Once converged, resume normal
+                    // mirroring of the live player clock.
+                    if (kotlin.math.abs(position - seekTargetMs) <= SEEK_CONVERGE_TOLERANCE_MS) {
+                        isSeeking = false
+                        viewModel.onPositionChanged(position)
+                    }
+                } else {
+                    viewModel.onPositionChanged(position)
+                }
             }
             delay(POSITION_POLL_MS)
         }
@@ -172,6 +191,9 @@ fun VideoPlayerScreen(
 
                 else -> VideoContent(
                     state = state,
+                    // While seeking, the slider/time should track the user's target rather
+                    // than the (still-converging) live player clock.
+                    displayPositionMs = if (isSeeking) seekTargetMs else state.positionMs,
                     onSurfaceReady = { view -> videoView = view },
                     onSurfaceReleased = { videoView = null },
                     onPrepared = viewModel::onPrepared,
@@ -179,8 +201,16 @@ fun VideoPlayerScreen(
                     onError = viewModel::onError,
                     onTogglePlayPause = viewModel::togglePlayPause,
                     onSeek = { positionMs ->
-                        videoView?.seekTo(positionMs)
-                        viewModel.seekTo(positionMs)
+                        val duration = state.durationMs
+                        val target = if (duration > 0) {
+                            positionMs.coerceIn(0, duration)
+                        } else {
+                            positionMs.coerceAtLeast(0)
+                        }
+                        isSeeking = true
+                        seekTargetMs = target
+                        videoView?.seekTo(target)
+                        viewModel.seekTo(target)
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -192,6 +222,7 @@ fun VideoPlayerScreen(
 @Composable
 private fun VideoContent(
     state: VideoPlayerUiState,
+    displayPositionMs: Int,
     onSurfaceReady: (VideoView) -> Unit,
     onSurfaceReleased: () -> Unit,
     onPrepared: (Int) -> Unit,
@@ -253,6 +284,7 @@ private fun VideoContent(
 
         PlaybackControls(
             state = state,
+            displayPositionMs = displayPositionMs,
             onTogglePlayPause = onTogglePlayPause,
             onSeek = onSeek,
             modifier = Modifier.fillMaxWidth(),
@@ -263,6 +295,7 @@ private fun VideoContent(
 @Composable
 private fun PlaybackControls(
     state: VideoPlayerUiState,
+    displayPositionMs: Int,
     onTogglePlayPause: () -> Unit,
     onSeek: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -274,7 +307,7 @@ private fun PlaybackControls(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Slider(
-            value = state.positionMs.toFloat(),
+            value = displayPositionMs.toFloat(),
             onValueChange = { value -> onSeek(value.toInt()) },
             valueRange = 0f..(state.durationMs.takeIf { it > 0 } ?: 1).toFloat(),
             enabled = state.isPrepared && state.durationMs > 0,
@@ -286,7 +319,7 @@ private fun PlaybackControls(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = formatPlaybackTime(state.positionMs),
+                text = formatPlaybackTime(displayPositionMs),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -303,7 +336,7 @@ private fun PlaybackControls(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(
-                onClick = { onSeek((state.positionMs - SKIP_MS).coerceAtLeast(0)) },
+                onClick = { onSeek((displayPositionMs - SKIP_MS).coerceAtLeast(0)) },
                 enabled = state.isPrepared,
             ) {
                 Icon(
@@ -327,7 +360,7 @@ private fun PlaybackControls(
             IconButton(
                 onClick = {
                     val max = state.durationMs
-                    val target = state.positionMs + SKIP_MS
+                    val target = displayPositionMs + SKIP_MS
                     onSeek(if (max > 0) target.coerceAtMost(max) else target)
                 },
                 enabled = state.isPrepared,
@@ -357,6 +390,14 @@ private fun formatPlaybackTime(positionMs: Int): String {
 
 /** Interval (ms) between live position polls while playing. */
 private const val POSITION_POLL_MS: Long = 500L
+
+/**
+ * Tolerance (ms) within which the live player clock is considered to have converged to a
+ * pending seek target. Once the reported position is this close to the target, ticker-driven
+ * position updates resume. Sized comfortably above one poll interval of playback drift so the
+ * seek reliably clears even when the player lands a little short of or past the exact target.
+ */
+private const val SEEK_CONVERGE_TOLERANCE_MS: Int = 750
 
 /** Step (ms) used by the rewind/forward controls. */
 private const val SKIP_MS: Int = 10_000

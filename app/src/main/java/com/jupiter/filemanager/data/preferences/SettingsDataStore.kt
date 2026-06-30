@@ -10,12 +10,21 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.jupiter.filemanager.domain.model.SortDirection
 import com.jupiter.filemanager.domain.model.SortField
+import com.jupiter.filemanager.data.remote.CredentialStore
 import com.jupiter.filemanager.domain.model.SortOption
 import com.jupiter.filemanager.domain.model.ThemeMode
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,9 +50,17 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "ju
 @Singleton
 class SettingsDataStore @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val credentialStore: CredentialStore,
 ) {
 
     private val dataStore: DataStore<Preferences> = context.dataStore
+
+    /**
+     * Long-lived scope used only to run the one-shot plaintext->encrypted
+     * migration of the AI API key off the main thread. Failures are swallowed so
+     * a KeyStore/IO error never crashes the app.
+     */
+    private val migrationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private object Keys {
         val THEME_MODE = stringPreferencesKey("theme_mode")
@@ -100,10 +117,50 @@ class SettingsDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.AI_ENABLED] ?: false }
 
-    /** The persisted Claude API key used to enable AI features; defaults to "". */
-    val aiApiKey: Flow<String> = dataStore.data
-        .safe()
-        .map { prefs -> prefs[Keys.AI_API_KEY] ?: "" }
+    /**
+     * Backing state for [aiApiKey]. Seeded synchronously from the encrypted
+     * [CredentialStore] (never from the plaintext DataStore key) so reads never
+     * leave the secret at rest in plaintext. A one-shot migration in [init]
+     * copies any legacy plaintext key into the encrypted store and clears it.
+     */
+    private val aiApiKeyState: MutableStateFlow<String> =
+        MutableStateFlow(credentialStore.getSecret(AI_API_KEY_SECRET) ?: "")
+
+    /**
+     * The persisted Claude API key used to enable AI features; defaults to "".
+     *
+     * Backed by [aiApiKeyState] and persisted via the encrypted [CredentialStore]
+     * rather than plaintext DataStore. Exposed as a [Flow] for source
+     * compatibility; [Flow.first] returns the current value immediately.
+     */
+    val aiApiKey: Flow<String> = aiApiKeyState.asStateFlow()
+
+    init {
+        migrateAiApiKeyFromPlaintext()
+    }
+
+    /**
+     * If a legacy plaintext AI API key still lives in DataStore, copy it into the
+     * encrypted [CredentialStore], publish it to [aiApiKeyState], and remove the
+     * plaintext entry. Runs once, off the main thread, and never crashes.
+     */
+    private fun migrateAiApiKeyFromPlaintext() {
+        migrationScope.launch {
+            try {
+                val plaintext = dataStore.data
+                    .safe()
+                    .map { prefs -> prefs[Keys.AI_API_KEY] }
+                    .first()
+                if (!plaintext.isNullOrEmpty()) {
+                    credentialStore.saveSecret(AI_API_KEY_SECRET, plaintext)
+                    aiApiKeyState.value = plaintext
+                    dataStore.edit { prefs -> prefs.remove(Keys.AI_API_KEY) }
+                }
+            } catch (_: Throwable) {
+                // Migration is best-effort; never crash on KeyStore/IO failure.
+            }
+        }
+    }
 
     /**
      * Custom accent color packed as an ARGB [Long]; defaults to 0L meaning
@@ -161,7 +218,16 @@ class SettingsDataStore @Inject constructor(
     }
 
     suspend fun setAiApiKey(value: String) {
-        dataStore.edit { prefs -> prefs[Keys.AI_API_KEY] = value }
+        withContext(Dispatchers.IO) {
+            credentialStore.saveSecret(AI_API_KEY_SECRET, value)
+            // Drop any stale plaintext entry left by older app versions.
+            try {
+                dataStore.edit { prefs -> prefs.remove(Keys.AI_API_KEY) }
+            } catch (_: Throwable) {
+                // Best-effort cleanup; ignore IO failures.
+            }
+        }
+        aiApiKeyState.value = value
     }
 
     suspend fun setAccentColorArgb(value: Long) {
@@ -195,6 +261,11 @@ class SettingsDataStore @Inject constructor(
         } else {
             throw throwable
         }
+    }
+
+    private companion object {
+        /** Key under which the Claude API key is stored in the encrypted [CredentialStore]. */
+        const val AI_API_KEY_SECRET = "ai_api_key"
     }
 }
 

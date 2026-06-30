@@ -95,6 +95,26 @@ class ArchiveManager @Inject constructor(
                     }
                     zip.putNextEntry(entry)
 
+                    // Empty/directory entries carry no content: write the entry and
+                    // advance without opening a FileInputStream (a directory cannot be
+                    // streamed → FileNotFoundException).
+                    if (source.entryName.endsWith("/") || source.file.isDirectory) {
+                        zip.closeEntry()
+                        processedItems += 1
+                        emit(
+                            FileOperationProgress(
+                                type = FileOperationType.COMPRESS,
+                                state = OperationState.RUNNING,
+                                processedItems = processedItems,
+                                totalItems = totalItems,
+                                processedBytes = processedBytes,
+                                totalBytes = totalBytes,
+                                currentFileName = source.file.name,
+                            ),
+                        )
+                        continue
+                    }
+
                     BufferedInputStream(FileInputStream(source.file)).use { input ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         while (true) {
@@ -613,7 +633,7 @@ class ArchiveManager @Inject constructor(
             return startBytes
         }
         outFile.parentFile?.mkdirs()
-        var written = startBytes
+        var written = 0L
         BufferedOutputStream(FileOutputStream(outFile)).use { output ->
             written = copyEntry(
                 input = input,
@@ -624,7 +644,9 @@ class ArchiveManager @Inject constructor(
                 processedItems = processedItems,
             )
         }
-        return written
+        // Return the cumulative total so the tar caller can assign it directly,
+        // consistent with the zip path's `processedBytes += copyEntry(...)`.
+        return startBytes + written
     }
 
     /** Emits the initial RUNNING snapshot for an extended-extraction backend. */

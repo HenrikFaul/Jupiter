@@ -165,9 +165,15 @@ class WebDavFileSource @Inject constructor(
         }
     }
 
-    /** Resolves the scheme: https when port 443, otherwise http. */
+    /**
+     * Resolves the scheme. WebDAV is HTTPS by default: deriving https solely from
+     * port == 443 would force HTTPS servers on custom ports (e.g. 8443) down to
+     * plaintext http and break them. [RemoteCredentials] carries no explicit TLS
+     * flag, so we treat https as the default and only fall back to plaintext http
+     * for the well-known cleartext port 80.
+     */
     private fun scheme(credentials: RemoteCredentials): String =
-        if (credentials.port == 443) "https" else "http"
+        if (credentials.port == 80) "http" else "https"
 
     /** Builds an absolute URL from host(+port) and an already-relative path. */
     private fun buildUrl(credentials: RemoteCredentials, relativePath: String): String {
@@ -280,7 +286,14 @@ class WebDavFileSource @Inject constructor(
                             if (inResponse) {
                                 val rawPath = href
                                 val entry = rawPath?.let {
-                                    buildEntry(it, displayName, contentLength, lastModified, isDirectory)
+                                    buildEntry(
+                                        it,
+                                        displayName,
+                                        contentLength,
+                                        lastModified,
+                                        isDirectory,
+                                        basePrefix,
+                                    )
                                 }
                                 if (entry != null && !isSelf(entry.path, basePrefix)) {
                                     results.add(entry)
@@ -302,9 +315,16 @@ class WebDavFileSource @Inject constructor(
         size: Long,
         lastModified: Long,
         isDirectory: Boolean,
+        basePrefix: String,
     ): RemoteEntry? {
         val decodedPath = hrefToPath(rawHref) ?: return null
-        val normalized = decodedPath.trimEnd('/').ifEmpty { "/" }
+        // The server returns server-absolute hrefs that include the WebDAV base
+        // path. Strip the base so the entry path is RELATIVE to the connection's
+        // base — exactly the form list()/download() accept (they re-join the base
+        // via joinPaths). Returning the full server-absolute path here would make
+        // those callers double-prepend the base and 404.
+        val relative = stripBasePrefix(decodedPath, basePrefix)
+        val normalized = relative.trimEnd('/').ifEmpty { "/" }
         val name = displayName?.takeIf { it.isNotBlank() }
             ?: normalized.substringAfterLast('/').ifEmpty { normalized }
         return RemoteEntry(
@@ -314,6 +334,23 @@ class WebDavFileSource @Inject constructor(
             sizeBytes = if (isDirectory) 0L else size,
             lastModified = lastModified,
         )
+    }
+
+    /**
+     * Removes [basePrefix] from the front of a server-absolute [path], yielding a
+     * path relative to the connection base. If [path] is not under the base (it
+     * already looks relative, or the prefix is the root) it is returned unchanged
+     * apart from leading-slash normalization.
+     */
+    private fun stripBasePrefix(path: String, basePrefix: String): String {
+        val normalizedPath = if (path.startsWith("/")) path else "/$path"
+        val base = basePrefix.trimEnd('/')
+        if (base.isEmpty() || base == "/") return normalizedPath
+        return when {
+            normalizedPath == base -> "/"
+            normalizedPath.startsWith("$base/") -> normalizedPath.substring(base.length)
+            else -> normalizedPath
+        }
     }
 
     /** Extracts the decoded path component from an href (which may be an absolute URL). */
@@ -334,9 +371,16 @@ class WebDavFileSource @Inject constructor(
         }
     }
 
-    /** True when [path] refers to the requested directory itself (so it's excluded). */
+    /**
+     * True when [path] refers to the requested directory itself (so it's excluded).
+     *
+     * Entry paths are now relative to the connection base, so the self entry
+     * collapses to the root "/". We still compare against [basePrefix] defensively
+     * in case an href could not be stripped (e.g. it had no base segment).
+     */
     private fun isSelf(path: String, basePrefix: String): Boolean {
         val a = path.trimEnd('/').ifEmpty { "/" }
+        if (a == "/") return true
         val b = basePrefix.trimEnd('/').ifEmpty { "/" }
         return a == b
     }

@@ -56,15 +56,14 @@ import com.jupiter.filemanager.ui.components.iconForFile
 /**
  * Vault screen.
  *
- * While locked it presents a lock icon and an "Unlock" button. Tapping it attempts a
- * [BiometricPrompt] authentication when the device supports it (and the hosting activity
- * is a [FragmentActivity]); otherwise it falls back to unlocking directly. Once unlocked
- * it shows the list of encrypted vault entries with an import affordance (the real file
- * picker is a placeholder for now) and per-item delete.
+ * While locked it presents a lock icon and an "Unlock" button. Tapping it requires a
+ * successful [BiometricPrompt] authentication (biometric or device credential) before the
+ * vault is unlocked. Once unlocked it shows the list of encrypted vault entries with an
+ * import affordance (the real file picker is a placeholder for now) and per-item delete.
  *
- * Biometric usage is strictly optional and defensive: any unavailability, missing
- * enrollment, or non-FragmentActivity host simply proceeds to unlock so the feature never
- * blocks access or crashes.
+ * Security note: authentication is mandatory. If the hosting activity is not a
+ * [FragmentActivity] (so no [BiometricPrompt] can be attached), the vault stays LOCKED and
+ * an error is surfaced rather than granting access without authentication.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -294,15 +293,13 @@ private fun VaultRow(
 }
 
 /**
- * Attempts biometric authentication before invoking [onAuthenticated].
+ * Requires successful authentication before invoking [onAuthenticated].
  *
- * Behavior is intentionally permissive and never blocks access on its own:
- *  - If the host is not a [FragmentActivity], or no biometric/device-credential method is
- *    available/enrolled, [onAuthenticated] is invoked immediately.
+ * Behavior:
+ *  - If the host is not a [FragmentActivity], no prompt can be shown: the vault stays
+ *    locked, an error is surfaced, and [onAuthenticated] is NOT invoked.
  *  - On a successful prompt, [onAuthenticated] is invoked.
  *  - On user cancellation, [onAuthenticated] is NOT invoked (the vault stays locked).
- *  - On a hard error (e.g. hardware unavailable), it falls back to [onAuthenticated] so the
- *    feature remains usable on devices without working biometrics.
  */
 private fun authenticateThenUnlock(
     context: Context,
@@ -310,8 +307,14 @@ private fun authenticateThenUnlock(
 ) {
     val activity = context.findFragmentActivity()
     if (activity == null) {
-        // No FragmentActivity host to attach a BiometricPrompt to; proceed.
-        onAuthenticated()
+        // No FragmentActivity host to attach a BiometricPrompt to. We CANNOT
+        // authenticate, so the vault MUST stay locked rather than silently
+        // granting access. Surface an error and return without unlocking.
+        Toast.makeText(
+            context,
+            "Cannot authenticate: secure unlock is unavailable on this screen. Vault stays locked.",
+            Toast.LENGTH_LONG,
+        ).show()
         return
     }
 
@@ -320,8 +323,14 @@ private fun authenticateThenUnlock(
         BiometricManager.Authenticators.DEVICE_CREDENTIAL
     val canAuthenticate = biometricManager.canAuthenticate(authenticators)
     if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
-        // No usable biometric/credential method; unlock directly.
-        onAuthenticated()
+        // No usable biometric/device-credential method (the device has no secure lock
+        // enrolled at all). There is no fallback we can trust, so keep the vault LOCKED
+        // instead of granting access without authentication.
+        Toast.makeText(
+            context,
+            "No device lock is set up. Add a screen lock to use the vault. Vault stays locked.",
+            Toast.LENGTH_LONG,
+        ).show()
         return
     }
 
@@ -335,19 +344,9 @@ private fun authenticateThenUnlock(
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                when (errorCode) {
-                    BiometricPrompt.ERROR_USER_CANCELED,
-                    BiometricPrompt.ERROR_NEGATIVE_BUTTON,
-                    BiometricPrompt.ERROR_CANCELED,
-                    -> {
-                        // User dismissed the prompt: keep the vault locked.
-                    }
-
-                    else -> {
-                        // Hardware/lockout error: degrade gracefully and unlock.
-                        onAuthenticated()
-                    }
-                }
+                // Any authentication error (cancellation, lockout, hardware) keeps the
+                // vault LOCKED. We never unlock without a successful authentication.
+                Toast.makeText(context, errString, Toast.LENGTH_SHORT).show()
             }
         },
     )
@@ -359,7 +358,14 @@ private fun authenticateThenUnlock(
         .build()
 
     runCatching { prompt.authenticate(promptInfo) }
-        .onFailure { onAuthenticated() }
+        .onFailure {
+            // Failed to even show the prompt: keep the vault locked.
+            Toast.makeText(
+                context,
+                "Unable to start authentication. Vault stays locked.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
 }
 
 /**

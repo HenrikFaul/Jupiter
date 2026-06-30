@@ -125,7 +125,37 @@ class FileOperationsManager @Inject constructor(
                     emit(failed(type, AppError.NotFound(item.path).displayMessage))
                     return@flow
                 }
-                val target = File(destinationDir, source.name)
+
+                // Guard against copying/moving an entry into its own location. Opening the same
+                // canonical path for read and write truncates the source to 0 bytes (and a MOVE
+                // would then delete it), so we must never plan such a transfer.
+                val sourceCanonical = source.canonicalFile
+                var target = File(destinationDir, source.name)
+                if (sourceCanonical == target.canonicalFile) {
+                    if (type == FileOperationType.COPY && !source.isDirectory) {
+                        // Same-directory copy: auto-rename so source and target differ.
+                        target = uniqueCopyTarget(destinationDir, source.name)
+                    } else {
+                        // Same-location move, or same-directory directory copy: reject cleanly.
+                        emit(
+                            failed(
+                                type,
+                                "Cannot ${type.name.lowercase()} \"${source.name}\" into its own location.",
+                            ),
+                        )
+                        return@flow
+                    }
+                } else if (source.isDirectory && isInside(sourceCanonical, target.canonicalFile)) {
+                    // Moving/copying a directory into itself (or a sub-path) would recurse forever
+                    // and destroy data; reject it.
+                    emit(
+                        failed(
+                            type,
+                            "Cannot ${type.name.lowercase()} folder \"${source.name}\" into itself.",
+                        ),
+                    )
+                    return@flow
+                }
                 totalBytes += planEntry(source, target, plan)
             }
         } catch (ce: CancellationException) {
@@ -258,36 +288,83 @@ class FileOperationsManager @Inject constructor(
         totalBytes: Long,
     ): Long {
         var cumulative = baseProcessedBytes
-        source.inputStream().buffered(BUFFER_SIZE).use { input ->
-            target.outputStream().buffered(BUFFER_SIZE).use { output ->
-                val buffer = ByteArray(BUFFER_SIZE)
-                while (true) {
-                    if (!currentCoroutineContext().isActive) {
-                        // Clean up the partial target and surrender cooperatively.
-                        throw CancellationException("Operation cancelled.")
+
+        // Final safety net: never open the same canonical path for read and write, which would
+        // truncate the source to 0 bytes. The planner already guards this, but a defensive check
+        // here prevents data loss should a same-path entry ever reach this far.
+        if (source.canonicalFile == target.canonicalFile) {
+            emit(
+                failed(type, "Cannot ${type.name.lowercase()} \"${source.name}\" onto itself."),
+            )
+            return cumulative
+        }
+
+        try {
+            source.inputStream().buffered(BUFFER_SIZE).use { input ->
+                target.outputStream().buffered(BUFFER_SIZE).use { output ->
+                    val buffer = ByteArray(BUFFER_SIZE)
+                    while (true) {
+                        if (!currentCoroutineContext().isActive) {
+                            // Surrender cooperatively; the partial target is cleaned up below.
+                            throw CancellationException("Operation cancelled.")
+                        }
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        cumulative += read
+                        emit(
+                            FileOperationProgress(
+                                type = type,
+                                state = OperationState.RUNNING,
+                                processedItems = processedItems,
+                                totalItems = totalItems,
+                                processedBytes = cumulative,
+                                totalBytes = totalBytes,
+                                currentFileName = source.name,
+                            ),
+                        )
                     }
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    cumulative += read
-                    emit(
-                        FileOperationProgress(
-                            type = type,
-                            state = OperationState.RUNNING,
-                            processedItems = processedItems,
-                            totalItems = totalItems,
-                            processedBytes = cumulative,
-                            totalBytes = totalBytes,
-                            currentFileName = source.name,
-                        ),
-                    )
+                    output.flush()
                 }
-                output.flush()
             }
+        } catch (ce: CancellationException) {
+            // Delete the partial destination so a cancelled copy/move leaves no half-written file.
+            runCatching { target.delete() }
+            throw ce
         }
         // Preserve last-modified timestamp where possible.
         runCatching { target.setLastModified(source.lastModified()) }
         return cumulative
+    }
+
+    /**
+     * Returns a destination [File] in [dir] whose name does not collide with an existing entry,
+     * derived from [name] by inserting " (copy)" (and " (copy N)" for further collisions) before
+     * the extension. Used for same-directory COPY so source and target never share a path.
+     */
+    private fun uniqueCopyTarget(dir: File, name: String): File {
+        val dotIndex = name.lastIndexOf('.')
+        val hasExtension = dotIndex > 0
+        val base = if (hasExtension) name.substring(0, dotIndex) else name
+        val extension = if (hasExtension) name.substring(dotIndex) else ""
+
+        var candidate = File(dir, "$base (copy)$extension")
+        var counter = 2
+        while (candidate.exists()) {
+            candidate = File(dir, "$base (copy $counter)$extension")
+            counter++
+        }
+        return candidate
+    }
+
+    /** True when [child] is the same as, or nested within, [parent] (both canonical paths). */
+    private fun isInside(parent: File, child: File): Boolean {
+        var current: File? = child
+        while (current != null) {
+            if (current == parent) return true
+            current = current.parentFile
+        }
+        return false
     }
 
     /**

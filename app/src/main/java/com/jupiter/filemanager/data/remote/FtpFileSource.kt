@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.apache.commons.net.ftp.FTP
 import org.apache.commons.net.ftp.FTPClient
+import org.apache.commons.net.ftp.FTPReply
 import org.apache.commons.net.ftp.FTPSClient
 
 /**
@@ -105,6 +106,20 @@ class FtpFileSource @Inject constructor(
                 throw java.io.IOException(
                     "FTP login failed (reply: ${client.replyString?.trim()})",
                 )
+            }
+
+            // For FTPS the control channel is already TLS after login, but the
+            // DATA channel is cleartext unless we negotiate protection. Without
+            // PBSZ 0 + PROT P every listing/transfer would travel unencrypted.
+            if (client is FTPSClient) {
+                client.execPBSZ(0)
+                client.execPROT("P")
+                if (!FTPReply.isPositiveCompletion(client.replyCode)) {
+                    throw java.io.IOException(
+                        "FTPS server rejected PROT P; refusing to use a cleartext data channel " +
+                            "(reply: ${client.replyString?.trim()})",
+                    )
+                }
             }
 
             client.enterLocalPassiveMode()

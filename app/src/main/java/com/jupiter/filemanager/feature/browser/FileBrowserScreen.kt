@@ -176,6 +176,11 @@ fun FileBrowserScreen(
     var actionTarget by remember { mutableStateOf<FileItem?>(null) }
     var renameTarget by remember { mutableStateOf<FileItem?>(null) }
 
+    // A pending permanent delete awaiting user confirmation. Holds a short
+    // human-readable summary of what would be deleted; the actual targets are the
+    // current ViewModel selection, which is established before the dialog is shown.
+    var deleteConfirmation by remember { mutableStateOf<DeleteConfirmation?>(null) }
+
     // Inline name search: toggled from the top bar, drives FilterOption.query.
     var searchActive by remember { mutableStateOf(false) }
 
@@ -221,7 +226,13 @@ fun FileBrowserScreen(
                 SelectionTopBar(
                     selectedCount = uiState.selectedPaths.size,
                     onClose = { viewModel.clearSelection() },
-                    onDelete = { viewModel.deleteSelected() },
+                    onDelete = {
+                        // Confirm before the (permanent) delete; the selection is
+                        // already established, so summarise it by count.
+                        deleteConfirmation = DeleteConfirmation(
+                            count = uiState.selectedPaths.size,
+                        )
+                    },
                     onCopy = {
                         // Ask the user where to copy to via a folder chooser; the
                         // selection is preserved until they confirm a destination.
@@ -466,6 +477,16 @@ fun FileBrowserScreen(
                     viewModel = viewModel,
                     onOpenFile = onOpenFile,
                     onRequestRename = { renameTarget = it },
+                    onRequestDelete = { item ->
+                        // Establish the selection first (the dialog confirms
+                        // against it), then surface the confirmation for this item.
+                        viewModel.enterSelection(item)
+                        deleteConfirmation = DeleteConfirmation(
+                            count = 1,
+                            name = item.name,
+                            fromSheet = true,
+                        )
+                    },
                     onRequestTransfer = { transfer -> pendingTransfer = transfer },
                     onCopyPath = onCopyPath,
                     onOpenWith = onOpenWith,
@@ -502,7 +523,33 @@ fun FileBrowserScreen(
                     TransferMode.MOVE -> viewModel.moveSelectedTo(destinationPath)
                 }
             },
-            onDismiss = { pendingTransfer = null },
+            onDismiss = {
+                pendingTransfer = null
+                // Sheet-initiated transfers entered selection mode up front; if the
+                // chooser is cancelled, leave selection mode so the screen isn't stuck.
+                if (transfer.fromSheet) {
+                    viewModel.clearSelection()
+                }
+            },
+        )
+    }
+
+    val pendingDelete = deleteConfirmation
+    if (pendingDelete != null) {
+        DeleteConfirmDialog(
+            confirmation = pendingDelete,
+            onConfirm = {
+                deleteConfirmation = null
+                viewModel.deleteSelected()
+            },
+            onDismiss = {
+                // Sheet-initiated single-item delete entered selection mode up front;
+                // if the user cancels, leave selection mode so the screen isn't stuck.
+                if (pendingDelete.fromSheet) {
+                    viewModel.clearSelection()
+                }
+                deleteConfirmation = null
+            },
         )
     }
 }
@@ -541,13 +588,71 @@ private fun openWithExternalApp(context: Context, item: FileItem) {
     }
 }
 
+/**
+ * A permanent delete awaiting user confirmation. The actual items to delete are
+ * the current ViewModel selection (established before the dialog is shown); this
+ * only carries what is needed to phrase the confirmation prompt.
+ *
+ * @property count number of items that would be deleted.
+ * @property name single item's name, when exactly one item is being deleted.
+ */
+private data class DeleteConfirmation(
+    val count: Int,
+    val name: String? = null,
+    // true when raised from the per-item actions sheet, which enters selection mode
+    // up front; cancelling must then leave selection mode so the screen isn't stuck.
+    val fromSheet: Boolean = false,
+)
+
+/**
+ * Confirmation dialog shown before a permanent delete, mirroring the
+ * [RenameDialog] presentation. Deletes are irreversible, so the listing is only
+ * removed when the user explicitly confirms here.
+ */
+@Composable
+private fun DeleteConfirmDialog(
+    confirmation: DeleteConfirmation,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val message = if (confirmation.count == 1 && confirmation.name != null) {
+        "Permanently delete \"" + confirmation.name + "\"? This cannot be undone."
+    } else {
+        "Permanently delete " + confirmation.count + " items? This cannot be undone."
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Delete") },
+        text = { Text(text = message) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = "Delete")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Cancel")
+            }
+        },
+    )
+}
+
 /** Whether a pending bulk transfer is a copy or a move. */
 private enum class TransferMode { COPY, MOVE }
 
-/** A copy/move awaiting a user-chosen destination folder. */
+/**
+ * A copy/move awaiting a user-chosen destination folder.
+ *
+ * @property fromSheet true when the transfer was started from the per-item
+ *   actions sheet, which calls [FileBrowserViewModel.enterSelection] up front. In
+ *   that case cancelling the destination chooser must clear the selection again
+ *   so the screen does not get stuck in selection mode. Transfers started from
+ *   the selection top bar (false) leave the existing selection untouched.
+ */
 private data class PendingTransfer(
     val mode: TransferMode,
     val startPath: String,
+    val fromSheet: Boolean = false,
 )
 
 /**
@@ -560,6 +665,7 @@ private fun handleFileAction(
     viewModel: FileBrowserViewModel,
     onOpenFile: (FileItem) -> Unit,
     onRequestRename: (FileItem) -> Unit,
+    onRequestDelete: (FileItem) -> Unit,
     onRequestTransfer: (PendingTransfer) -> Unit,
     onCopyPath: (FileItem) -> Unit,
     onOpenWith: (FileItem) -> Unit,
@@ -571,10 +677,7 @@ private fun handleFileAction(
         FileAction.OPEN_WITH -> onOpenWith(item)
         FileAction.COPY_PATH -> onCopyPath(item)
         FileAction.RENAME -> onRequestRename(item)
-        FileAction.DELETE -> {
-            viewModel.enterSelection(item)
-            viewModel.deleteSelected()
-        }
+        FileAction.DELETE -> onRequestDelete(item)
         FileAction.COPY -> {
             // Select the item, then ask the user to choose a destination folder.
             viewModel.enterSelection(item)
@@ -582,6 +685,7 @@ private fun handleFileAction(
                 PendingTransfer(
                     mode = TransferMode.COPY,
                     startPath = item.parentPath ?: item.path,
+                    fromSheet = true,
                 ),
             )
         }
@@ -591,6 +695,7 @@ private fun handleFileAction(
                 PendingTransfer(
                     mode = TransferMode.MOVE,
                     startPath = item.parentPath ?: item.path,
+                    fromSheet = true,
                 ),
             )
         }

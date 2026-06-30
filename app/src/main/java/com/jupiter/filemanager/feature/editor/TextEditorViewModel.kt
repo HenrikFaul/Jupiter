@@ -107,7 +107,11 @@ class TextEditorViewModel @Inject constructor(
                     val tooLarge = length > MAX_BYTES
                     val bytes = readBounded(file)
 
-                    val decoded = decodeUtf8(bytes)
+                    // When the read was truncated at the byte cap it may have sliced a
+                    // multi-byte UTF-8 sequence in half; a strict decode of that trailing
+                    // partial char would (wrongly) report the whole file as binary. Trim
+                    // back to the last complete UTF-8 sequence before decoding.
+                    val decoded = decodeUtf8(if (tooLarge) trimToLastCompleteUtf8(bytes) else bytes)
                     val writable = file.canWrite()
 
                     val readOnly = tooLarge || !decoded.isText || !writable
@@ -223,6 +227,46 @@ class TextEditorViewModel @Inject constructor(
     }
 
     /**
+     * Returns [bytes] trimmed so it does not end in the middle of a multi-byte UTF-8
+     * sequence.
+     *
+     * Used after a length-bounded read that may have sliced a character at the cap: a
+     * trailing partial sequence would otherwise make a strict UTF-8 decode fail and the
+     * file be mislabeled as binary. Scans back over the trailing continuation bytes
+     * (`10xxxxxx`) to the lead byte; if the sequence that lead byte announces does not fit
+     * within the buffer, the incomplete tail is dropped. ASCII-only or already-complete
+     * buffers are returned unchanged.
+     */
+    private fun trimToLastCompleteUtf8(bytes: ByteArray): ByteArray {
+        if (bytes.isEmpty()) return bytes
+
+        // Walk back over continuation bytes (0x80..0xBF) to the lead byte of the final
+        // sequence. Cap the walk at 3 (longest UTF-8 sequence is 4 bytes => 3 trailers).
+        var i = bytes.size - 1
+        var continuations = 0
+        while (i >= 0 && (bytes[i].toInt() and 0xC0) == 0x80 && continuations < 3) {
+            i--
+            continuations++
+        }
+        if (i < 0) return bytes // all continuation bytes: malformed, leave for strict decode
+
+        val lead = bytes[i].toInt() and 0xFF
+        val expectedLen = when {
+            lead and 0x80 == 0x00 -> 1 // 0xxxxxxx ASCII
+            lead and 0xE0 == 0xC0 -> 2 // 110xxxxx
+            lead and 0xF0 == 0xE0 -> 3 // 1110xxxx
+            lead and 0xF8 == 0xF0 -> 4 // 11110xxx
+            else -> 0 // not a valid lead byte; leave as-is for strict decode to judge
+        }
+        if (expectedLen == 0) return bytes
+
+        val haveLen = continuations + 1
+        // If the final sequence is incomplete (announced longer than what we have), drop
+        // it; otherwise the buffer already ends on a complete sequence.
+        return if (haveLen < expectedLen) bytes.copyOf(i) else bytes
+    }
+
+    /**
      * Strictly decodes [bytes] as UTF-8.
      *
      * Returns [Decoded.isText] = true only when the bytes contain no NUL byte and form a
@@ -252,8 +296,8 @@ class TextEditorViewModel @Inject constructor(
 
     /** Builds the non-fatal advisory shown above the editor, or null when there is none. */
     private fun buildNotice(tooLarge: Boolean, isText: Boolean, writable: Boolean): String? = when {
-        !isText -> "This file does not appear to be UTF-8 text. Opened read-only."
         tooLarge -> "File is larger than 512 KB; showing the first 512 KB read-only."
+        !isText -> "This file does not appear to be UTF-8 text. Opened read-only."
         !writable -> "This file is read-only."
         else -> null
     }

@@ -84,7 +84,7 @@ class MediaQualityProbe @Inject constructor(
                 kind = QualityKind.IMAGE,
                 sizeBytes = sizeBytes,
                 label = "",
-                score = sizeBytes,
+                score = 0L,
             )
         }
 
@@ -122,7 +122,7 @@ class MediaQualityProbe @Inject constructor(
                 kind = QualityKind.VIDEO,
                 sizeBytes = sizeBytes,
                 label = "",
-                score = sizeBytes,
+                score = 0L,
             )
         }
 
@@ -167,7 +167,7 @@ class MediaQualityProbe @Inject constructor(
                 durationMs = durationMs,
                 sizeBytes = sizeBytes,
                 label = "",
-                score = sizeBytes,
+                score = 0L,
             )
         }
 
@@ -191,7 +191,7 @@ class MediaQualityProbe @Inject constructor(
             kind = QualityKind.OTHER,
             sizeBytes = sizeBytes,
             label = "",
-            score = sizeBytes,
+            score = 0L,
         )
 
     private fun safeSize(path: String): Long =
