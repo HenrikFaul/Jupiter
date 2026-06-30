@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.cleanup
 
+import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.domain.model.MergeRecommendation
 
 /**
@@ -15,6 +16,8 @@ import com.jupiter.filemanager.domain.model.MergeRecommendation
  * @param keepSelections per-group override of which path to keep, keyed by the
  *   group's content hash. When a hash is absent the recommendation's
  *   [MergeRecommendation.recommendedKeepPath] is used.
+ * @param qualities probed media-quality info keyed by file path, used to rank
+ *   copies and surface a human-readable quality label under each file.
  * @param isMerging whether a merge (delete-the-rest) operation is running.
  * @param errorMessage a transient error message to surface, or null.
  * @param infoMessage a transient informational message (e.g. after a merge), or null.
@@ -23,6 +26,7 @@ data class SmartMergeUiState(
     val isScanning: Boolean = false,
     val recommendations: List<MergeRecommendation> = emptyList(),
     val keepSelections: Map<String, String> = emptyMap(),
+    val qualities: Map<String, MediaQuality> = emptyMap(),
     val isMerging: Boolean = false,
     val errorMessage: String? = null,
     val infoMessage: String? = null,
@@ -47,4 +51,8 @@ data class SmartMergeUiState(
      */
     fun keepPathFor(groupHash: String, recommendedKeepPath: String): String =
         keepSelections[groupHash] ?: recommendedKeepPath
+
+    /** Returns the probed quality label for [path], or an empty string if none. */
+    fun qualityLabelFor(path: String): String =
+        qualities[path]?.label.orEmpty()
 }

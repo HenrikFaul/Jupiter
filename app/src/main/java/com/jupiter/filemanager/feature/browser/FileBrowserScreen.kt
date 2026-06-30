@@ -1,6 +1,9 @@
 package com.jupiter.filemanager.feature.browser
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -73,11 +76,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,6 +113,8 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * The file browser screen: lists the contents of a directory, supports
@@ -145,6 +153,21 @@ fun FileBrowserScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Handles used by the per-item actions (copy path to clipboard, open with an
+    // external app). The clipboard manager and context are read here at the
+    // composable scope; the coroutine scope drives the snackbar feedback.
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
+    val onCopyPath: (FileItem) -> Unit = { item ->
+        clipboardManager.setText(AnnotatedString(item.path))
+        scope.launch { snackbarHostState.showSnackbar("Path copied") }
+    }
+    val onOpenWith: (FileItem) -> Unit = { item ->
+        openWithExternalApp(context, item)
+    }
 
     // Transient UI controllers (dialogs/sheets) kept local to the screen.
     var showSortSheet by remember { mutableStateOf(false) }
@@ -444,6 +467,8 @@ fun FileBrowserScreen(
                     onOpenFile = onOpenFile,
                     onRequestRename = { renameTarget = it },
                     onRequestTransfer = { transfer -> pendingTransfer = transfer },
+                    onCopyPath = onCopyPath,
+                    onOpenWith = onOpenWith,
                 )
             },
             onDismiss = { actionTarget = null },
@@ -482,6 +507,40 @@ fun FileBrowserScreen(
     }
 }
 
+/**
+ * Launches an external app via [Intent.ACTION_VIEW] for [item], exposing it
+ * through a [FileProvider] content URI (authority = applicationId +
+ * ".fileprovider"). The item's mime type is used (falling back to a wildcard),
+ * read permission is granted to receiving apps, and the intent is wrapped in a
+ * chooser. All failures are swallowed so the UI never crashes when no handler
+ * exists or the path lies outside the configured FileProvider roots.
+ */
+private fun openWithExternalApp(context: Context, item: FileItem) {
+    try {
+        val authority = context.packageName + ".fileprovider"
+        val uri: Uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            authority,
+            File(item.path),
+        )
+        val mime = item.mimeType ?: "*/*"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(
+            Intent.createChooser(intent, "Open with").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
+    } catch (_: ActivityNotFoundException) {
+        // No app can handle this file; nothing else we can do from here.
+    } catch (_: IllegalArgumentException) {
+        // FileProvider couldn't map the path (outside configured roots); ignore.
+    }
+}
+
 /** Whether a pending bulk transfer is a copy or a move. */
 private enum class TransferMode { COPY, MOVE }
 
@@ -502,11 +561,15 @@ private fun handleFileAction(
     onOpenFile: (FileItem) -> Unit,
     onRequestRename: (FileItem) -> Unit,
     onRequestTransfer: (PendingTransfer) -> Unit,
+    onCopyPath: (FileItem) -> Unit,
+    onOpenWith: (FileItem) -> Unit,
 ) {
     when (action) {
         FileAction.OPEN -> {
             if (item.isDirectory) viewModel.openDirectory(item.path) else onOpenFile(item)
         }
+        FileAction.OPEN_WITH -> onOpenWith(item)
+        FileAction.COPY_PATH -> onCopyPath(item)
         FileAction.RENAME -> onRequestRename(item)
         FileAction.DELETE -> {
             viewModel.enterSelection(item)

@@ -53,6 +53,8 @@ enum class FileAction {
     COMPRESS,
     DETAILS,
     ADD_BOOKMARK,
+    COPY_PATH,
+    OPEN_WITH,
 }
 
 /**
@@ -198,10 +200,12 @@ private fun ActionRow(
 private fun actionsFor(item: FileItem): List<FileAction> = buildList {
     if (!item.isDirectory) {
         add(FileAction.OPEN)
+        add(FileAction.OPEN_WITH)
         add(FileAction.SHARE)
     }
     add(FileAction.RENAME)
     add(FileAction.COPY)
+    add(FileAction.COPY_PATH)
     add(FileAction.MOVE)
     add(FileAction.COMPRESS)
     add(FileAction.ADD_BOOKMARK)
@@ -229,6 +233,8 @@ private fun iconFor(action: FileAction): ImageVector = when (action) {
     FileAction.COMPRESS -> Icons.Filled.FolderZip
     FileAction.DETAILS -> Icons.Filled.Info
     FileAction.ADD_BOOKMARK -> Icons.Filled.BookmarkAdd
+    FileAction.COPY_PATH -> Icons.Filled.ContentCopy
+    FileAction.OPEN_WITH -> Icons.Filled.OpenInNew
 }
 
 private fun labelFor(action: FileAction): String = when (action) {
@@ -241,4 +247,6 @@ private fun labelFor(action: FileAction): String = when (action) {
     FileAction.COMPRESS -> "Compress"
     FileAction.DETAILS -> "Details"
     FileAction.ADD_BOOKMARK -> "Add bookmark"
+    FileAction.COPY_PATH -> "Copy path"
+    FileAction.OPEN_WITH -> "Open with…"
 }

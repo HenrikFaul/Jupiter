@@ -2,7 +2,9 @@ package com.jupiter.filemanager.feature.cleanup
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiter.filemanager.data.media.MediaQualityProbe
 import com.jupiter.filemanager.domain.model.DuplicateGroup
+import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -22,10 +24,15 @@ import javax.inject.Inject
  * files (real data via [StorageAnalyticsRepository.findDuplicates]), lets the
  * user select redundant copies to remove, and deletes them on a background
  * dispatcher.
+ *
+ * It additionally probes each discovered file's intrinsic media quality via
+ * [MediaQualityProbe] (off the main thread) so the UI can show a per-file
+ * quality label.
  */
 @HiltViewModel
 class DuplicatesViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
+    private val mediaQualityProbe: MediaQualityProbe,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DuplicatesUiState())
@@ -47,6 +54,7 @@ class DuplicatesViewModel @Inject constructor(
                         isScanning = true,
                         groups = emptyList(),
                         selectedPaths = emptySet(),
+                        qualities = emptyMap(),
                         errorMessage = null,
                         infoMessage = null,
                     )
@@ -66,8 +74,27 @@ class DuplicatesViewModel @Inject constructor(
                     if (group.files.size > 1) {
                         collected.add(group)
                         _uiState.value = _uiState.value.copy(groups = collected.toList())
+                        probeGroup(group)
                     }
                 }
+        }
+    }
+
+    /**
+     * Probes media quality for every file in a freshly discovered [group] on a
+     * background dispatcher and merges the results into UI state. Never throws;
+     * the probe itself guards each file and falls back to a safe empty quality.
+     */
+    private fun probeGroup(group: DuplicateGroup) {
+        val paths = group.files.map { it.path }
+        if (paths.isEmpty()) return
+        viewModelScope.launch {
+            val probed: Map<String, MediaQuality> = mediaQualityProbe.probeAll(paths)
+            if (probed.isNotEmpty()) {
+                _uiState.value = _uiState.value.copy(
+                    qualities = _uiState.value.qualities + probed,
+                )
+            }
         }
     }
 
@@ -99,6 +126,11 @@ class DuplicatesViewModel @Inject constructor(
     /** Dismisses any transient error or info message. */
     fun dismissMessage() {
         _uiState.value = _uiState.value.copy(errorMessage = null, infoMessage = null)
+    }
+
+    /** Surfaces a transient informational message (e.g. "Path copied"). */
+    fun notify(message: String) {
+        _uiState.value = _uiState.value.copy(infoMessage = message)
     }
 
     /**
@@ -144,6 +176,7 @@ class DuplicatesViewModel @Inject constructor(
                 isDeleting = false,
                 groups = remainingGroups,
                 selectedPaths = _uiState.value.selectedPaths - deleted,
+                qualities = _uiState.value.qualities - deleted,
                 errorMessage = if (deleted.isEmpty()) message else null,
                 infoMessage = if (deleted.isEmpty()) null else message,
             )

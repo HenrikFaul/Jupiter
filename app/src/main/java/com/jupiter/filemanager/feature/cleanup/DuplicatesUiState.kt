@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.feature.cleanup
 
 import com.jupiter.filemanager.domain.model.DuplicateGroup
+import com.jupiter.filemanager.domain.model.MediaQuality
 
 /**
  * Immutable UI state for the Duplicates screen.
@@ -8,6 +9,8 @@ import com.jupiter.filemanager.domain.model.DuplicateGroup
  * @param isScanning whether a duplicate scan is currently in progress.
  * @param groups duplicate groups discovered so far, newest results last.
  * @param selectedPaths absolute paths the user has marked for deletion.
+ * @param qualities probed media-quality info keyed by absolute file path; used
+ *   to render a per-file quality label. Missing entries simply render no label.
  * @param isDeleting whether a delete operation is currently running.
  * @param errorMessage a transient error message to surface, or null.
  * @param infoMessage a transient informational message (e.g. after a delete), or null.
@@ -16,6 +19,7 @@ data class DuplicatesUiState(
     val isScanning: Boolean = false,
     val groups: List<DuplicateGroup> = emptyList(),
     val selectedPaths: Set<String> = emptySet(),
+    val qualities: Map<String, MediaQuality> = emptyMap(),
     val isDeleting: Boolean = false,
     val errorMessage: String? = null,
     val infoMessage: String? = null,

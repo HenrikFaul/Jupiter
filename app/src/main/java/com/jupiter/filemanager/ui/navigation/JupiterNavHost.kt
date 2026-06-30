@@ -268,12 +268,14 @@ fun JupiterNavHost(
 
         composable(route = Destination.Duplicates.route) {
             DuplicatesScreen(
+                onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
             )
         }
 
         composable(route = Destination.SmartMerge.route) {
             SmartMergeScreen(
+                onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
             )
         }

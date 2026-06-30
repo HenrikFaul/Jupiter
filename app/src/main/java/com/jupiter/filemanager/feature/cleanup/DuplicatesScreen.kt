@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.cleanup
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,6 +59,7 @@ import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.iconForFile
@@ -65,16 +69,22 @@ import kotlinx.coroutines.launch
  * Lists duplicate file groups detected on the primary storage volume. Each group
  * shows its files, the user can select redundant copies to delete, and a
  * confirmation dialog guards the destructive action.
+ *
+ * Tapping a file row opens it via [onOpenFile]; a trailing copy icon copies the
+ * file's absolute path to the clipboard. Each row also surfaces a probed
+ * media-quality label when available.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DuplicatesScreen(
+    onOpenFile: (FileItem) -> Unit,
     onBack: () -> Unit,
     viewModel: DuplicatesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
     var showConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.errorMessage, state.infoMessage) {
@@ -163,7 +173,13 @@ fun DuplicatesScreen(
                             DuplicateGroupCard(
                                 group = group,
                                 selectedPaths = state.selectedPaths,
+                                qualities = state.qualities,
                                 onToggle = viewModel::toggleSelection,
+                                onOpenFile = onOpenFile,
+                                onCopyPath = { path ->
+                                    clipboardManager.setText(AnnotatedString(path))
+                                    viewModel.notify("Path copied")
+                                },
                             )
                         }
                     }
@@ -253,7 +269,10 @@ private fun SummaryCard(
 private fun DuplicateGroupCard(
     group: DuplicateGroup,
     selectedPaths: Set<String>,
+    qualities: Map<String, MediaQuality>,
     onToggle: (String) -> Unit,
+    onOpenFile: (FileItem) -> Unit,
+    onCopyPath: (String) -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -288,7 +307,10 @@ private fun DuplicateGroupCard(
                     file = file,
                     isKept = index == 0,
                     isSelected = file.path in selectedPaths,
+                    quality = qualities[file.path],
                     onToggle = { onToggle(file.path) },
+                    onOpen = { onOpenFile(file) },
+                    onCopyPath = { onCopyPath(file.path) },
                 )
                 if (index != group.files.lastIndex) {
                     HorizontalDivider(
@@ -306,11 +328,15 @@ private fun DuplicateFileRow(
     file: FileItem,
     isKept: Boolean,
     isSelected: Boolean,
+    quality: MediaQuality?,
     onToggle: () -> Unit,
+    onOpen: () -> Unit,
+    onCopyPath: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onOpen)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -352,6 +378,16 @@ private fun DuplicateFileRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val qualityLabel = quality?.label?.takeIf { it.isNotBlank() }
+            if (qualityLabel != null) {
+                Text(
+                    text = qualityLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
                 text = file.path,
                 style = MaterialTheme.typography.labelSmall,
@@ -361,6 +397,14 @@ private fun DuplicateFileRow(
             )
         }
         Spacer(modifier = Modifier.width(8.dp))
+        IconButton(onClick = onCopyPath) {
+            Icon(
+                imageVector = Icons.Outlined.ContentCopy,
+                contentDescription = "Copy path",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
         Checkbox(
             checked = isSelected,
             onCheckedChange = { onToggle() },

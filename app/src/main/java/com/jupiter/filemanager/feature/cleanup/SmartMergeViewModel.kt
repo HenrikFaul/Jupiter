@@ -2,8 +2,10 @@ package com.jupiter.filemanager.feature.cleanup
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiter.filemanager.data.media.MediaQualityProbe
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.domain.model.MergeRecommendation
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,14 +26,16 @@ import javax.inject.Inject
  *
  * Scans the primary storage root for real duplicate groups via
  * [StorageAnalyticsRepository.findDuplicates] and converts each group into a
- * [MergeRecommendation]. The recommended copy to keep is the newest file in the
- * group (falling back to the first one), and the remaining copies are marked as
- * removable. The user can override which copy to keep per group, and applying
- * the merge deletes the non-kept copies on a background dispatcher.
+ * [MergeRecommendation]. Each group's files are probed for intrinsic media
+ * quality with [MediaQualityProbe], and the recommended copy to keep is the
+ * highest-quality one (ties broken by larger size, then most recent
+ * modification). The user can override which copy to keep per group, and
+ * applying the merge deletes the non-kept copies on a background dispatcher.
  */
 @HiltViewModel
 class SmartMergeViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
+    private val qualityProbe: MediaQualityProbe,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SmartMergeUiState())
@@ -47,12 +51,14 @@ class SmartMergeViewModel @Inject constructor(
             val root = android.os.Environment.getExternalStorageDirectory()?.absolutePath
                 ?: "/storage/emulated/0"
             val collected = mutableListOf<MergeRecommendation>()
+            val qualities = mutableMapOf<String, MediaQuality>()
             analyticsRepository.findDuplicates(root)
                 .onStart {
                     _uiState.value = _uiState.value.copy(
                         isScanning = true,
                         recommendations = emptyList(),
                         keepSelections = emptyMap(),
+                        qualities = emptyMap(),
                         errorMessage = null,
                         infoMessage = null,
                     )
@@ -70,8 +76,15 @@ class SmartMergeViewModel @Inject constructor(
                 }
                 .collect { group ->
                     if (group.files.size > 1) {
-                        collected.add(buildRecommendation(group))
-                        _uiState.value = _uiState.value.copy(recommendations = collected.toList())
+                        // Probe quality for this group's files (off-main), then
+                        // build a quality-ranked recommendation from it.
+                        val groupQualities = qualityProbe.probeAll(group.files.map { it.path })
+                        qualities.putAll(groupQualities)
+                        collected.add(buildRecommendation(group, qualities))
+                        _uiState.value = _uiState.value.copy(
+                            recommendations = collected.toList(),
+                            qualities = qualities.toMap(),
+                        )
                     }
                 }
         }
@@ -124,6 +137,8 @@ class SmartMergeViewModel @Inject constructor(
                 deletedPaths to failures
             }
 
+            val qualities = _uiState.value.qualities
+
             // Rebuild recommendations from what survived; drop fully-merged groups.
             val remaining = _uiState.value.recommendations
                 .mapNotNull { rec ->
@@ -131,7 +146,7 @@ class SmartMergeViewModel @Inject constructor(
                     if (survivors.size <= 1) {
                         null
                     } else {
-                        buildRecommendation(rec.group.copy(files = survivors))
+                        buildRecommendation(rec.group.copy(files = survivors), qualities)
                     }
                 }
 
@@ -148,6 +163,9 @@ class SmartMergeViewModel @Inject constructor(
                 keepSelections = _uiState.value.keepSelections.filterKeys { hash ->
                     remaining.any { it.group.hash == hash }
                 },
+                qualities = qualities.filterKeys { path ->
+                    path !in deleted
+                },
                 errorMessage = if (deleted.isEmpty()) message else null,
                 infoMessage = if (deleted.isEmpty()) null else message,
             )
@@ -155,11 +173,18 @@ class SmartMergeViewModel @Inject constructor(
     }
 
     /**
-     * Builds a [MergeRecommendation] for [group], recommending that the newest
-     * file (most recently modified) be kept and the rest removed.
+     * Builds a [MergeRecommendation] for [group], recommending that the
+     * highest-quality copy be kept and the rest removed.
+     *
+     * Files are ranked by probed [MediaQuality.score] (desc), then on-disk size
+     * (desc), then last-modified time (desc), so the best available copy wins.
      */
-    private fun buildRecommendation(group: DuplicateGroup): MergeRecommendation {
-        val keep: FileItem = group.files.maxByOrNull { it.lastModified } ?: group.files.first()
+    private fun buildRecommendation(
+        group: DuplicateGroup,
+        qualities: Map<String, MediaQuality>,
+    ): MergeRecommendation {
+        val keep: FileItem = group.files.maxWithOrNull(qualityComparator(qualities))
+            ?: group.files.first()
         val removable = group.files.map { it.path }.filter { it != keep.path }
         return MergeRecommendation(
             group = group,
@@ -167,4 +192,13 @@ class SmartMergeViewModel @Inject constructor(
             removablePaths = removable,
         )
     }
+
+    /**
+     * Orders [FileItem]s so the "best" copy is greatest: highest quality score
+     * first, then largest size, then most recently modified.
+     */
+    private fun qualityComparator(qualities: Map<String, MediaQuality>): Comparator<FileItem> =
+        compareBy<FileItem> { qualities[it.path]?.score ?: 0L }
+            .thenBy { it.sizeBytes }
+            .thenBy { it.lastModified }
 }

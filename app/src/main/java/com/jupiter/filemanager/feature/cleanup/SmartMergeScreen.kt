@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.cleanup
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,11 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AutoFixHigh
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
@@ -47,6 +48,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,19 +66,22 @@ import kotlinx.coroutines.launch
 
 /**
  * Smart Merge screen: for each detected duplicate group, recommends keeping a
- * single "best" copy and removing the rest. The user can change which copy to
- * keep per group, then apply the merge to reclaim space. All data is real,
- * derived from [StorageAnalyticsRepository.findDuplicates].
+ * single "best" copy (the highest-quality one) and removing the rest. The user
+ * can change which copy to keep per group, open a copy to inspect it, copy its
+ * path, then apply the merge to reclaim space. All data is real, derived from
+ * [StorageAnalyticsRepository.findDuplicates] and probed media quality.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartMergeScreen(
+    onOpenFile: (FileItem) -> Unit,
     onBack: () -> Unit,
     viewModel: SmartMergeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
     var showConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.errorMessage, state.infoMessage) {
@@ -162,8 +168,14 @@ fun SmartMergeScreen(
                                     recommendation.group.hash,
                                     recommendation.recommendedKeepPath,
                                 ),
+                                qualityLabel = { path -> state.qualityLabelFor(path) },
                                 onSelectKeep = { path ->
                                     viewModel.selectKeep(recommendation.group.hash, path)
+                                },
+                                onOpenFile = onOpenFile,
+                                onCopyPath = { path ->
+                                    clipboardManager.setText(AnnotatedString(path))
+                                    scope.launch { snackbarHostState.showSnackbar("Path copied") }
                                 },
                             )
                         }
@@ -259,7 +271,10 @@ private fun SummaryCard(
 private fun MergeGroupCard(
     recommendation: MergeRecommendation,
     keepPath: String,
+    qualityLabel: (String) -> String,
     onSelectKeep: (String) -> Unit,
+    onOpenFile: (FileItem) -> Unit,
+    onCopyPath: (String) -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -289,7 +304,7 @@ private fun MergeGroupCard(
                 )
             }
             Text(
-                text = "Choose the copy to keep — the rest will be removed.",
+                text = "Keeping the best-quality copy — the rest will be removed.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -299,7 +314,11 @@ private fun MergeGroupCard(
                 MergeFileRow(
                     file = file,
                     isKept = file.path == keepPath,
+                    isRecommended = file.path == recommendation.recommendedKeepPath,
+                    qualityLabel = qualityLabel(file.path),
                     onSelect = { onSelectKeep(file.path) },
+                    onOpen = { onOpenFile(file) },
+                    onCopyPath = { onCopyPath(file.path) },
                 )
                 if (index != recommendation.group.files.lastIndex) {
                     HorizontalDivider(
@@ -316,12 +335,15 @@ private fun MergeGroupCard(
 private fun MergeFileRow(
     file: FileItem,
     isKept: Boolean,
+    isRecommended: Boolean,
+    qualityLabel: String,
     onSelect: () -> Unit,
+    onOpen: () -> Unit,
+    onCopyPath: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .selectable(selected = isKept, onClick = onSelect)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -345,7 +367,11 @@ private fun MergeFileRow(
             }
         }
         Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onOpen),
+        ) {
             Text(
                 text = file.name,
                 style = MaterialTheme.typography.bodyMedium,
@@ -354,13 +380,20 @@ private fun MergeFileRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = if (isKept) {
-                    "Keeping this copy • ${formatBytes(file.sizeBytes)}"
-                } else {
-                    "${formatBytes(file.sizeBytes)} • ${formatRelativeTime(file.lastModified)}"
+                text = buildString {
+                    if (isKept) {
+                        append("Keeping this copy")
+                    } else {
+                        append(formatRelativeTime(file.lastModified))
+                    }
+                    append(" • ")
+                    append(formatBytes(file.sizeBytes))
+                    if (isRecommended && !isKept) {
+                        append(" • Recommended")
+                    }
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isKept) {
+                color = if (isKept || isRecommended) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -368,12 +401,29 @@ private fun MergeFileRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (qualityLabel.isNotEmpty()) {
+                Text(
+                    text = qualityLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
                 text = file.path,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        IconButton(onClick = onCopyPath) {
+            Icon(
+                imageVector = Icons.Outlined.ContentCopy,
+                contentDescription = "Copy path",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
