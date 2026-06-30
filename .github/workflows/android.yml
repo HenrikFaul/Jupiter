@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -81,6 +81,26 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: warn
           retention-days: 30
+
+      # ---- Publish a public, one-click download (GitHub Release) -------------
+      # Rolling "build-latest" release so the download URL is permanent:
+      #   https://github.com/HenrikFaul/Jupiter/releases/download/build-latest/app-debug.apk
+      # Runs only on branch pushes (PR builds from forks lack write token).
+      - name: Publish APKs to GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-latest
+          name: Jupiter — latest build (${{ github.sha }})
+          body: |
+            Automated build of `${{ github.ref_name }}` @ `${{ github.sha }}`.
+            - **app-debug.apk** — installable, recommended.
+            - **app-release.apk** — R8-minified (present when the release build succeeds).
+          prerelease: true
+          fail_on_unmatched_files: false
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
 
   unit-tests:
     name: Unit tests
