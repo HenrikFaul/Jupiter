@@ -3,6 +3,7 @@ package com.jupiter.filemanager.feature.browser
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,28 +13,35 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
@@ -46,12 +54,14 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -68,6 +78,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -107,6 +118,16 @@ import dagger.hilt.components.SingletonComponent
  * screen decides, on row click, whether to descend into a directory or open a
  * file via [onOpenFile].
  *
+ * In addition to the core listing the screen exposes three structural controls,
+ * all driven from the ViewModel/UiState:
+ *  - a **view-mode toggle** (list / grid) in the top bar and listing header
+ *    ([FileBrowserViewModel.toggleViewMode]);
+ *  - a horizontal **browser tab row** ([BrowserTabRow]) for switching/closing
+ *    open directories and opening new tabs;
+ *  - a collapsible **folder tree panel** ([FolderTreePanel]) that mirrors the
+ *    path hierarchy of the current volume and lets the user jump to any ancestor
+ *    or expandable child directory.
+ *
  * @param initialPath the directory to open first; ignored here because the
  *   ViewModel already resolves it from its [androidx.lifecycle.SavedStateHandle].
  * @param onOpenFile invoked when a non-directory item is tapped.
@@ -135,9 +156,9 @@ fun FileBrowserScreen(
     // Inline name search: toggled from the top bar, drives FilterOption.query.
     var searchActive by remember { mutableStateOf(false) }
 
-    // List vs. grid presentation of the directory listing. Kept screen-local so
-    // it never has to round-trip through the ViewModel/UiState.
-    var gridMode by remember { mutableStateOf(false) }
+    // Whether the directory listing renders as a grid is now ViewModel-owned so
+    // it survives tab switches and configuration changes.
+    val gridMode = uiState.viewMode == ViewMode.GRID
 
     // A pending copy/move that is waiting for the user to pick a destination
     // folder. The selection in [uiState] is left intact while the chooser is
@@ -153,7 +174,8 @@ fun FileBrowserScreen(
         }
     }
 
-    // System back: close search, leave selection, else go up a directory, else exit.
+    // System back: close search, collapse tree, leave selection, else go up a
+    // directory, else exit.
     BackHandler(enabled = true) {
         when {
             searchActive -> {
@@ -162,6 +184,7 @@ fun FileBrowserScreen(
                     viewModel.setFilter(uiState.filter.copy(query = ""))
                 }
             }
+            uiState.treeExpanded -> viewModel.toggleTree()
             uiState.selectionMode -> viewModel.clearSelection()
             uiState.canNavigateUp -> viewModel.navigateUp()
             else -> onBack()
@@ -196,6 +219,8 @@ fun FileBrowserScreen(
                     title = currentFolderTitle(uiState.currentPath),
                     searchActive = searchActive,
                     searchQuery = uiState.filter.query,
+                    gridMode = gridMode,
+                    treeExpanded = uiState.treeExpanded,
                     onSearchQueryChange = {
                         viewModel.setFilter(uiState.filter.copy(query = it))
                     },
@@ -209,6 +234,8 @@ fun FileBrowserScreen(
                         if (uiState.canNavigateUp) viewModel.navigateUp() else onBack()
                     },
                     onSortFilter = { showSortSheet = true },
+                    onToggleViewMode = { viewModel.toggleViewMode() },
+                    onToggleTree = { viewModel.toggleTree() },
                     overflowExpanded = showOverflowMenu,
                     onOverflowToggle = { showOverflowMenu = it },
                     onCreateFolder = {
@@ -239,6 +266,20 @@ fun FileBrowserScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            // Horizontal strip of open browser tabs with select / close and an
+            // add-tab affordance. Only shown outside of selection mode to keep
+            // the contextual selection bar uncluttered.
+            if (!uiState.selectionMode) {
+                BrowserTabRow(
+                    tabs = uiState.tabs,
+                    activeTabIndex = uiState.activeTabIndex,
+                    onSelectTab = { index -> viewModel.selectTab(index) },
+                    onCloseTab = { index -> viewModel.closeTab(index) },
+                    onAddTab = { viewModel.openTab(uiState.currentPath) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             Breadcrumbs(
                 crumbs = uiState.breadcrumbs,
                 onCrumbClick = { crumb -> viewModel.openDirectory(crumb.path) },
@@ -253,12 +294,14 @@ fun FileBrowserScreen(
                 },
             )
 
-            // Inline sort label + list/grid toggle, directly above the listing.
+            // Inline sort label + tree and list/grid toggles, directly above the listing.
             ListingHeaderRow(
                 sortLabel = sortOptionLabel(uiState.sortOption),
                 gridMode = gridMode,
+                treeExpanded = uiState.treeExpanded,
                 onSortClick = { showSortSheet = true },
-                onToggleViewMode = { gridMode = !gridMode },
+                onToggleViewMode = { viewModel.toggleViewMode() },
+                onToggleTree = { viewModel.toggleTree() },
             )
 
             val operation = uiState.operation
@@ -272,64 +315,90 @@ fun FileBrowserScreen(
                 )
             }
 
-            Box(
+            // The listing area, optionally fronted by a collapsible folder tree
+            // panel that mirrors the current volume's path hierarchy.
+            Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .weight(1f),
-                contentAlignment = Alignment.Center,
             ) {
-                when {
-                    uiState.isLoading && uiState.items.isEmpty() -> {
-                        LoadingView()
-                    }
+                if (uiState.treeExpanded) {
+                    FolderTreePanel(
+                        breadcrumbs = uiState.breadcrumbs,
+                        children = uiState.items,
+                        currentPath = uiState.currentPath,
+                        onNavigate = { path -> viewModel.openDirectory(path) },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(220.dp),
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(1.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
 
-                    uiState.error != null && uiState.items.isEmpty() -> {
-                        ErrorView(
-                            message = uiState.error ?: "Something went wrong.",
-                            onRetry = { viewModel.refresh() },
-                        )
-                    }
-
-                    uiState.items.isEmpty() -> {
-                        EmptyView(
-                            title = "Empty folder",
-                            message = "There are no files to show here.",
-                            icon = Icons.Filled.FolderOpen,
-                        )
-                    }
-
-                    else -> {
-                        val onItemClick: (FileItem) -> Unit = { item ->
-                            if (uiState.selectionMode) {
-                                viewModel.toggleSelection(item)
-                            } else if (item.isDirectory) {
-                                viewModel.openDirectory(item.path)
-                            } else {
-                                onOpenFile(item)
-                            }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        uiState.isLoading && uiState.items.isEmpty() -> {
+                            LoadingView()
                         }
-                        val onItemLongClick: (FileItem) -> Unit = { item ->
-                            if (uiState.selectionMode) {
-                                viewModel.toggleSelection(item)
-                            } else {
-                                actionTarget = item
-                            }
+
+                        uiState.error != null && uiState.items.isEmpty() -> {
+                            ErrorView(
+                                message = uiState.error ?: "Something went wrong.",
+                                onRetry = { viewModel.refresh() },
+                            )
                         }
-                        if (gridMode) {
-                            FileGrid(
-                                items = uiState.items,
-                                selectedPaths = uiState.selectedPaths,
-                                onItemClick = onItemClick,
-                                onItemLongClick = onItemLongClick,
+
+                        uiState.items.isEmpty() -> {
+                            EmptyView(
+                                title = "Empty folder",
+                                message = "There are no files to show here.",
+                                icon = Icons.Filled.FolderOpen,
                             )
-                        } else {
-                            FileList(
-                                items = uiState.items,
-                                selectedPaths = uiState.selectedPaths,
-                                selectionMode = uiState.selectionMode,
-                                onItemClick = onItemClick,
-                                onItemLongClick = onItemLongClick,
-                            )
+                        }
+
+                        else -> {
+                            val onItemClick: (FileItem) -> Unit = { item ->
+                                if (uiState.selectionMode) {
+                                    viewModel.toggleSelection(item)
+                                } else if (item.isDirectory) {
+                                    viewModel.openDirectory(item.path)
+                                } else {
+                                    onOpenFile(item)
+                                }
+                            }
+                            val onItemLongClick: (FileItem) -> Unit = { item ->
+                                if (uiState.selectionMode) {
+                                    viewModel.toggleSelection(item)
+                                } else {
+                                    actionTarget = item
+                                }
+                            }
+                            if (gridMode) {
+                                FileGrid(
+                                    items = uiState.items,
+                                    selectedPaths = uiState.selectedPaths,
+                                    onItemClick = onItemClick,
+                                    onItemLongClick = onItemLongClick,
+                                )
+                            } else {
+                                FileList(
+                                    items = uiState.items,
+                                    selectedPaths = uiState.selectedPaths,
+                                    selectionMode = uiState.selectionMode,
+                                    onItemClick = onItemClick,
+                                    onItemLongClick = onItemLongClick,
+                                )
+                            }
                         }
                     }
                 }
@@ -471,6 +540,223 @@ private fun handleFileAction(
 }
 
 /**
+ * Horizontal strip of open browser tabs. Each tab shows its folder title, can be
+ * activated by tapping, and (when more than one tab is open) closed via its
+ * trailing close affordance. A trailing add button opens a new tab at the
+ * currently visible directory.
+ */
+@Composable
+private fun BrowserTabRow(
+    tabs: List<BrowserTab>,
+    activeTabIndex: Int,
+    onSelectTab: (Int) -> Unit,
+    onCloseTab: (Int) -> Unit,
+    onAddTab: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                BrowserTabChip(
+                    title = tab.title.ifBlank { "Files" },
+                    active = index == activeTabIndex,
+                    closable = tabs.size > 1,
+                    onClick = { onSelectTab(index) },
+                    onClose = { onCloseTab(index) },
+                )
+            }
+            IconButton(onClick = onAddTab) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "New tab",
+                )
+            }
+        }
+    }
+}
+
+/** A single pill-shaped tab inside [BrowserTabRow]. */
+@Composable
+private fun BrowserTabChip(
+    title: String,
+    active: Boolean,
+    closable: Boolean,
+    onClick: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val background = if (active) {
+        MaterialTheme.colorScheme.secondaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = if (active) {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(
+        modifier = Modifier
+            .heightIn(min = 36.dp)
+            .background(color = background, shape = RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(start = 14.dp, end = if (closable) 4.dp else 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 140.dp),
+        )
+        if (closable) {
+            Spacer(modifier = Modifier.width(2.dp))
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(28.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Close tab",
+                    tint = contentColor,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Collapsible folder tree side panel. Renders the path hierarchy of the current
+ * volume as an indented, expandable tree: every ancestor breadcrumb is shown as
+ * an expanded node, and the immediate child folders of the current directory are
+ * listed (collapsed) beneath it. Tapping any node calls [onNavigate] to descend
+ * into that directory.
+ */
+@Composable
+private fun FolderTreePanel(
+    breadcrumbs: List<Breadcrumb>,
+    children: List<FileItem>,
+    currentPath: String,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val childFolders = remember(children) { children.filter { it.isDirectory } }
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp),
+        ) {
+            item(key = "__tree_header__") {
+                Text(
+                    text = "Folders",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+                )
+            }
+
+            // Ancestor chain: each breadcrumb is an expanded tree node.
+            itemsIndexed(breadcrumbs, key = { _, crumb -> "anc_" + crumb.path }) { depth, crumb ->
+                FolderTreeNode(
+                    label = crumb.name,
+                    depth = depth,
+                    expanded = true,
+                    isCurrent = crumb.path.trimEnd('/') == currentPath.trimEnd('/'),
+                    onClick = { onNavigate(crumb.path) },
+                )
+            }
+
+            // Immediate child folders of the current directory, one level deeper.
+            items(childFolders, key = { "child_" + it.path }) { folder ->
+                FolderTreeNode(
+                    label = folder.name,
+                    depth = breadcrumbs.size,
+                    expanded = false,
+                    isCurrent = false,
+                    onClick = { onNavigate(folder.path) },
+                )
+            }
+
+            if (breadcrumbs.isEmpty() && childFolders.isEmpty()) {
+                item(key = "__tree_empty__") {
+                    Text(
+                        text = "No folders",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A single indented row inside [FolderTreePanel]. */
+@Composable
+private fun FolderTreeNode(
+    label: String,
+    depth: Int,
+    expanded: Boolean,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+) {
+    val indent = (depth * 14).dp
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 8.dp + indent, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        Icon(
+            imageVector = if (expanded) Icons.Filled.ExpandMore else Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Icon(
+            imageVector = if (expanded) Icons.Filled.FolderOpen else Icons.Filled.Folder,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isCurrent) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
  * Horizontally scrollable row of quick type-filter chips bound to
  * [FilterOption.typeFilter]. The leading "All" chip clears the filter (null).
  */
@@ -508,14 +794,16 @@ private fun FileTypeFilterRow(
 
 /**
  * Thin header row above the listing: the active sort label (tap to open the sort
- * sheet) on the left and a list/grid view toggle on the right.
+ * sheet) on the left and the tree + list/grid view toggles on the right.
  */
 @Composable
 private fun ListingHeaderRow(
     sortLabel: String,
     gridMode: Boolean,
+    treeExpanded: Boolean,
     onSortClick: () -> Unit,
     onToggleViewMode: () -> Unit,
+    onToggleTree: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -545,6 +833,17 @@ private fun ListingHeaderRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onToggleTree) {
+            Icon(
+                imageVector = Icons.Filled.AccountTree,
+                contentDescription = if (treeExpanded) "Hide folder tree" else "Show folder tree",
+                tint = if (treeExpanded) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
         }
         IconButton(onClick = onToggleViewMode) {
@@ -603,7 +902,8 @@ private fun FileList(
 
 /**
  * Compact grid presentation of the directory contents: an adaptive grid of
- * icon + name cells. Pairs with the list/grid toggle in [ListingHeaderRow].
+ * icon + name cells. Pairs with the list/grid toggle in [ListingHeaderRow] and
+ * the top bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -640,7 +940,7 @@ private fun FileGrid(
     }
 }
 
-/** A single compact icon + name cell used by [FileGrid]. */
+/** A single compact icon + name (+ size) cell used by [FileGrid]. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileGridCell(
@@ -658,6 +958,7 @@ private fun FileGridCell(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .background(color = background, shape = RoundedCornerShape(12.dp))
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -682,20 +983,41 @@ private fun FileGridCell(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.fillMaxWidth(),
         )
+        // Folders show their item count (when known); files show a size label.
+        val caption = if (item.isDirectory) {
+            item.childCount?.let { count -> "$count items" }
+        } else {
+            com.jupiter.filemanager.core.util.formatBytes(item.sizeBytes)
+        }
+        if (caption != null) {
+            Text(
+                text = caption,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
-/** Standard browsing top app bar with back, sort/filter and an overflow menu. */
+/** Standard browsing top app bar with back, search, sort/filter, view-mode/tree toggles and an overflow menu. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BrowserTopBar(
     title: String,
     searchActive: Boolean,
     searchQuery: String,
+    gridMode: Boolean,
+    treeExpanded: Boolean,
     onSearchQueryChange: (String) -> Unit,
     onSearchToggle: (Boolean) -> Unit,
     onBack: () -> Unit,
     onSortFilter: () -> Unit,
+    onToggleViewMode: () -> Unit,
+    onToggleTree: () -> Unit,
     overflowExpanded: Boolean,
     onOverflowToggle: (Boolean) -> Unit,
     onCreateFolder: () -> Unit,
@@ -741,6 +1063,27 @@ private fun BrowserTopBar(
                     Icon(
                         imageVector = Icons.Filled.Search,
                         contentDescription = "Search",
+                    )
+                }
+                IconButton(onClick = onToggleTree) {
+                    Icon(
+                        imageVector = Icons.Filled.AccountTree,
+                        contentDescription = if (treeExpanded) "Hide folder tree" else "Show folder tree",
+                        tint = if (treeExpanded) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                }
+                IconButton(onClick = onToggleViewMode) {
+                    Icon(
+                        imageVector = if (gridMode) {
+                            Icons.AutoMirrored.Filled.ViewList
+                        } else {
+                            Icons.Filled.GridView
+                        },
+                        contentDescription = if (gridMode) "Show as list" else "Show as grid",
                     )
                 }
                 IconButton(onClick = onSortFilter) {

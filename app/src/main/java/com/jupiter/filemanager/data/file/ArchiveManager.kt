@@ -598,7 +598,7 @@ class ArchiveManager @Inject constructor(
      * Zip-Slip, and returns the running processed-bytes total.
      */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<FileOperationProgress>.writeArchiveEntry(
-        input: ArchiveInputStream,
+        input: ArchiveInputStream<*>,
         entry: ArchiveEntry,
         targetRoot: File,
         canonicalRoot: String,
