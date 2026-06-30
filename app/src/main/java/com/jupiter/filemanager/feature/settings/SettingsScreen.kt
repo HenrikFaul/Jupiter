@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -18,19 +19,22 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -39,12 +43,20 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -58,8 +70,9 @@ import androidx.compose.foundation.selection.selectable as selectableModifier
  *
  * Renders a theme-mode selector (System / Light / Dark) plus toggles for
  * showing hidden files, enabling the dual-pane browser and the AI assistant,
- * followed by a static About section. All persistence is delegated to
- * [SettingsViewModel]; this composable contains no file or preference IO.
+ * a masked Claude API-key field, followed by a static About section. All
+ * persistence is delegated to [SettingsViewModel]; this composable contains
+ * no file or preference IO.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,6 +140,14 @@ fun SettingsScreen(
                 subtitle = "Smart suggestions for naming, search and cleanup",
                 checked = uiState.aiEnabled,
                 onCheckedChange = viewModel::setAiEnabled,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "AI assistant")
+            AiApiKeyField(
+                apiKey = uiState.aiApiKey,
+                onApiKeyChange = viewModel::setAiApiKey,
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -330,6 +351,89 @@ private fun SettingsSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
+/**
+ * A masked text field for the Claude API key plus an explanatory note.
+ *
+ * The field keeps a local draft so typing stays responsive while the persisted
+ * value is written through [onApiKeyChange]. The draft is re-seeded from
+ * [apiKey] whenever the persisted value changes (e.g. on first load), and the
+ * contents are obscured by default with a show/hide toggle. No key material is
+ * logged or transmitted here; persistence is handled by the view model.
+ */
+@Composable
+private fun AiApiKeyField(
+    apiKey: String,
+    onApiKeyChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var draft by remember { mutableStateOf(apiKey) }
+    var revealed by rememberSaveable { mutableStateOf(false) }
+
+    // Re-seed the local draft when the persisted key changes (initial load or
+    // external update) without clobbering in-progress edits to the same value.
+    LaunchedEffect(apiKey) {
+        if (apiKey != draft) {
+            draft = apiKey
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { value ->
+                draft = value
+                onApiKeyChange(value)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text(text = "Claude API key") },
+            placeholder = { Text(text = "sk-ant-…") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.Key,
+                    contentDescription = null,
+                )
+            },
+            trailingIcon = {
+                IconButton(onClick = { revealed = !revealed }) {
+                    Icon(
+                        imageVector = if (revealed) {
+                            Icons.Filled.VisibilityOff
+                        } else {
+                            Icons.Filled.Visibility
+                        },
+                        contentDescription = if (revealed) {
+                            "Hide API key"
+                        } else {
+                            "Show API key"
+                        },
+                    )
+                }
+            },
+            visualTransformation = if (revealed) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+            ),
+        )
+        Text(
+            text = "Your key is stored on-device only and never leaves your " +
+                "phone except to call Claude. It enables Claude-powered search, " +
+                "smart naming and automation rules.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

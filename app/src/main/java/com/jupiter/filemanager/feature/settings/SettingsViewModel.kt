@@ -22,6 +22,7 @@ data class SettingsUiState(
     val showHidden: Boolean = false,
     val dualPaneEnabled: Boolean = false,
     val aiEnabled: Boolean = false,
+    val aiApiKey: String = "",
 )
 
 /**
@@ -42,12 +43,14 @@ class SettingsViewModel @Inject constructor(
         settings.showHidden,
         settings.dualPaneEnabled,
         settings.aiEnabled,
-    ) { themeMode, showHidden, dualPaneEnabled, aiEnabled ->
+        settings.aiApiKey,
+    ) { themeMode, showHidden, dualPaneEnabled, aiEnabled, aiApiKey ->
         SettingsUiState(
             themeMode = themeMode,
             showHidden = showHidden,
             dualPaneEnabled = dualPaneEnabled,
             aiEnabled = aiEnabled,
+            aiApiKey = aiApiKey,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -76,6 +79,17 @@ class SettingsViewModel @Inject constructor(
     fun setAiEnabled(value: Boolean) {
         viewModelScope.launch {
             settings.setAiEnabled(value)
+        }
+    }
+
+    /**
+     * Persists the Claude API key used to unlock AI-assisted features. The key
+     * is stored on-device by [SettingsDataStore]; trimming avoids accidental
+     * whitespace pasted alongside the token.
+     */
+    fun setAiApiKey(value: String) {
+        viewModelScope.launch {
+            settings.setAiApiKey(value.trim())
         }
     }
 }

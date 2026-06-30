@@ -3,6 +3,7 @@ package com.jupiter.filemanager.data.automation
 import android.content.Context
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.AutomationRule
+import com.jupiter.filemanager.domain.repository.BookmarkRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -35,6 +36,7 @@ import kotlin.coroutines.coroutineContext
 class RuleEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileRepository: FileRepository,
+    private val bookmarkRepository: BookmarkRepository,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) {
 
@@ -79,7 +81,7 @@ class RuleEngine @Inject constructor(
             coroutineContext.ensureActive()
             val ok = when (action) {
                 is RuleAction.Delete -> safeDelete(file, canonicalRoot)
-                is RuleAction.Favorite -> markFavorite(file)
+                is RuleAction.Favorite -> markFavorite(file, canonicalRoot)
                 is RuleAction.MoveTo -> safeMove(file, action.folderName, root, canonicalRoot)
             }
             if (ok) affected += 1
@@ -111,7 +113,7 @@ class RuleEngine @Inject constructor(
 
         val searchRoots = ArrayList<File>()
         var nameContains: String? = null
-        var extension: String? = null
+        var extension: String?
 
         when {
             text.contains("screenshot") -> {
@@ -220,10 +222,20 @@ class RuleEngine @Inject constructor(
     }
 
     /**
-     * "Marks" a file as favorite. There is no favorites store wired into this engine, so
-     * this is a safe no-op that reports success without touching the file system.
+     * Marks [file] as a favorite by persisting a bookmark via [BookmarkRepository], but
+     * only when it resolves inside the storage root. Any persistence failure is swallowed
+     * and reported as "not affected" so a misbehaving store can never abort a rule run.
      */
-    private fun markFavorite(file: File): Boolean = file.isFile
+    private suspend fun markFavorite(file: File, canonicalRoot: String): Boolean = try {
+        if (!file.isFile || !isWithin(file, canonicalRoot)) {
+            false
+        } else {
+            bookmarkRepository.addBookmark(file.absolutePath, file.name)
+            true
+        }
+    } catch (_: Exception) {
+        false
+    }
 
     /** Falls back to copy+delete when [File.renameTo] fails (e.g. cross-filesystem move). */
     private fun copyThenDelete(file: File, target: File): Boolean = try {

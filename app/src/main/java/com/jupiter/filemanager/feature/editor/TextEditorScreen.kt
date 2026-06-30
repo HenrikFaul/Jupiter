@@ -1,12 +1,17 @@
 package com.jupiter.filemanager.feature.editor
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -15,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -23,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,9 +44,10 @@ import com.jupiter.filemanager.ui.components.LoadingView
  *
  * Edits the file resolved by [TextEditorViewModel] from its `SavedStateHandle`
  * path. The text body is shown in a full-screen monospace [TextField]; a save
- * action in the app bar persists changes. Read-only files (too large, or not
- * writable) are shown without a save affordance. Errors and save confirmations
- * surface via a snackbar.
+ * action in the app bar persists changes. Read-only files (too large, not
+ * decodable as UTF-8, or not writable) are shown without a save affordance, and
+ * the reason is explained in an inline notice banner. Errors and save
+ * confirmations surface via a snackbar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,26 +128,62 @@ fun TextEditorScreen(
                 state.error != null && state.fileName.isBlank() ->
                     ErrorView(message = state.error ?: "Unable to open this file.")
 
-                else -> TextField(
-                    value = state.content,
-                    onValueChange = viewModel::onContentChange,
-                    readOnly = state.isReadOnly,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                    placeholder = {
-                        Text(
-                            text = if (state.isReadOnly) {
-                                "This file is read-only."
-                            } else {
-                                "Start typing…"
-                            },
-                        )
-                    },
-                    colors = TextFieldDefaults.colors(),
-                    modifier = Modifier.fillMaxSize(),
-                )
+                else -> Column(modifier = Modifier.fillMaxSize()) {
+                    val notice = state.notice
+                    if (notice != null) {
+                        NoticeBanner(message = notice)
+                    }
+                    TextField(
+                        value = state.content,
+                        onValueChange = viewModel::onContentChange,
+                        readOnly = state.isReadOnly,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                        placeholder = {
+                            Text(
+                                text = if (state.isReadOnly) {
+                                    "This file is read-only."
+                                } else {
+                                    "Start typing…"
+                                },
+                            )
+                        },
+                        colors = TextFieldDefaults.colors(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                }
             }
+        }
+    }
+}
+
+/** Inline advisory banner explaining a non-fatal condition (truncation / binary / read-only). */
+@Composable
+private fun NoticeBanner(message: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            )
         }
     }
 }

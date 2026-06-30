@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,12 +31,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,8 +60,11 @@ import com.jupiter.filemanager.ui.components.LoadingView
  * action launches the rule builder. When no rules exist a clean empty state is
  * shown.
  *
- * Rule execution is a backend concern that is not yet wired up; this screen only
- * manages persistence and presentation of rules.
+ * A "Run rules now" action in the top bar lets the user explicitly apply their
+ * enabled rules: tapping it opens a confirmation dialog, and only after the user
+ * confirms is an [com.jupiter.filemanager.data.automation.AutomationWorker] enqueued.
+ * Rules are never executed automatically, on a schedule, or silently — the run is
+ * always user-initiated and confirmed, with a snackbar confirming it started.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +74,19 @@ fun AutomationScreen(
     viewModel: AutomationViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showRunConfirm by remember { mutableStateOf(false) }
+
+    // Surface the one-shot "run enqueued" confirmation, then clear it so a rerun can
+    // show it again. The user always sees that a run started — it never runs silently.
+    LaunchedEffect(state.runEnqueuedMessage) {
+        val message = state.runEnqueuedMessage
+        if (message != null) {
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeRunEnqueuedMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -77,20 +101,22 @@ fun AutomationScreen(
                     }
                 },
                 actions = {
-                    // Explicit, user-initiated run of the enabled rules. Rules are
-                    // never executed automatically or on a schedule.
+                    // Explicit, user-initiated run of the enabled rules. Tapping only
+                    // opens a confirmation dialog; rules are never executed
+                    // automatically, on a schedule, or without confirmation.
                     IconButton(
-                        onClick = viewModel::runNow,
-                        enabled = state.rules.any { it.enabled },
+                        onClick = { showRunConfirm = true },
+                        enabled = state.canRun,
                     ) {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "Run now",
+                            contentDescription = "Run rules now",
                         )
                     }
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onCreateRule,
@@ -127,6 +153,52 @@ fun AutomationScreen(
             }
         }
     }
+
+    if (showRunConfirm) {
+        RunRulesConfirmDialog(
+            enabledCount = state.rules.count { it.enabled },
+            onConfirm = {
+                showRunConfirm = false
+                viewModel.runNow()
+            },
+            onDismiss = { showRunConfirm = false },
+        )
+    }
+}
+
+@Composable
+private fun RunRulesConfirmDialog(
+    enabledCount: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val ruleLabel = if (enabledCount == 1) "1 enabled rule" else "$enabledCount enabled rules"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.PlayArrow,
+                contentDescription = null,
+            )
+        },
+        title = { Text(text = "Run rules now?") },
+        text = {
+            Text(
+                text = "This will apply your $ruleLabel to your files right now. " +
+                    "Rules can move, rename, or organize files. Only enabled rules run.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = "Run now")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Cancel")
+            }
+        },
+    )
 }
 
 @Composable

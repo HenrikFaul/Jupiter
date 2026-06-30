@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import javax.inject.Inject
 
 /**
@@ -28,6 +30,7 @@ import javax.inject.Inject
  * @property isLoading whether the file body is still being read.
  * @property isSaving whether a save is currently in flight.
  * @property isReadOnly true when the file cannot be written; editing/saving is disabled.
+ * @property notice a non-fatal advisory (e.g. truncation / binary / read-only reason), or null.
  * @property error a human-readable error message, or null when there is none.
  * @property savedMessage a transient confirmation message (e.g. "Saved"), or null.
  */
@@ -38,6 +41,7 @@ data class TextEditorUiState(
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
     val isReadOnly: Boolean = false,
+    val notice: String? = null,
     val error: String? = null,
     val savedMessage: String? = null,
 ) {
@@ -49,9 +53,16 @@ data class TextEditorUiState(
  * Drives a lightweight plain-text editor.
  *
  * The target path is read from the navigation arguments
- * ([Destination.TextEditor.ARG_PATH]). The file body (up to [MAX_BYTES]) is read on
- * the injected [IoDispatcher] and can be edited and saved back in place. Files that
- * exceed the size cap or cannot be written are opened read-only.
+ * ([Destination.TextEditor.ARG_PATH]). Up to [MAX_BYTES] (~512 KB) of the file is read
+ * on the injected [IoDispatcher] and decoded strictly as UTF-8 into an editable buffer.
+ *
+ * Safety rails:
+ *  - Files larger than [MAX_BYTES] are truncated and opened **read-only** (a [notice]
+ *    explains why) so a partial buffer is never written back over the full file.
+ *  - Files that cannot be decoded as UTF-8 (binary content / NUL bytes / invalid byte
+ *    sequences) are opened **read-only** with a [notice]; their bytes are surfaced
+ *    losslessly via the Unicode replacement character so editing them is disabled.
+ *  - Files that are not writable on disk are opened **read-only**.
  *
  * All blocking IO runs off the main thread and every interaction is guarded; failures
  * surface as [TextEditorUiState.error] rather than crashing the app.
@@ -80,7 +91,7 @@ class TextEditorViewModel @Inject constructor(
 
     /** Reads the file body at [target] into the editor buffer. */
     private fun load(target: String) {
-        _uiState.update { it.copy(isLoading = true, error = null) }
+        _uiState.update { it.copy(isLoading = true, error = null, notice = null) }
         viewModelScope.launch {
             val outcome: AppResult<LoadedFile> = withContext(dispatcher) {
                 try {
@@ -91,17 +102,27 @@ class TextEditorViewModel @Inject constructor(
                     if (!file.canRead()) {
                         return@withContext AppResult.Failure(AppError.AccessDenied(target))
                     }
-                    val tooLarge = file.length() > MAX_BYTES
-                    val text = if (tooLarge) {
-                        readBounded(file)
-                    } else {
-                        file.readText(Charsets.UTF_8)
-                    }
+
+                    val length = file.length()
+                    val tooLarge = length > MAX_BYTES
+                    val bytes = readBounded(file)
+
+                    val decoded = decodeUtf8(bytes)
+                    val writable = file.canWrite()
+
+                    val readOnly = tooLarge || !decoded.isText || !writable
+                    val notice = buildNotice(
+                        tooLarge = tooLarge,
+                        isText = decoded.isText,
+                        writable = writable,
+                    )
+
                     AppResult.Success(
                         LoadedFile(
                             name = file.name,
-                            text = text,
-                            readOnly = tooLarge || !file.canWrite(),
+                            text = decoded.text,
+                            readOnly = readOnly,
+                            notice = notice,
                         ),
                     )
                 } catch (e: SecurityException) {
@@ -120,6 +141,7 @@ class TextEditorViewModel @Inject constructor(
                         content = outcome.data.text,
                         savedContent = outcome.data.text,
                         isReadOnly = outcome.data.readOnly,
+                        notice = outcome.data.notice,
                         isLoading = false,
                         error = null,
                     )
@@ -186,8 +208,8 @@ class TextEditorViewModel @Inject constructor(
         _uiState.update { it.copy(savedMessage = null) }
     }
 
-    /** Reads at most [MAX_BYTES] of [file] as UTF-8, for previewing oversized files read-only. */
-    private fun readBounded(file: File): String {
+    /** Reads at most [MAX_BYTES] of [file] into a byte array. */
+    private fun readBounded(file: File): ByteArray {
         val buffer = ByteArray(MAX_BYTES)
         var read = 0
         file.inputStream().buffered().use { stream ->
@@ -197,17 +219,59 @@ class TextEditorViewModel @Inject constructor(
                 read += count
             }
         }
-        return String(buffer, 0, read, Charsets.UTF_8)
+        return if (read == buffer.size) buffer else buffer.copyOf(read)
     }
+
+    /**
+     * Strictly decodes [bytes] as UTF-8.
+     *
+     * Returns [Decoded.isText] = true only when the bytes contain no NUL byte and form a
+     * valid UTF-8 sequence. When the content is not valid text the bytes are still decoded
+     * leniently (malformed/unmappable runs become the Unicode replacement character) so the
+     * editor can display a read-only preview, but [Decoded.isText] is false so editing and
+     * saving stay disabled.
+     */
+    private fun decodeUtf8(bytes: ByteArray): Decoded {
+        if (bytes.isEmpty()) return Decoded(text = "", isText = true)
+
+        val hasNul = bytes.any { it == 0.toByte() }
+        val strict = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        val isText = !hasNul && try {
+            strict.decode(ByteBuffer.wrap(bytes))
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+        // Lenient decode for display (and the canonical text when isText is true).
+        val text = String(bytes, Charsets.UTF_8)
+        return Decoded(text = text, isText = isText)
+    }
+
+    /** Builds the non-fatal advisory shown above the editor, or null when there is none. */
+    private fun buildNotice(tooLarge: Boolean, isText: Boolean, writable: Boolean): String? = when {
+        !isText -> "This file does not appear to be UTF-8 text. Opened read-only."
+        tooLarge -> "File is larger than 512 KB; showing the first 512 KB read-only."
+        !writable -> "This file is read-only."
+        else -> null
+    }
+
+    private data class Decoded(
+        val text: String,
+        val isText: Boolean,
+    )
 
     private data class LoadedFile(
         val name: String,
         val text: String,
         val readOnly: Boolean,
+        val notice: String?,
     )
 
     private companion object {
-        /** Upper bound (~1 MB) on the size of a file opened for editing. */
-        const val MAX_BYTES: Int = 1024 * 1024
+        /** Upper bound (~512 KB) on the number of bytes read into the editor buffer. */
+        const val MAX_BYTES: Int = 512 * 1024
     }
 }
