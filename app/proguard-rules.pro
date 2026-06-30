@@ -8,3 +8,19 @@
 
 # Keep model classes used for serialization/state
 -keep class com.jupiter.filemanager.domain.model.** { *; }
+
+# Networking / remote-protocol libraries (optional transitive deps R8 warns about)
+-dontwarn org.slf4j.**
+-dontwarn org.bouncycastle.**
+-dontwarn com.hierynomus.**
+-dontwarn net.engio.mbassy.**
+-dontwarn org.apache.commons.net.**
+-dontwarn com.jcraft.jsch.**
+-dontwarn fi.iki.elonen.**
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn org.conscrypt.**
+-dontwarn javax.naming.**
+-dontwarn java.beans.**
+-keep class com.hierynomus.** { *; }
+-keep class com.jcraft.jsch.** { *; }

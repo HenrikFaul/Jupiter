@@ -29,10 +29,9 @@ import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -53,8 +52,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.domain.model.ConnectionType
@@ -64,18 +66,24 @@ import com.jupiter.filemanager.ui.components.LoadingView
 /**
  * Network / NAS connections screen.
  *
- * Lets the user define and manage connections to local-network and remote hosts
- * (SMB, NAS, SFTP, FTP, FTPS, WebDAV, NFS). Connection definitions are persisted
- * so they survive process death, but no live protocol I/O backend is wired yet,
- * so every connection is presented honestly as "Offline" with a disabled
- * "Connect (coming soon)" affordance — no fake live reachability is fabricated.
+ * Lets the user define and manage real connections to local-network and remote
+ * hosts (SMB, NAS, SFTP, FTP, FTPS, WebDAV, NFS). Adding a connection now runs a
+ * live reachability test against the chosen protocol backend before the
+ * definition is persisted; passwords are stored encrypted by the repository and
+ * never inside the connection entry. Tapping a saved connection opens its remote
+ * file browser via [onOpenRemote].
  *
  * Connections are grouped into a "Local Network" section (LAN-style protocols:
  * SMB / NFS / NAS) and a "Remote" section (internet-style protocols:
  * SFTP / FTP / FTPS / WebDAV).
+ *
+ * @param onOpenRemote invoked with a connection id when the user taps a saved
+ *   connection to browse its files.
+ * @param onBack invoked to navigate back.
  */
 @Composable
 fun NasConnectionsScreen(
+    onOpenRemote: (connectionId: String) -> Unit,
     onBack: () -> Unit,
     viewModel: NasConnectionsViewModel = hiltViewModel(),
 ) {
@@ -112,6 +120,7 @@ fun NasConnectionsScreen(
                 state.isLoading -> LoadingView()
                 else -> NasConnectionsContent(
                     connections = state.connections,
+                    onOpen = onOpenRemote,
                     onRemove = viewModel::onRemoveConnection,
                     onAdd = viewModel::onAddRequested,
                 )
@@ -121,8 +130,20 @@ fun NasConnectionsScreen(
 
     if (state.showAddDialog) {
         AddConnectionDialog(
+            isTesting = state.isTesting,
+            errorMessage = state.testError,
             onDismiss = viewModel::onDismissAddDialog,
-            onConfirm = viewModel::onAddConnection,
+            onConfirm = { displayName, type, host, port, username, password, basePath ->
+                viewModel.addConnection(
+                    displayName = displayName,
+                    type = type,
+                    host = host,
+                    port = port,
+                    username = username,
+                    password = password,
+                    basePath = basePath,
+                )
+            },
         )
     }
 }
@@ -137,6 +158,7 @@ private val LocalTypes = setOf(
 @Composable
 private fun NasConnectionsContent(
     connections: List<RemoteConnection>,
+    onOpen: (String) -> Unit,
     onRemove: (String) -> Unit,
     onAdd: () -> Unit,
 ) {
@@ -154,10 +176,6 @@ private fun NasConnectionsContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            HonestNoticeCard()
-        }
-
-        item {
             SectionLabel(
                 icon = Icons.Filled.Lan,
                 title = "Local Network",
@@ -174,7 +192,11 @@ private fun NasConnectionsContent(
             }
         } else {
             items(local, key = { it.id }) { connection ->
-                ConnectionCard(connection = connection, onRemove = { onRemove(connection.id) })
+                ConnectionCard(
+                    connection = connection,
+                    onOpen = { onOpen(connection.id) },
+                    onRemove = { onRemove(connection.id) },
+                )
             }
         }
 
@@ -195,45 +217,10 @@ private fun NasConnectionsContent(
             }
         } else {
             items(remote, key = { it.id }) { connection ->
-                ConnectionCard(connection = connection, onRemove = { onRemove(connection.id) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun HonestNoticeCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Router,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Connections are saved locally",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-                Text(
-                    text = "Live browsing over SMB, SFTP, FTP and WebDAV is coming soon. " +
-                        "Saved servers show as offline until then.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                ConnectionCard(
+                    connection = connection,
+                    onOpen = { onOpen(connection.id) },
+                    onRemove = { onRemove(connection.id) },
                 )
             }
         }
@@ -314,10 +301,13 @@ private fun SectionEmpty(
 @Composable
 private fun ConnectionCard(
     connection: RemoteConnection,
+    onOpen: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -360,8 +350,6 @@ private fun ConnectionCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                StatusChip(isOnline = connection.isOnline)
             }
             IconButton(onClick = onRemove) {
                 Icon(
@@ -374,29 +362,18 @@ private fun ConnectionCard(
     }
 }
 
-@Composable
-private fun StatusChip(isOnline: Boolean) {
-    // No live protocol I/O backend exists yet, so connections are honestly
-    // surfaced as offline rather than fabricating a reachable state.
-    AssistChip(
-        onClick = {},
-        enabled = false,
-        label = {
-            Text(if (isOnline) "Online" else "Offline · Connect coming soon")
-        },
-        colors = AssistChipDefaults.assistChipColors(
-            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-    )
-}
-
 private fun subtitleFor(connection: RemoteConnection): String {
     val protocol = connection.type.name
     val user = connection.username
-    return if (user.isNullOrBlank()) {
-        "$protocol · ${connection.host}"
+    val hostPart = if (connection.port > 0) {
+        "${connection.host}:${connection.port}"
     } else {
-        "$protocol · $user@${connection.host}"
+        connection.host
+    }
+    return if (user.isNullOrBlank()) {
+        "$protocol · $hostPart"
+    } else {
+        "$protocol · $user@$hostPart"
     }
 }
 
@@ -417,30 +394,43 @@ private val SelectableTypes = listOf(
     ConnectionType.SFTP,
     ConnectionType.WEBDAV,
     ConnectionType.FTP,
-    ConnectionType.FTPS,
-    ConnectionType.NFS,
 )
+
+/** Label used for the share/base-path field, tailored per protocol. */
+private fun basePathLabelFor(type: ConnectionType): String = when (type) {
+    ConnectionType.SMB, ConnectionType.NAS -> "Share name"
+    ConnectionType.WEBDAV -> "Base path (e.g. /dav)"
+    else -> "Base path (optional)"
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AddConnectionDialog(
+    isTesting: Boolean,
+    errorMessage: String?,
     onDismiss: () -> Unit,
     onConfirm: (
         displayName: String,
         type: ConnectionType,
         host: String,
-        username: String,
+        port: Int,
+        username: String?,
+        password: String?,
+        basePath: String?,
     ) -> Unit,
 ) {
     var displayName by rememberSaveable { mutableStateOf("") }
     var host by rememberSaveable { mutableStateOf("") }
+    var portText by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var basePath by rememberSaveable { mutableStateOf("") }
     var selectedType by remember { mutableStateOf(ConnectionType.SMB) }
 
-    val canSubmit = displayName.isNotBlank() && host.isNotBlank()
+    val canSubmit = displayName.isNotBlank() && host.isNotBlank() && !isTesting
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isTesting) onDismiss() },
         title = { Text("Add connection") },
         text = {
             Column {
@@ -460,6 +450,7 @@ private fun AddConnectionDialog(
                             selected = selectedType == type,
                             onClick = { selectedType = type },
                             label = { Text(type.name) },
+                            enabled = !isTesting,
                         )
                     }
                 }
@@ -469,6 +460,7 @@ private fun AddConnectionDialog(
                     onValueChange = { displayName = it },
                     label = { Text("Display name") },
                     singleLine = true,
+                    enabled = !isTesting,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -478,6 +470,19 @@ private fun AddConnectionDialog(
                     label = { Text("Host or IP address") },
                     placeholder = { Text("e.g. 192.168.1.10") },
                     singleLine = true,
+                    enabled = !isTesting,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { input ->
+                        portText = input.filter { it.isDigit() }.take(5)
+                    },
+                    label = { Text("Port (blank = default)") },
+                    singleLine = true,
+                    enabled = !isTesting,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -486,20 +491,76 @@ private fun AddConnectionDialog(
                     onValueChange = { username = it },
                     label = { Text("Username (optional)") },
                     singleLine = true,
+                    enabled = !isTesting,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password (optional)") },
+                    singleLine = true,
+                    enabled = !isTesting,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = basePath,
+                    onValueChange = { basePath = it },
+                    label = { Text(basePathLabelFor(selectedType)) },
+                    singleLine = true,
+                    enabled = !isTesting,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                if (isTesting) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Testing connection…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(displayName, selectedType, host, username) },
+                onClick = {
+                    onConfirm(
+                        displayName,
+                        selectedType,
+                        host,
+                        portText.toIntOrNull() ?: 0,
+                        username.ifBlank { null },
+                        password.ifBlank { null },
+                        basePath.ifBlank { null },
+                    )
+                },
                 enabled = canSubmit,
             ) {
-                Text("Save")
+                Text("Test & save")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isTesting,
+            ) {
                 Text("Cancel")
             }
         },

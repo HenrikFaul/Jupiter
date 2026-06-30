@@ -22,6 +22,8 @@ enum class ConnectionType {
  * @param host the hostname or IP address of the remote server.
  * @param username optional username used for authentication.
  * @param isOnline whether the connection is currently reachable/online.
+ * @param port the network port used to reach the host (0 means protocol default).
+ * @param basePath optional share name or base path on the remote host.
  */
 data class RemoteConnection(
     val id: String,
@@ -30,4 +32,6 @@ data class RemoteConnection(
     val host: String,
     val username: String? = null,
     val isOnline: Boolean = false,
+    val port: Int = 0,
+    val basePath: String? = null,
 )

@@ -31,6 +31,7 @@ import com.jupiter.filemanager.feature.preview.MusicPlayerScreen
 import com.jupiter.filemanager.feature.preview.PreviewScreen
 import com.jupiter.filemanager.feature.preview.VideoPlayerScreen
 import com.jupiter.filemanager.feature.privacy.PrivacyDashboardScreen
+import com.jupiter.filemanager.feature.remote.RemoteBrowserScreen
 import com.jupiter.filemanager.feature.search.SearchScreen
 import com.jupiter.filemanager.feature.settings.SettingsScreen
 import com.jupiter.filemanager.feature.splash.SplashScreen
@@ -322,6 +323,29 @@ fun JupiterNavHost(
 
         composable(route = Destination.NasConnections.route) {
             NasConnectionsScreen(
+                onOpenRemote = { id ->
+                    navController.navigate(Destination.RemoteBrowser.create(id, ""))
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Destination.RemoteBrowser.route,
+            arguments = listOf(
+                navArgument(Destination.RemoteBrowser.ARG_CONNECTION) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Destination.RemoteBrowser.ARG_PATH) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            RemoteBrowserScreen(
                 onBack = { navController.popBackStack() },
             )
         }

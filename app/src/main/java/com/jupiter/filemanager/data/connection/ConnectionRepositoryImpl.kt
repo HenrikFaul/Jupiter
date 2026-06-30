@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.jupiter.filemanager.data.remote.CredentialStore
 import com.jupiter.filemanager.domain.model.CloudAccount
 import com.jupiter.filemanager.domain.model.CloudProvider
 import com.jupiter.filemanager.domain.model.ConnectionType
@@ -33,21 +34,22 @@ val Context.connectionsDataStore: DataStore<Preferences> by preferencesDataStore
  * Preferences DataStore backed implementation of [ConnectionRepository].
  *
  * Both remote connections and cloud accounts are persisted as a [Set] of
- * pipe-delimited records, one entry per definition. No live protocol or
- * authentication backend is wired yet, so persisted entries are always surfaced
- * with their reachability/connection flags off ([RemoteConnection.isOnline] and
- * [CloudAccount.isConnected] are `false`); the UI presents honest
- * "Connect"/"Coming soon" affordances rather than fabricating live state.
+ * pipe-delimited records, one entry per definition. The non-sensitive fields of a
+ * remote (id/displayName/type/host/username/port/basePath) are persisted here;
+ * the password is never stored in the entry and is instead delegated to the
+ * encrypted [CredentialStore], keyed by the generated connection id. Removing a
+ * remote also purges its stored secret.
  */
 @Singleton
 class ConnectionRepositoryImpl @Inject constructor(
     @ApplicationContext context: Context,
+    private val credentialStore: CredentialStore,
 ) : ConnectionRepository {
 
     private val dataStore: DataStore<Preferences> = context.connectionsDataStore
 
     private object Keys {
-        /** Set of `id|displayName|type|host|username` records, one per remote. */
+        /** Set of `id|displayName|type|host|username|port|basePath` records, one per remote. */
         val REMOTES = stringSetPreferencesKey("remotes")
 
         /** Set of `id|provider|displayName` records, one per linked cloud account. */
@@ -66,19 +68,28 @@ class ConnectionRepositoryImpl @Inject constructor(
         displayName: String,
         type: ConnectionType,
         host: String,
+        port: Int,
         username: String?,
+        password: String?,
+        basePath: String?,
     ) {
         val name = displayName.trim()
         val trimmedHost = host.trim()
         if (name.isEmpty() || trimmedHost.isEmpty()) return
+        val id = UUID.randomUUID().toString()
         val remote = RemoteConnection(
-            id = UUID.randomUUID().toString(),
+            id = id,
             displayName = name,
             type = type,
             host = trimmedHost,
             username = username?.trim()?.takeIf { it.isNotEmpty() },
             isOnline = false,
+            port = port.coerceAtLeast(0),
+            basePath = basePath?.trim()?.takeIf { it.isNotEmpty() },
         )
+        // Persist the secret encrypted, keyed by the new connection id, before
+        // the entry itself becomes observable.
+        credentialStore.savePassword(id, password)
         dataStore.edit { prefs ->
             val current = prefs[Keys.REMOTES].orEmpty().toMutableSet()
             current.add(encodeRemote(remote))
@@ -91,6 +102,7 @@ class ConnectionRepositoryImpl @Inject constructor(
             val current = prefs[Keys.REMOTES].orEmpty()
             prefs[Keys.REMOTES] = current.filterNot { decodeRemote(it)?.id == id }.toSet()
         }
+        credentialStore.deletePassword(id)
     }
 
     override fun observeCloudAccounts(): Flow<List<CloudAccount>> = dataStore.data
@@ -146,7 +158,10 @@ class ConnectionRepositoryImpl @Inject constructor(
         private fun String.sanitize(): String =
             replace(FIELD_DELIMITER, ' ').replace('\n', ' ')
 
-        /** Encodes a [RemoteConnection] as `id|displayName|type|host|username`. */
+        /**
+         * Encodes a [RemoteConnection] as
+         * `id|displayName|type|host|username|port|basePath`.
+         */
         fun encodeRemote(remote: RemoteConnection): String = buildString {
             append(remote.id)
             append(FIELD_DELIMITER)
@@ -157,9 +172,19 @@ class ConnectionRepositoryImpl @Inject constructor(
             append(remote.host.sanitize())
             append(FIELD_DELIMITER)
             append(remote.username?.sanitize().orEmpty())
+            append(FIELD_DELIMITER)
+            append(remote.port.toString())
+            append(FIELD_DELIMITER)
+            append(remote.basePath?.sanitize().orEmpty())
         }
 
-        /** Decodes a remote record, returning null when malformed. */
+        /**
+         * Decodes a remote record, returning null when malformed.
+         *
+         * Tolerates the legacy 5-field format (`id|displayName|type|host|username`)
+         * by defaulting port to 0 and basePath to null, so connections persisted
+         * before the port/basePath fields existed still surface.
+         */
         fun decodeRemote(record: String): RemoteConnection? {
             val parts = record.split(FIELD_DELIMITER)
             if (parts.size < 5) return null
@@ -167,6 +192,8 @@ class ConnectionRepositoryImpl @Inject constructor(
             if (id.isEmpty()) return null
             val type = runCatching { ConnectionType.valueOf(parts[2]) }.getOrNull() ?: return null
             val username = parts[4].takeIf { it.isNotEmpty() }
+            val port = parts.getOrNull(5)?.toIntOrNull() ?: 0
+            val basePath = parts.getOrNull(6)?.takeIf { it.isNotEmpty() }
             return RemoteConnection(
                 id = id,
                 displayName = parts[1],
@@ -174,6 +201,8 @@ class ConnectionRepositoryImpl @Inject constructor(
                 host = parts[3],
                 username = username,
                 isOnline = false,
+                port = port,
+                basePath = basePath,
             )
         }
 

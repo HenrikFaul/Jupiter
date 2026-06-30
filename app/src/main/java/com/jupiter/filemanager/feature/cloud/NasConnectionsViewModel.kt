@@ -2,8 +2,10 @@ package com.jupiter.filemanager.feature.cloud
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.model.ConnectionType
 import com.jupiter.filemanager.domain.repository.ConnectionRepository
+import com.jupiter.filemanager.domain.repository.RemoteAccessRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -11,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -19,28 +22,39 @@ import javax.inject.Inject
  * connections from [ConnectionRepository] and exposes add/remove actions plus
  * add-dialog visibility.
  *
- * Connection definitions are persisted so they survive process death, but no
- * live protocol I/O backend (SMB / SFTP / FTP / WebDAV / NAS) exists yet, so
- * every connection is surfaced honestly as offline and the screen presents
- * "Connect" / "Coming soon" affordances rather than fabricating reachability.
+ * Adding a connection now performs a real reachability test through
+ * [RemoteAccessRepository.testConnection] before persisting. While the test is
+ * in flight the dialog stays open and shows a progress indicator; on success the
+ * connection is saved (with its password stored encrypted by the repository) and
+ * the dialog closes; on failure the error is surfaced and the dialog stays open.
  */
 @HiltViewModel
 class NasConnectionsViewModel @Inject constructor(
     private val connectionRepository: ConnectionRepository,
+    private val remoteAccessRepository: RemoteAccessRepository,
 ) : ViewModel() {
 
-    private val showAddDialog = MutableStateFlow(false)
+    /** Holds the transient add-dialog state (visibility, in-flight test, error). */
+    private data class DialogState(
+        val visible: Boolean = false,
+        val testing: Boolean = false,
+        val error: String? = null,
+    )
+
+    private val dialogState = MutableStateFlow(DialogState())
 
     val uiState: StateFlow<NasConnectionsUiState> =
         combine(
             connectionRepository.observeRemotes()
                 .map { remotes -> remotes.sortedBy { it.displayName.lowercase() } },
-            showAddDialog,
-        ) { remotes, showDialog ->
+            dialogState,
+        ) { remotes, dialog ->
             NasConnectionsUiState(
                 isLoading = false,
                 connections = remotes,
-                showAddDialog = showDialog,
+                showAddDialog = dialog.visible,
+                isTesting = dialog.testing,
+                testError = dialog.error,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -48,41 +62,80 @@ class NasConnectionsViewModel @Inject constructor(
             initialValue = NasConnectionsUiState(isLoading = true),
         )
 
-    /** Reveals the "Add connection" dialog. */
+    /** Reveals the "Add connection" dialog, clearing any stale error. */
     fun onAddRequested() {
-        showAddDialog.value = true
+        dialogState.value = DialogState(visible = true)
     }
 
     /** Hides the "Add connection" dialog without persisting anything. */
     fun onDismissAddDialog() {
-        showAddDialog.value = false
+        dialogState.value = DialogState(visible = false)
     }
 
     /**
-     * Persists a new remote connection definition.
+     * Tests then persists a new remote connection definition.
      *
-     * The [displayName], [host] and [username] are trimmed; a blank username is
-     * stored as null. Submissions with a blank display name or host are ignored.
-     * The dialog is closed regardless so the form does not linger.
+     * All text fields are trimmed; blank username/password/basePath become null.
+     * A blank display name or host aborts silently. The supplied [port] of 0 means
+     * "use the protocol default" and is forwarded unchanged. The reachability test
+     * runs first via [RemoteAccessRepository.testConnection]; only on success is
+     * the connection saved (the password is stored encrypted by the repository,
+     * never inside the connection entry). On failure the dialog stays open with
+     * [NasConnectionsUiState.testError] populated.
      */
-    fun onAddConnection(
+    fun addConnection(
         displayName: String,
         type: ConnectionType,
         host: String,
-        username: String,
+        port: Int,
+        username: String?,
+        password: String?,
+        basePath: String?,
     ) {
-        showAddDialog.value = false
         val name = displayName.trim()
         val trimmedHost = host.trim()
         if (name.isEmpty() || trimmedHost.isEmpty()) return
-        val trimmedUser = username.trim().ifEmpty { null }
+
+        val trimmedUser = username?.trim()?.ifEmpty { null }
+        val trimmedPassword = password?.trim()?.ifEmpty { null }
+        val trimmedBasePath = basePath?.trim()?.ifEmpty { null }
+
+        dialogState.update { it.copy(visible = true, testing = true, error = null) }
+
         viewModelScope.launch {
-            connectionRepository.addRemote(
-                displayName = name,
-                type = type,
-                host = trimmedHost,
-                username = trimmedUser,
-            )
+            when (
+                val result = remoteAccessRepository.testConnection(
+                    type = type,
+                    host = trimmedHost,
+                    port = port,
+                    username = trimmedUser,
+                    password = trimmedPassword,
+                    basePath = trimmedBasePath,
+                )
+            ) {
+                is AppResult.Success -> {
+                    connectionRepository.addRemote(
+                        displayName = name,
+                        type = type,
+                        host = trimmedHost,
+                        port = port,
+                        username = trimmedUser,
+                        password = trimmedPassword,
+                        basePath = trimmedBasePath,
+                    )
+                    dialogState.value = DialogState(visible = false)
+                }
+
+                is AppResult.Failure -> {
+                    dialogState.update {
+                        it.copy(
+                            visible = true,
+                            testing = false,
+                            error = result.error.displayMessage,
+                        )
+                    }
+                }
+            }
         }
     }
 

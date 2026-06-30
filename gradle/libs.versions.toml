@@ -20,6 +20,11 @@ androidxJunit = "1.2.1"
 espresso = "3.6.1"
 coroutines = "1.9.0"
 material = "1.12.0"
+smbj = "0.13.0"
+commonsNet = "3.11.1"
+jsch = "0.2.18"
+okhttp = "4.12.0"
+nanohttpd = "2.3.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -41,6 +46,11 @@ androidx-biometric = { group = "androidx.biometric", name = "biometric", version
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
+commons-net = { group = "commons-net", name = "commons-net", version.ref = "commonsNet" }
+jsch = { group = "com.github.mwiede", name = "jsch", version.ref = "jsch" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
 hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }

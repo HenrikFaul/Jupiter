@@ -79,6 +79,14 @@ sealed class Destination(val route: String) {
 
     data object NasConnections : Destination("nas_connections")
 
+    data object RemoteBrowser : Destination("remote_browser?connectionId={connectionId}&path={path}") {
+        const val ARG_CONNECTION = "connectionId"
+        const val ARG_PATH = "path"
+        fun create(connectionId: String, path: String): String =
+            "remote_browser?connectionId=" + android.net.Uri.encode(connectionId) +
+                "&path=" + android.net.Uri.encode(path)
+    }
+
     // ---- Privacy & automation ----
 
     data object PrivacyDashboard : Destination("privacy_dashboard")

@@ -118,6 +118,13 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
+    // Remote / network protocols (LAN + transfer). Resolved from Maven Central on CI.
+    implementation(libs.smbj)          // SMB2/3
+    implementation(libs.commons.net)   // FTP/FTPS
+    implementation(libs.jsch)          // SFTP
+    implementation(libs.okhttp)        // WebDAV + cloud REST
+    implementation(libs.nanohttpd)     // embedded HTTP server for Wi-Fi desktop transfer
+
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
