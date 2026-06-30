@@ -22,5 +22,9 @@
 -dontwarn org.conscrypt.**
 -dontwarn javax.naming.**
 -dontwarn java.beans.**
+-dontwarn org.apache.commons.compress.**
+-dontwarn org.tukaani.xz.**
+-dontwarn com.github.junrar.**
+-dontwarn org.apache.commons.logging.**
 -keep class com.hierynomus.** { *; }
 -keep class com.jcraft.jsch.** { *; }

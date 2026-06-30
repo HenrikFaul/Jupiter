@@ -125,6 +125,11 @@ dependencies {
     implementation(libs.okhttp)        // WebDAV + cloud REST
     implementation(libs.nanohttpd)     // embedded HTTP server for Wi-Fi desktop transfer
 
+    // Extended archive formats
+    implementation(libs.commons.compress)  // tar / gz / bzip2 / 7z
+    implementation(libs.xz)                 // 7z LZMA support for commons-compress
+    implementation(libs.junrar)             // RAR extraction
+
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

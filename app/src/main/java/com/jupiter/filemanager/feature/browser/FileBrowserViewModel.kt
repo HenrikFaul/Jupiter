@@ -212,6 +212,92 @@ class FileBrowserViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(error = null)
     }
 
+    /** Toggles between list and grid layouts for the directory listing. */
+    fun toggleViewMode() {
+        val next = when (_uiState.value.viewMode) {
+            ViewMode.LIST -> ViewMode.GRID
+            ViewMode.GRID -> ViewMode.LIST
+        }
+        setViewMode(next)
+    }
+
+    /** Sets the directory listing layout to [mode]. */
+    fun setViewMode(mode: ViewMode) {
+        _uiState.value = _uiState.value.copy(viewMode = mode)
+    }
+
+    /**
+     * Opens a new browser tab at [path], makes it active, and loads its contents.
+     * Blank paths are ignored.
+     */
+    fun openTab(path: String) {
+        if (path.isBlank()) return
+        val current = _uiState.value
+        val tab = BrowserTab(path = path, title = tabTitleFor(path))
+        val tabs = current.tabs + tab
+        _uiState.value = current.copy(
+            tabs = tabs,
+            activeTabIndex = tabs.lastIndex,
+        )
+        clearSelection()
+        viewModelScope.launch {
+            loadDirectory(path)
+            bookmarkRepository.addRecent(path)
+        }
+    }
+
+    /**
+     * Closes the tab at [index]. The last remaining tab is never removed; closing the
+     * active tab selects an adjacent tab and navigates to it.
+     */
+    fun closeTab(index: Int) {
+        val current = _uiState.value
+        if (index !in current.tabs.indices) return
+        if (current.tabs.size <= 1) return
+
+        val tabs = current.tabs.toMutableList().apply { removeAt(index) }
+        val newActive = when {
+            index < current.activeTabIndex -> current.activeTabIndex - 1
+            index == current.activeTabIndex -> index.coerceAtMost(tabs.lastIndex)
+            else -> current.activeTabIndex
+        }.coerceIn(0, tabs.lastIndex)
+
+        val movedAway = index == current.activeTabIndex
+        _uiState.value = current.copy(tabs = tabs, activeTabIndex = newActive)
+        if (movedAway) {
+            val target = tabs[newActive].path
+            if (target.isNotBlank()) {
+                clearSelection()
+                viewModelScope.launch { loadDirectory(target) }
+            }
+        }
+    }
+
+    /** Activates the tab at [index] and loads its directory. */
+    fun selectTab(index: Int) {
+        val current = _uiState.value
+        if (index !in current.tabs.indices) return
+        if (index == current.activeTabIndex) return
+        _uiState.value = current.copy(activeTabIndex = index)
+        val target = current.tabs[index].path
+        if (target.isNotBlank()) {
+            clearSelection()
+            viewModelScope.launch { loadDirectory(target) }
+        }
+    }
+
+    /** Toggles the folder tree side panel open/closed. */
+    fun toggleTree() {
+        _uiState.value = _uiState.value.copy(treeExpanded = !_uiState.value.treeExpanded)
+    }
+
+    /** Derives a short, human-readable tab title from [path]. */
+    private fun tabTitleFor(path: String): String {
+        val normalized = path.trimEnd('/')
+        if (normalized.isEmpty()) return "/"
+        return normalized.substringAfterLast('/').ifEmpty { "/" }
+    }
+
     // ---- internals -------------------------------------------------------
 
     /**
@@ -293,6 +379,7 @@ class FileBrowserViewModel @Inject constructor(
                     isLoading = false,
                     error = null,
                     canNavigateUp = parentOf(path) != null,
+                    tabs = syncActiveTab(_uiState.value, path),
                 )
             }
             is AppResult.Failure -> {
@@ -302,8 +389,21 @@ class FileBrowserViewModel @Inject constructor(
                     isLoading = false,
                     error = result.error.displayMessage,
                     canNavigateUp = parentOf(path) != null,
+                    tabs = syncActiveTab(_uiState.value, path),
                 )
             }
+        }
+    }
+
+    /**
+     * Returns a tab list with the currently active tab updated to reflect [path], so
+     * navigating within a tab keeps the tab strip in sync with the visible directory.
+     */
+    private fun syncActiveTab(state: FileBrowserUiState, path: String): List<BrowserTab> {
+        val index = state.activeTabIndex
+        if (index !in state.tabs.indices) return state.tabs
+        return state.tabs.toMutableList().apply {
+            set(index, BrowserTab(path = path, title = tabTitleFor(path)))
         }
     }
 

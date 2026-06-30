@@ -5,6 +5,13 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileOperationProgress
 import com.jupiter.filemanager.domain.model.FileOperationType
 import com.jupiter.filemanager.domain.model.OperationState
+import com.github.junrar.Junrar
+import org.apache.commons.compress.archivers.ArchiveEntry
+import org.apache.commons.compress.archivers.ArchiveInputStream
+import org.apache.commons.compress.archivers.sevenz.SevenZFile
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
@@ -290,6 +297,414 @@ class ArchiveManager @Inject constructor(
             )
         }
     }.flowOn(dispatcher)
+
+    /**
+     * Extracts the archive at [archivePath] into [destinationDir], dispatching by file
+     * extension to the appropriate backend:
+     *
+     *  - **zip** — delegates to [extractZip] (JDK `java.util.zip`).
+     *  - **tar / tar.gz / tgz / gz / bz2** — Apache Commons Compress
+     *    (`org.apache.commons.compress.archivers` / `.compressors`).
+     *  - **7z** — `org.apache.commons.compress.archivers.sevenz.SevenZFile`.
+     *  - **rar** — `com.github.junrar.Junrar`.
+     *
+     * Each backend is guarded; an unsupported extension or any failure emits a terminal
+     * [OperationState.FAILED] snapshot rather than throwing. Work runs on the injected
+     * [IoDispatcher] and is cooperative with cancellation.
+     */
+    fun extractArchive(
+        archivePath: String,
+        destinationDir: String,
+    ): Flow<FileOperationProgress> {
+        val lower = archivePath.lowercase()
+        return when {
+            lower.endsWith(".zip") -> extractZip(archivePath, destinationDir)
+            lower.endsWith(".tar.gz") || lower.endsWith(".tgz") ->
+                extractCompressedTar(archivePath, destinationDir, Compression.GZIP)
+            lower.endsWith(".tar.bz2") || lower.endsWith(".tbz2") || lower.endsWith(".tbz") ->
+                extractCompressedTar(archivePath, destinationDir, Compression.BZIP2)
+            lower.endsWith(".tar") ->
+                extractCompressedTar(archivePath, destinationDir, Compression.NONE)
+            lower.endsWith(".gz") -> extractSingleCompressed(archivePath, destinationDir, Compression.GZIP)
+            lower.endsWith(".bz2") -> extractSingleCompressed(archivePath, destinationDir, Compression.BZIP2)
+            lower.endsWith(".7z") -> extractSevenZ(archivePath, destinationDir)
+            lower.endsWith(".rar") -> extractRar(archivePath, destinationDir)
+            else -> unsupported(archivePath)
+        }
+    }
+
+    // region Extended extraction backends -------------------------------------
+
+    /** Compression wrapping applied to a tar stream (or a single compressed file). */
+    private enum class Compression { NONE, GZIP, BZIP2 }
+
+    /** Emits a single terminal FAILED snapshot for an unsupported archive type. */
+    private fun unsupported(archivePath: String): Flow<FileOperationProgress> = flow {
+        emit(
+            failure(
+                type = FileOperationType.EXTRACT,
+                processedItems = 0,
+                totalItems = 0,
+                processedBytes = 0L,
+                totalBytes = File(archivePath).length(),
+                message = "Unsupported archive format: " + File(archivePath).name,
+            ),
+        )
+    }.flowOn(dispatcher)
+
+    /**
+     * Extracts a (optionally gzip/bzip2-compressed) TAR archive via Commons Compress,
+     * recreating the stored directory structure with Zip-Slip protection.
+     */
+    private fun extractCompressedTar(
+        archivePath: String,
+        destinationDir: String,
+        compression: Compression,
+    ): Flow<FileOperationProgress> = flow {
+        val source = File(archivePath)
+        val targetRoot = File(destinationDir)
+        val totalBytes = source.length()
+
+        emitRunning(source.name, totalBytes)
+
+        if (!source.isFile) {
+            emit(
+                failure(
+                    type = FileOperationType.EXTRACT,
+                    processedItems = 0,
+                    totalItems = 0,
+                    processedBytes = 0L,
+                    totalBytes = totalBytes,
+                    message = "Archive not found: " + archivePath,
+                ),
+            )
+            return@flow
+        }
+
+        targetRoot.mkdirs()
+        val canonicalRoot = targetRoot.canonicalPath
+        var processedItems = 0
+        var processedBytes = 0L
+
+        try {
+            BufferedInputStream(FileInputStream(source)).use { raw ->
+                val decompressed: InputStream = when (compression) {
+                    Compression.NONE -> raw
+                    Compression.GZIP -> GzipCompressorInputStream(raw)
+                    Compression.BZIP2 -> BZip2CompressorInputStream(raw)
+                }
+                TarArchiveInputStream(decompressed).use { tar ->
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val entry: ArchiveEntry = tar.nextEntry ?: break
+                        processedBytes = writeArchiveEntry(
+                            input = tar,
+                            entry = entry,
+                            targetRoot = targetRoot,
+                            canonicalRoot = canonicalRoot,
+                            processedItems = processedItems,
+                            startBytes = processedBytes,
+                            totalBytes = totalBytes,
+                        )
+                        processedItems += 1
+                    }
+                }
+            }
+
+            emitCompleted(targetRoot.name, processedItems, processedBytes, totalBytes)
+        } catch (security: SecurityException) {
+            emitExtractFailure(processedItems, processedBytes, totalBytes, security.message)
+        } catch (io: IOException) {
+            emitExtractFailure(processedItems, processedBytes, totalBytes, io.message)
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Extracts a single-file compressor stream (.gz / .bz2 with no tar inside) by
+     * stripping the compression suffix from the file name.
+     */
+    private fun extractSingleCompressed(
+        archivePath: String,
+        destinationDir: String,
+        compression: Compression,
+    ): Flow<FileOperationProgress> = flow {
+        val source = File(archivePath)
+        val targetRoot = File(destinationDir)
+        val totalBytes = source.length()
+
+        emitRunning(source.name, totalBytes)
+
+        if (!source.isFile) {
+            emit(
+                failure(
+                    type = FileOperationType.EXTRACT,
+                    processedItems = 0,
+                    totalItems = 0,
+                    processedBytes = 0L,
+                    totalBytes = totalBytes,
+                    message = "Archive not found: " + archivePath,
+                ),
+            )
+            return@flow
+        }
+
+        targetRoot.mkdirs()
+        val canonicalRoot = targetRoot.canonicalPath
+        val outName = source.name.substringBeforeLast('.')
+            .ifBlank { source.name + ".out" }
+        val outFile = resolveSafeEntry(targetRoot, canonicalRoot, outName)
+        var processedBytes = 0L
+
+        try {
+            BufferedInputStream(FileInputStream(source)).use { raw ->
+                val decompressed: InputStream = when (compression) {
+                    Compression.GZIP -> GzipCompressorInputStream(raw)
+                    Compression.BZIP2 -> BZip2CompressorInputStream(raw)
+                    Compression.NONE -> raw
+                }
+                outFile.parentFile?.mkdirs()
+                BufferedOutputStream(FileOutputStream(outFile)).use { output ->
+                    processedBytes = copyEntry(
+                        input = decompressed,
+                        output = output,
+                        currentName = outFile.name,
+                        startBytes = 0L,
+                        totalBytes = totalBytes,
+                        processedItems = 0,
+                    )
+                }
+            }
+
+            emitCompleted(targetRoot.name, 1, processedBytes, totalBytes)
+        } catch (security: SecurityException) {
+            emitExtractFailure(0, processedBytes, totalBytes, security.message)
+        } catch (io: IOException) {
+            emitExtractFailure(0, processedBytes, totalBytes, io.message)
+        }
+    }.flowOn(dispatcher)
+
+    /** Extracts a 7z archive via [SevenZFile], with Zip-Slip protection. */
+    private fun extractSevenZ(
+        archivePath: String,
+        destinationDir: String,
+    ): Flow<FileOperationProgress> = flow {
+        val source = File(archivePath)
+        val targetRoot = File(destinationDir)
+        val totalBytes = source.length()
+
+        emitRunning(source.name, totalBytes)
+
+        if (!source.isFile) {
+            emit(
+                failure(
+                    type = FileOperationType.EXTRACT,
+                    processedItems = 0,
+                    totalItems = 0,
+                    processedBytes = 0L,
+                    totalBytes = totalBytes,
+                    message = "Archive not found: " + archivePath,
+                ),
+            )
+            return@flow
+        }
+
+        targetRoot.mkdirs()
+        val canonicalRoot = targetRoot.canonicalPath
+        var processedItems = 0
+        var processedBytes = 0L
+
+        try {
+            SevenZFile(source).use { sevenZ ->
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val entry = sevenZ.nextEntry ?: break
+                    val outFile = resolveSafeEntry(targetRoot, canonicalRoot, entry.name)
+
+                    if (entry.isDirectory) {
+                        outFile.mkdirs()
+                        processedItems += 1
+                        emitEntryProgress(outFile.name, processedItems, processedBytes, totalBytes)
+                        continue
+                    }
+
+                    outFile.parentFile?.mkdirs()
+                    BufferedOutputStream(FileOutputStream(outFile)).use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val read = sevenZ.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            processedBytes += read
+                            emitEntryProgress(outFile.name, processedItems, processedBytes, totalBytes)
+                        }
+                    }
+                    processedItems += 1
+                }
+            }
+
+            emitCompleted(targetRoot.name, processedItems, processedBytes, totalBytes)
+        } catch (security: SecurityException) {
+            emitExtractFailure(processedItems, processedBytes, totalBytes, security.message)
+        } catch (io: IOException) {
+            emitExtractFailure(processedItems, processedBytes, totalBytes, io.message)
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Extracts a RAR archive via [Junrar]. Junrar performs the full extraction into the
+     * destination directory in one call; progress is reported as a single running phase
+     * followed by a terminal snapshot.
+     */
+    private fun extractRar(
+        archivePath: String,
+        destinationDir: String,
+    ): Flow<FileOperationProgress> = flow {
+        val source = File(archivePath)
+        val targetRoot = File(destinationDir)
+        val totalBytes = source.length()
+
+        emitRunning(source.name, totalBytes)
+
+        if (!source.isFile) {
+            emit(
+                failure(
+                    type = FileOperationType.EXTRACT,
+                    processedItems = 0,
+                    totalItems = 0,
+                    processedBytes = 0L,
+                    totalBytes = totalBytes,
+                    message = "Archive not found: " + archivePath,
+                ),
+            )
+            return@flow
+        }
+
+        try {
+            targetRoot.mkdirs()
+            currentCoroutineContext().ensureActive()
+            Junrar.extract(source, targetRoot)
+            emitCompleted(targetRoot.name, 0, totalBytes, totalBytes)
+        } catch (security: SecurityException) {
+            emitExtractFailure(0, 0L, totalBytes, security.message)
+        } catch (t: Throwable) {
+            // Junrar can throw its own checked RarException; treat any failure uniformly.
+            emitExtractFailure(0, 0L, totalBytes, t.message)
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Writes a single Commons Compress [entry] into [targetRoot], guarding against
+     * Zip-Slip, and returns the running processed-bytes total.
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<FileOperationProgress>.writeArchiveEntry(
+        input: ArchiveInputStream,
+        entry: ArchiveEntry,
+        targetRoot: File,
+        canonicalRoot: String,
+        processedItems: Int,
+        startBytes: Long,
+        totalBytes: Long,
+    ): Long {
+        val outFile = resolveSafeEntry(targetRoot, canonicalRoot, entry.name)
+        if (entry.isDirectory) {
+            outFile.mkdirs()
+            emitEntryProgress(outFile.name, processedItems + 1, startBytes, totalBytes)
+            return startBytes
+        }
+        outFile.parentFile?.mkdirs()
+        var written = startBytes
+        BufferedOutputStream(FileOutputStream(outFile)).use { output ->
+            written = copyEntry(
+                input = input,
+                output = output,
+                currentName = outFile.name,
+                startBytes = startBytes,
+                totalBytes = totalBytes,
+                processedItems = processedItems,
+            )
+        }
+        return written
+    }
+
+    /** Emits the initial RUNNING snapshot for an extended-extraction backend. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<FileOperationProgress>.emitRunning(
+        name: String,
+        totalBytes: Long,
+    ) {
+        emit(
+            FileOperationProgress(
+                type = FileOperationType.EXTRACT,
+                state = OperationState.RUNNING,
+                processedItems = 0,
+                totalItems = 0,
+                processedBytes = 0L,
+                totalBytes = totalBytes,
+                currentFileName = name,
+            ),
+        )
+    }
+
+    /** Emits a per-entry RUNNING progress snapshot. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<FileOperationProgress>.emitEntryProgress(
+        name: String,
+        processedItems: Int,
+        processedBytes: Long,
+        totalBytes: Long,
+    ) {
+        emit(
+            FileOperationProgress(
+                type = FileOperationType.EXTRACT,
+                state = OperationState.RUNNING,
+                processedItems = processedItems,
+                totalItems = 0,
+                processedBytes = processedBytes,
+                totalBytes = totalBytes,
+                currentFileName = name,
+            ),
+        )
+    }
+
+    /** Emits the terminal COMPLETED snapshot for an extended-extraction backend. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<FileOperationProgress>.emitCompleted(
+        name: String,
+        processedItems: Int,
+        processedBytes: Long,
+        totalBytes: Long,
+    ) {
+        emit(
+            FileOperationProgress(
+                type = FileOperationType.EXTRACT,
+                state = OperationState.COMPLETED,
+                processedItems = processedItems,
+                totalItems = processedItems,
+                processedBytes = processedBytes,
+                totalBytes = totalBytes,
+                currentFileName = name,
+            ),
+        )
+    }
+
+    /** Emits the terminal FAILED snapshot for an extended-extraction backend. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<FileOperationProgress>.emitExtractFailure(
+        processedItems: Int,
+        processedBytes: Long,
+        totalBytes: Long,
+        message: String?,
+    ) {
+        emit(
+            failure(
+                type = FileOperationType.EXTRACT,
+                processedItems = processedItems,
+                totalItems = processedItems,
+                processedBytes = processedBytes,
+                totalBytes = totalBytes,
+                message = message ?: "Failed to extract archive.",
+            ),
+        )
+    }
+
+    // endregion
 
     // region Internals --------------------------------------------------------
 

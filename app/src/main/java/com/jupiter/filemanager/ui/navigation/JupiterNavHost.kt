@@ -23,11 +23,13 @@ import com.jupiter.filemanager.feature.cloud.CloudHubScreen
 import com.jupiter.filemanager.feature.cloud.NasConnectionsScreen
 import com.jupiter.filemanager.feature.details.FileDetailsScreen
 import com.jupiter.filemanager.feature.downloads.DownloadsScreen
+import com.jupiter.filemanager.feature.editor.TextEditorScreen
 import com.jupiter.filemanager.feature.main.MainScreen
 import com.jupiter.filemanager.feature.onboarding.OnboardingScreen
 import com.jupiter.filemanager.feature.permission.PermissionScreen
 import com.jupiter.filemanager.feature.preview.ImageGalleryScreen
 import com.jupiter.filemanager.feature.preview.MusicPlayerScreen
+import com.jupiter.filemanager.feature.preview.PdfViewerScreen
 import com.jupiter.filemanager.feature.preview.PreviewScreen
 import com.jupiter.filemanager.feature.preview.VideoPlayerScreen
 import com.jupiter.filemanager.feature.privacy.PrivacyDashboardScreen
@@ -68,14 +70,23 @@ fun JupiterNavHost(
     modifier: Modifier = Modifier,
 ) {
     // Navigate to the appropriate screen for a file based on its type. Media and
-    // archives open in their dedicated viewers; everything else falls back to the
-    // generic preview screen.
+    // archives open in their dedicated viewers; PDFs open in the PDF viewer; code and
+    // small text-like documents open in the text editor; everything else falls back to
+    // the generic preview screen.
     fun openByType(item: FileItem) {
         val route = when (item.type) {
             FileType.IMAGE -> Destination.ImageGallery.create(item.path)
             FileType.VIDEO -> Destination.VideoPlayer.create(item.path)
             FileType.AUDIO -> Destination.MusicPlayer.create(item.path)
             FileType.ARCHIVE -> Destination.ArchiveManagerRoute.create(item.path)
+            FileType.PDF -> Destination.PdfViewer.create(item.path)
+            FileType.CODE -> Destination.TextEditor.create(item.path)
+            FileType.DOCUMENT, FileType.OTHER ->
+                if (item.extension.lowercase() in TEXT_EDITABLE_EXTENSIONS) {
+                    Destination.TextEditor.create(item.path)
+                } else {
+                    Destination.Preview.create(item.path)
+                }
             else -> Destination.Preview.create(item.path)
         }
         navController.navigate(route)
@@ -201,6 +212,36 @@ fun JupiterNavHost(
             val path = backStackEntry.arguments?.getString(Destination.Preview.ARG_PATH).orEmpty()
             PreviewScreen(
                 path = path,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Destination.PdfViewer.route,
+            arguments = listOf(
+                navArgument(Destination.PdfViewer.ARG_PATH) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            PdfViewerScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Destination.TextEditor.route,
+            arguments = listOf(
+                navArgument(Destination.TextEditor.ARG_PATH) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            TextEditorScreen(
                 onBack = { navController.popBackStack() },
             )
         }
@@ -471,3 +512,14 @@ fun JupiterNavHost(
         }
     }
 }
+
+/**
+ * Extensions that should open in the in-app [TextEditorScreen] when their
+ * [FileType] is generic (DOCUMENT/OTHER rather than CODE). Mirrors the text
+ * classification used by the preview screen so small, plain-text files are editable.
+ */
+private val TEXT_EDITABLE_EXTENSIONS: Set<String> = setOf(
+    "txt", "text", "log", "md", "markdown", "csv", "tsv",
+    "json", "xml", "yaml", "yml", "ini", "cfg", "conf", "properties",
+    "rtf", "tex", "srt", "vtt", "nfo",
+)

@@ -31,6 +31,16 @@ sealed class Destination(val route: String) {
         fun create(path: String): String = "preview?path=" + android.net.Uri.encode(path)
     }
 
+    data object PdfViewer : Destination("pdf?path={path}") {
+        const val ARG_PATH = "path"
+        fun create(path: String): String = "pdf?path=" + android.net.Uri.encode(path)
+    }
+
+    data object TextEditor : Destination("text_editor?path={path}") {
+        const val ARG_PATH = "path"
+        fun create(path: String): String = "text_editor?path=" + android.net.Uri.encode(path)
+    }
+
     // ---- Startup & shell ----
 
     data object Splash : Destination("splash")

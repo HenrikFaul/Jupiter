@@ -52,6 +52,7 @@ class SettingsDataStore @Inject constructor(
         val SORT_FOLDERS_FIRST = booleanPreferencesKey("sort_folders_first")
         val DUAL_PANE_ENABLED = booleanPreferencesKey("dual_pane_enabled")
         val AI_ENABLED = booleanPreferencesKey("ai_enabled")
+        val AI_API_KEY = stringPreferencesKey("ai_api_key")
     }
 
     /** Current theme mode; defaults to [ThemeMode.SYSTEM]. */
@@ -93,6 +94,11 @@ class SettingsDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.AI_ENABLED] ?: false }
 
+    /** The persisted Claude API key used to enable AI features; defaults to "". */
+    val aiApiKey: Flow<String> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.AI_API_KEY] ?: "" }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         dataStore.edit { prefs -> prefs[Keys.THEME_MODE] = mode.name }
     }
@@ -115,6 +121,10 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setAiEnabled(value: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.AI_ENABLED] = value }
+    }
+
+    suspend fun setAiApiKey(value: String) {
+        dataStore.edit { prefs -> prefs[Keys.AI_API_KEY] = value }
     }
 
     /**
