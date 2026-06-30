@@ -49,6 +49,7 @@ import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.LoadingView
+import java.util.Locale
 
 /**
  * Archive manager screen.
@@ -57,6 +58,11 @@ import com.jupiter.filemanager.ui.components.LoadingView
  * argument (its parent folder when a file is supplied, the storage root when
  * absent). Each archive can be extracted into a sibling folder, and a "Create ZIP"
  * action compresses the folder's contents into a new archive.
+ *
+ * Extraction is multi-format: ZIP-family archives (zip / jar / apk / aar / war) plus
+ * tar, tar.gz / tgz, gz, tar.bz2 / bz2, 7z and rar are all detected by extension and
+ * dispatched through [com.jupiter.filemanager.data.file.ArchiveManager.extractArchive]
+ * by the ViewModel. Each row shows a small badge with the detected format.
  *
  * While a create/extract operation runs, an inline progress panel renders the live
  * [com.jupiter.filemanager.domain.model.FileOperationProgress] published by the
@@ -165,8 +171,8 @@ fun ArchiveManagerScreen(
 }
 
 /**
- * Scrollable list of extractable archives. Each row shows the archive name and size
- * with an inline "Extract" action.
+ * Scrollable list of extractable archives. Each row shows the archive name, size and
+ * detected format with an inline "Extract" action.
  */
 @Composable
 private fun ArchiveList(
@@ -184,7 +190,7 @@ private fun ArchiveList(
     }
 }
 
-/** A single archive card with name, size and an extract button. */
+/** A single archive card with name, size, format badge and an extract button. */
 @Composable
 private fun ArchiveRow(
     archive: FileItem,
@@ -226,11 +232,18 @@ private fun ArchiveRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = formatBytes(archive.sizeBytes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val format = archiveFormatLabel(archive.name)
+                    if (format != null) {
+                        FormatBadge(label = format)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = formatBytes(archive.sizeBytes),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(8.dp))
             OutlinedButton(onClick = onExtract) {
@@ -243,6 +256,22 @@ private fun ArchiveRow(
                 Text("Extract")
             }
         }
+    }
+}
+
+/** A small pill showing the archive's detected format (e.g. "TAR.GZ", "7Z", "RAR"). */
+@Composable
+private fun FormatBadge(label: String) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 
@@ -284,6 +313,18 @@ private fun OperationProgressPanel(
             text = title,
             style = MaterialTheme.typography.titleMedium,
         )
+        // Surface the archive currently being extracted (and its format) when known.
+        val selected = state.selectedArchive
+        if (state.phase == ArchiveOperationPhase.EXTRACTING && selected != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = selected.name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         val currentName = progress?.currentFileName.orEmpty()
         if (currentName.isNotBlank()) {
@@ -372,3 +413,29 @@ private fun ResultBanner(
         }
     }
 }
+
+/**
+ * Returns an upper-cased label for the archive format detected from [name]
+ * (e.g. "TAR.GZ", "ZIP", "7Z", "RAR"), or null when no supported archive suffix is
+ * recognised. Multi-part suffixes are matched before their single-part tails so a
+ * `.tar.gz` is not mislabelled as `.gz`.
+ */
+private fun archiveFormatLabel(name: String): String? {
+    val lower = name.lowercase(Locale.ROOT)
+    val ext = ARCHIVE_FORMAT_SUFFIXES.firstOrNull { lower.endsWith(".$it") }
+    return ext?.uppercase(Locale.ROOT)
+}
+
+/**
+ * Recognised archive suffixes (lower-cased, without the leading dot), ordered so
+ * multi-part suffixes precede their single-part tails for correct longest match.
+ * Mirrors the formats dispatched by
+ * [com.jupiter.filemanager.data.file.ArchiveManager.extractArchive].
+ */
+private val ARCHIVE_FORMAT_SUFFIXES: List<String> = listOf(
+    "tar.gz", "tar.bz2",
+    "zip", "jar", "apk", "aar", "war",
+    "tgz", "tbz2", "tbz", "tar",
+    "7z", "rar",
+    "gz", "bz2",
+)

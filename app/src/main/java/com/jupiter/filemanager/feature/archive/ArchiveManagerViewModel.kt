@@ -16,6 +16,7 @@ import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.ui.navigation.Destination
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +24,9 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.launch
+import com.jupiter.filemanager.domain.model.FileOperationProgress
 import java.io.File
+import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -33,10 +36,15 @@ import javax.inject.Inject
  * ([Destination.ArchiveManagerRoute.ARG_PATH]) is resolved to a folder: if the
  * argument points at a file, that file's parent directory is used; if it points
  * at a directory, that directory is used; when absent the storage root is used.
- * The folder's contents are listed and archive entries (ZIP and similar) are
- * surfaced for extraction.
+ * The folder's contents are listed and archive entries are surfaced for extraction.
  *
- * Both create and extract delegate to [ArchiveManager], collecting its cold
+ * Extraction is multi-format: every supported archive (zip / jar / apk / aar / war,
+ * tar, tar.gz / tgz, gz, tar.bz2 / tbz2 / tbz, bz2, 7z, rar) is dispatched through
+ * [ArchiveManager.extractArchive], which routes by extension to the appropriate
+ * backend (JDK `java.util.zip` for ZIP-family archives, Apache Commons Compress for
+ * tar/gz/bz2/7z, Junrar for rar). Creation produces a ZIP via [ArchiveManager.createZip].
+ *
+ * Both create and extract collect the cold
  * [com.jupiter.filemanager.domain.model.FileOperationProgress] flow on
  * [viewModelScope] so the UI can render incremental progress. All blocking IO is
  * performed by the repository / [ArchiveManager] on background dispatchers.
@@ -131,7 +139,12 @@ class ArchiveManagerViewModel @Inject constructor(
 
     /**
      * Extracts [archive] into a sibling folder named after the archive (without its
-     * extension), collecting [ArchiveManager.extractZip] progress into the UI state.
+     * extension), collecting [ArchiveManager.extractArchive] progress into the UI
+     * state.
+     *
+     * The format is detected from the archive's name; [ArchiveManager.extractArchive]
+     * routes ZIP-family archives through the JDK backend and tar/gz/bz2/7z/rar through
+     * Commons Compress / Junrar. An unsupported extension surfaces as a FAILED snapshot.
      */
     fun extract(archive: FileItem) {
         if (_uiState.value.isBusy) return
@@ -145,34 +158,11 @@ class ArchiveManagerViewModel @Inject constructor(
                 error = null,
             )
         }
-        operationJob = archiveManager.extractZip(
-            zipPath = archive.path,
+        operationJob = archiveManager.extractArchive(
+            archivePath = archive.path,
             destinationDir = destinationDir,
         )
-            .onEach { progress ->
-                _uiState.update {
-                    it.copy(
-                        progress = progress,
-                        phase = when (progress.state) {
-                            OperationState.COMPLETED -> ArchiveOperationPhase.COMPLETED
-                            OperationState.FAILED -> ArchiveOperationPhase.FAILED
-                            OperationState.CANCELLED -> ArchiveOperationPhase.IDLE
-                            OperationState.RUNNING -> ArchiveOperationPhase.EXTRACTING
-                        },
-                        error = if (progress.state == OperationState.FAILED) {
-                            progress.errorMessage ?: "Failed to extract archive."
-                        } else {
-                            it.error
-                        },
-                    )
-                }
-            }
-            .onCompletion { cause ->
-                if (cause == null && _uiState.value.phase == ArchiveOperationPhase.COMPLETED) {
-                    refresh()
-                }
-            }
-            .launchIn(viewModelScope)
+            .collectExtraction()
     }
 
     /**
@@ -247,6 +237,38 @@ class ArchiveManagerViewModel @Inject constructor(
 
     // region Helpers ----------------------------------------------------------
 
+    /**
+     * Wires a [ArchiveManager.extractArchive] progress flow into the UI state and
+     * launches it on [viewModelScope]. Shared by every extraction backend since they
+     * all emit the same [com.jupiter.filemanager.domain.model.FileOperationProgress]
+     * contract.
+     */
+    private fun Flow<FileOperationProgress>.collectExtraction(): Job =
+        onEach { progress ->
+            _uiState.update {
+                it.copy(
+                    progress = progress,
+                    phase = when (progress.state) {
+                        OperationState.COMPLETED -> ArchiveOperationPhase.COMPLETED
+                        OperationState.FAILED -> ArchiveOperationPhase.FAILED
+                        OperationState.CANCELLED -> ArchiveOperationPhase.IDLE
+                        OperationState.RUNNING -> ArchiveOperationPhase.EXTRACTING
+                    },
+                    error = if (progress.state == OperationState.FAILED) {
+                        progress.errorMessage ?: "Failed to extract archive."
+                    } else {
+                        it.error
+                    },
+                )
+            }
+        }
+            .onCompletion { cause ->
+                if (cause == null && _uiState.value.phase == ArchiveOperationPhase.COMPLETED) {
+                    refresh()
+                }
+            }
+            .launchIn(viewModelScope)
+
     /** Resolves the [argPath] navigation argument to the folder to display. */
     private fun resolveFolder(argPath: String?): String {
         if (argPath.isNullOrBlank()) return fileRepository.rootDirectory()
@@ -271,13 +293,17 @@ class ArchiveManagerViewModel @Inject constructor(
     /** Whether [item] is an archive that can be extracted. */
     private fun isArchive(item: FileItem): Boolean {
         if (item.type == FileType.ARCHIVE) return true
-        return item.extension.lowercase() in ARCHIVE_EXTENSIONS
+        return archiveExtensionOf(item.name) != null
     }
 
-    /** Computes a non-colliding destination directory for extracting [archive]. */
+    /**
+     * Computes a non-colliding destination directory for extracting [archive]. The
+     * detected (possibly multi-part, e.g. `tar.gz`) extension is stripped so the
+     * destination folder is named after the archive's base name.
+     */
     private fun extractionDestination(archive: FileItem): String {
         val parent = archive.parentPath ?: _uiState.value.folderPath
-        val baseName = archive.name.substringBeforeLast('.', archive.name).ifBlank { "extracted" }
+        val baseName = baseNameWithoutArchiveExt(archive.name).ifBlank { "extracted" }
         var candidate = File(parent, baseName)
         var index = 1
         while (candidate.exists()) {
@@ -299,6 +325,27 @@ class ArchiveManagerViewModel @Inject constructor(
         return candidate.absolutePath
     }
 
+    /**
+     * Returns the recognised archive extension of [name] (lower-cased, without the
+     * leading dot — e.g. `"tar.gz"`, `"zip"`, `"rar"`), or null when [name] is not a
+     * supported archive. Multi-part suffixes are matched before their single-part
+     * tails so `.tar.gz` is not mistaken for `.gz`.
+     */
+    private fun archiveExtensionOf(name: String): String? {
+        val lower = name.lowercase(Locale.ROOT)
+        return ARCHIVE_EXTENSIONS.firstOrNull { ext -> lower.endsWith(".$ext") }
+    }
+
+    /** Strips the recognised archive extension (if any) from [name]. */
+    private fun baseNameWithoutArchiveExt(name: String): String {
+        val ext = archiveExtensionOf(name)
+        return if (ext != null) {
+            name.dropLast(ext.length + 1) // +1 for the dot.
+        } else {
+            name.substringBeforeLast('.', name)
+        }
+    }
+
     private inline fun MutableStateFlow<ArchiveManagerUiState>.update(
         transform: (ArchiveManagerUiState) -> ArchiveManagerUiState,
     ) {
@@ -308,9 +355,18 @@ class ArchiveManagerViewModel @Inject constructor(
     // endregion
 
     private companion object {
-        /** File extensions treated as extractable archives in the listing. */
-        val ARCHIVE_EXTENSIONS: Set<String> = setOf(
+        /**
+         * File extensions treated as extractable archives in the listing, lower-cased
+         * and without the leading dot. Ordered so multi-part suffixes (`tar.gz`,
+         * `tar.bz2`) precede their single-part tails (`gz`, `bz2`) for correct longest
+         * match. These mirror the formats dispatched by [ArchiveManager.extractArchive].
+         */
+        val ARCHIVE_EXTENSIONS: List<String> = listOf(
+            "tar.gz", "tar.bz2",
             "zip", "jar", "apk", "aar", "war",
+            "tgz", "tbz2", "tbz", "tar",
+            "7z", "rar",
+            "gz", "bz2",
         )
     }
 }
