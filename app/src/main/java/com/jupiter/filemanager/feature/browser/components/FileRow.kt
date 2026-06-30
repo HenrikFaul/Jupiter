@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Checkbox
@@ -19,25 +20,40 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.ui.components.iconForFile
 
 /**
  * A single row in the file browser list.
  *
- * Renders the type icon (via [iconForFile]), the file name, and a subtitle that
- * combines size/child-count and a relative last-modified time. When
- * [selectionMode] is active a leading [Checkbox] reflects [selected]. The whole
- * row is clickable and long-clickable via [combinedClickable]. When not in
- * selection mode a trailing overflow button surfaces the per-item actions.
+ * Renders the type icon (via [iconForFile]) — or, for [FileType.IMAGE] and
+ * [FileType.VIDEO], a cropped Coil thumbnail of the underlying file with the
+ * type icon as both placeholder and error fallback — followed by the file name
+ * and a subtitle that combines size/child-count and a relative last-modified
+ * time. When [selectionMode] is active a leading [Checkbox] reflects [selected].
+ * The whole row is clickable and long-clickable via [combinedClickable]. When
+ * not in selection mode a trailing overflow button surfaces the per-item actions.
  *
- * This composable is pure UI: it performs no IO and delegates all interaction
- * to [onClick] / [onLongClick] / [onOverflowClick].
+ * The [dense] flag produces a tighter row (smaller padding, smaller leading
+ * slot, no overflow button) for use in space-constrained layouts such as the
+ * dual-pane screen. When [dense] is false the row is visually identical to its
+ * historical single-pane appearance.
+ *
+ * This composable is pure UI: it performs no IO of its own (Coil handles
+ * thumbnail loading) and delegates all interaction to [onClick] / [onLongClick]
+ * / [onOverflowClick].
  *
  * @param item the file-system entry to render.
  * @param selected whether this item is currently selected.
@@ -45,6 +61,7 @@ import com.jupiter.filemanager.ui.components.iconForFile
  * @param onClick invoked on a normal tap.
  * @param onLongClick invoked on a long press.
  * @param onOverflowClick invoked when the trailing overflow button is tapped.
+ * @param dense when true, renders a tighter row without the trailing overflow button.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -56,7 +73,13 @@ fun FileRow(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     onOverflowClick: () -> Unit = {},
+    dense: Boolean = false,
 ) {
+    val horizontalPadding = if (dense) 8.dp else 16.dp
+    val verticalPadding = if (dense) 8.dp else 12.dp
+    val leadingSize = if (dense) 32.dp else 40.dp
+    val textGap = if (dense) 8.dp else 16.dp
+
     Surface(
         color = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
@@ -77,7 +100,7 @@ fun FileRow(
                     onClick = onClick,
                     onLongClick = onLongClick,
                 )
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (selectionMode) {
@@ -88,21 +111,20 @@ fun FileRow(
                 Spacer(modifier = Modifier.width(8.dp))
             }
 
-            Icon(
-                imageVector = iconForFile(item),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(40.dp),
+            FileRowLeading(
+                item = item,
+                leadingSize = leadingSize,
+                dense = dense,
             )
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(textGap))
 
             FileRowText(
                 item = item,
                 modifier = Modifier.weight(1f),
             )
 
-            if (!selectionMode) {
+            if (!selectionMode && !dense) {
                 IconButton(onClick = onOverflowClick) {
                     Icon(
                         imageVector = Icons.Filled.MoreVert,
@@ -112,6 +134,45 @@ fun FileRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * The leading visual of a [FileRow]. For images and videos it renders a cropped
+ * Coil thumbnail of the file, falling back to the type icon (via [iconForFile])
+ * while loading or on error so a missing/unreadable file never shows blank and
+ * never crashes. For all other types it renders the type icon directly.
+ */
+@Composable
+private fun FileRowLeading(
+    item: FileItem,
+    leadingSize: androidx.compose.ui.unit.Dp,
+    dense: Boolean,
+) {
+    val isThumbnailable = item.type == FileType.IMAGE || item.type == FileType.VIDEO
+    if (isThumbnailable) {
+        val fallbackPainter = rememberVectorPainter(iconForFile(item))
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(java.io.File(item.path))
+                .crossfade(true)
+                .size(if (dense) 64 else 96)
+                .build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            placeholder = fallbackPainter,
+            error = fallbackPainter,
+            modifier = Modifier
+                .size(leadingSize)
+                .clip(RoundedCornerShape(6.dp)),
+        )
+    } else {
+        Icon(
+            imageVector = iconForFile(item),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(leadingSize),
+        )
     }
 }
 
