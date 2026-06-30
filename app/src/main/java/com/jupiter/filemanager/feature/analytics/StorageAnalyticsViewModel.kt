@@ -2,13 +2,16 @@ package com.jupiter.filemanager.feature.analytics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -17,10 +20,17 @@ import javax.inject.Inject
  * Produces a real, categorized overview of the primary storage volume for the
  * Storage Analytics screen. All heavy filesystem work happens inside the
  * repository (off the main thread); this ViewModel only orchestrates state.
+ *
+ * The overview is collected INCREMENTALLY via
+ * [StorageAnalyticsRepository.observeStorageOverview] so the screen renders a
+ * meaningful breakdown on the first partial emission (clearing the full-screen
+ * spinner) and refines it as the walk progresses, rather than blocking behind a
+ * full-volume walk that emits nothing for minutes.
  */
 @HiltViewModel
 class StorageAnalyticsViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
+    private val storageAccessManager: StorageAccessManager,
     @Suppress("unused") private val fileRepository: FileRepository,
 ) : ViewModel() {
 
@@ -32,28 +42,68 @@ class StorageAnalyticsViewModel @Inject constructor(
     }
 
     /**
-     * Recomputes the storage overview. Safe to call repeatedly (e.g. from a
-     * pull-to-refresh / retry action); guards against concurrent reloads.
+     * Recomputes the storage overview by collecting the incremental flow. Safe to
+     * call repeatedly (e.g. from a refresh / retry action, or on resume after the
+     * user grants permission).
      */
     fun analyze() {
-        _uiState.update { it.copy(isLoading = true, error = null) }
-        viewModelScope.launch {
-            when (val result = analyticsRepository.storageOverview()) {
-                is AppResult.Success -> _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        overview = result.data,
-                        error = null,
-                    )
-                }
-
-                is AppResult.Failure -> _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = result.error.displayMessage,
-                    )
-                }
+        // Gate the scan on broad storage access: without it the walk silently
+        // returns nothing, so surface an actionable CTA instead of spinning.
+        if (!storageAccessManager.hasAllFilesAccess()) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    isScanning = false,
+                    permissionRequired = true,
+                    error = null,
+                )
             }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                isScanning = true,
+                permissionRequired = false,
+                error = null,
+            )
+        }
+
+        viewModelScope.launch {
+            analyticsRepository.observeStorageOverview()
+                .onStart {
+                    _uiState.update { it.copy(isScanning = true, error = null) }
+                }
+                .catch { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isScanning = false,
+                            // Keep any partial overview already shown; only surface
+                            // the error when there is nothing to display.
+                            error = if (it.overview == null) {
+                                throwable.message ?: "Unable to analyze storage."
+                            } else {
+                                it.error
+                            },
+                        )
+                    }
+                }
+                .onCompletion {
+                    _uiState.update { it.copy(isLoading = false, isScanning = false) }
+                }
+                .collect { overview ->
+                    // First (partial) emission clears the full-screen spinner;
+                    // every subsequent emission refines the breakdown in place.
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            overview = overview,
+                            error = null,
+                        )
+                    }
+                }
         }
     }
 }

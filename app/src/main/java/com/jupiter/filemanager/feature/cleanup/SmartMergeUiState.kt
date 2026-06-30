@@ -19,6 +19,8 @@ import com.jupiter.filemanager.domain.model.MergeRecommendation
  * @param qualities probed media-quality info keyed by file path, used to rank
  *   copies and surface a human-readable quality label under each file.
  * @param isMerging whether a merge (delete-the-rest) operation is running.
+ * @param permissionRequired true when the scan was skipped because the app lacks
+ *   "All files access"; the screen surfaces an actionable CTA to grant it.
  * @param errorMessage a transient error message to surface, or null.
  * @param infoMessage a transient informational message (e.g. after a merge), or null.
  */
@@ -28,12 +30,13 @@ data class SmartMergeUiState(
     val keepSelections: Map<String, String> = emptyMap(),
     val qualities: Map<String, MediaQuality> = emptyMap(),
     val isMerging: Boolean = false,
+    val permissionRequired: Boolean = false,
     val errorMessage: String? = null,
     val infoMessage: String? = null,
 ) {
     /** True when there are no recommendations and scanning has finished. */
     val isEmpty: Boolean
-        get() = !isScanning && recommendations.isEmpty()
+        get() = !isScanning && !permissionRequired && recommendations.isEmpty()
 
     /** Total reclaimable bytes across every recommendation. */
     val totalReclaimableBytes: Long

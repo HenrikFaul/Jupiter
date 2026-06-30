@@ -11,6 +11,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Probes media files for quality metrics (resolution, bitrate, duration).
@@ -36,6 +37,11 @@ class MediaQualityProbe @Inject constructor(
         }
     }
 
+    private companion object {
+        /** Hard ceiling for any single blocking JNI / decode call. */
+        const val PROBE_TIMEOUT_MS = 4_000L
+    }
+
     suspend fun probeAll(paths: List<String>): Map<String, MediaQuality> =
         withContext(dispatcher) {
             paths.associateWith { path -> probe(path) }
@@ -45,38 +51,43 @@ class MediaQualityProbe @Inject constructor(
     // IMAGE
     // ---------------------------------------------------------------------
 
-    private fun probeImage(path: String, sizeBytes: Long): MediaQuality {
+    private suspend fun probeImage(path: String, sizeBytes: Long): MediaQuality {
         var width = 0
         var height = 0
-        try {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(path, options)
-            if (options.outWidth > 0) width = options.outWidth
-            if (options.outHeight > 0) height = options.outHeight
-        } catch (_: Throwable) {
-            // ignore — keep zeros
+        // BitmapFactory can block/hang on corrupt or huge files; bound it.
+        withTimeoutOrNull(PROBE_TIMEOUT_MS) {
+            try {
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(path, options)
+                if (options.outWidth > 0) width = options.outWidth
+                if (options.outHeight > 0) height = options.outHeight
+            } catch (_: Throwable) {
+                // ignore — keep zeros
+            }
         }
 
         // Swap dimensions for rotated orientations so the reported resolution
         // matches what the user actually sees.
-        try {
-            val exif = ExifInterface(path)
-            val orientation = exif.getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL,
-            )
-            if (
-                orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
-                orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
-                orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
-                orientation == ExifInterface.ORIENTATION_TRANSVERSE
-            ) {
-                val tmp = width
-                width = height
-                height = tmp
+        withTimeoutOrNull(PROBE_TIMEOUT_MS) {
+            try {
+                val exif = ExifInterface(path)
+                val orientation = exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+                if (
+                    orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+                    orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
+                    orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
+                    orientation == ExifInterface.ORIENTATION_TRANSVERSE
+                ) {
+                    val tmp = width
+                    width = height
+                    height = tmp
+                }
+            } catch (_: Throwable) {
+                // ignore — orientation is best-effort
             }
-        } catch (_: Throwable) {
-            // ignore — orientation is best-effort
         }
 
         if (width <= 0 || height <= 0) {
@@ -104,7 +115,7 @@ class MediaQualityProbe @Inject constructor(
     // VIDEO
     // ---------------------------------------------------------------------
 
-    private fun probeVideo(path: String, sizeBytes: Long): MediaQuality {
+    private suspend fun probeVideo(path: String, sizeBytes: Long): MediaQuality {
         var width = 0
         var height = 0
         var bitrate = 0L
@@ -152,7 +163,7 @@ class MediaQualityProbe @Inject constructor(
     // AUDIO
     // ---------------------------------------------------------------------
 
-    private fun probeAudio(path: String, sizeBytes: Long): MediaQuality {
+    private suspend fun probeAudio(path: String, sizeBytes: Long): MediaQuality {
         var bitrate = 0L
         var durationMs = 0L
 
@@ -201,13 +212,19 @@ class MediaQualityProbe @Inject constructor(
             0L
         }
 
-    private inline fun withRetriever(path: String, block: (MediaMetadataRetriever) -> Unit) {
+    private suspend fun withRetriever(path: String, block: (MediaMetadataRetriever) -> Unit) {
         val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSource(path)
-            block(retriever)
-        } catch (_: Throwable) {
-            // ignore — leave caller's values at defaults
+            // setDataSource + extractMetadata are blocking JNI calls that can hang
+            // indefinitely on malformed/remote sources; cap the whole open+extract.
+            withTimeoutOrNull(PROBE_TIMEOUT_MS) {
+                try {
+                    retriever.setDataSource(path)
+                    block(retriever)
+                } catch (_: Throwable) {
+                    // ignore — leave caller's values at defaults
+                }
+            }
         } finally {
             try {
                 retriever.release()

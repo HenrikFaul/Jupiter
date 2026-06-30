@@ -3,11 +3,15 @@ package com.jupiter.filemanager.feature.cleanup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.data.media.MediaQualityProbe
+import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,17 +37,48 @@ import javax.inject.Inject
 class DuplicatesViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
     private val mediaQualityProbe: MediaQualityProbe,
+    private val storageAccessManager: StorageAccessManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DuplicatesUiState())
     val uiState: StateFlow<DuplicatesUiState> = _uiState.asStateFlow()
 
+    /**
+     * Bounds concurrent media-quality probes so deferred [probeGroup] calls never
+     * flood the IO dispatcher while (or after) the scan is running.
+     */
+    private val probeGate = Semaphore(permits = 2)
+
+    /** Tracks deferred probe jobs so a rescan can cancel stale probing. */
+    private val probeJobs = mutableListOf<Job>()
+
     init {
         scan()
     }
 
-    /** Starts (or restarts) a duplicate scan over the primary storage root. */
+    /**
+     * Starts (or restarts) a duplicate scan over the primary storage root.
+     *
+     * If the app lacks All-Files-Access, the walk is skipped entirely and
+     * [DuplicatesUiState.permissionRequired] is set so the screen can render an
+     * actionable CTA instead of an indefinite spinner.
+     */
     fun scan() {
+        if (!storageAccessManager.hasAllFilesAccess()) {
+            cancelProbes()
+            _uiState.value = _uiState.value.copy(
+                isScanning = false,
+                permissionRequired = true,
+                groups = emptyList(),
+                selectedPaths = emptySet(),
+                qualities = emptyMap(),
+                errorMessage = null,
+                infoMessage = null,
+            )
+            return
+        }
+
+        cancelProbes()
         viewModelScope.launch {
             val root = android.os.Environment.getExternalStorageDirectory()?.absolutePath
                 ?: "/storage/emulated/0"
@@ -52,6 +87,7 @@ class DuplicatesViewModel @Inject constructor(
                 .onStart {
                     _uiState.value = _uiState.value.copy(
                         isScanning = true,
+                        permissionRequired = false,
                         groups = emptyList(),
                         selectedPaths = emptySet(),
                         qualities = emptyMap(),
@@ -68,34 +104,50 @@ class DuplicatesViewModel @Inject constructor(
                 .onCompletion { cause ->
                     if (cause == null) {
                         _uiState.value = _uiState.value.copy(isScanning = false)
+                        // Probe quality only after the scan finishes, so probing never
+                        // competes with the (CPU/IO-heavy) hashing walk on the IO pool.
+                        probeGroups(collected.toList())
                     }
                 }
                 .collect { group ->
                     if (group.files.size > 1) {
                         collected.add(group)
+                        // First group leaves the spinner; the screen renders content as
+                        // soon as `groups` is non-empty even while `isScanning` is true.
                         _uiState.value = _uiState.value.copy(groups = collected.toList())
-                        probeGroup(group)
                     }
                 }
         }
     }
 
     /**
-     * Probes media quality for every file in a freshly discovered [group] on a
-     * background dispatcher and merges the results into UI state. Never throws;
-     * the probe itself guards each file and falls back to a safe empty quality.
+     * Probes media quality for every discovered [groups] off the scan critical
+     * path, one group per coroutine, with concurrency bounded by [probeGate].
+     * Merges results into UI state as they resolve. Never throws; the probe itself
+     * guards each file and falls back to a safe empty quality.
      */
-    private fun probeGroup(group: DuplicateGroup) {
-        val paths = group.files.map { it.path }
-        if (paths.isEmpty()) return
-        viewModelScope.launch {
-            val probed: Map<String, MediaQuality> = mediaQualityProbe.probeAll(paths)
-            if (probed.isNotEmpty()) {
-                _uiState.value = _uiState.value.copy(
-                    qualities = _uiState.value.qualities + probed,
-                )
+    private fun probeGroups(groups: List<DuplicateGroup>) {
+        for (group in groups) {
+            val paths = group.files.map { it.path }
+            if (paths.isEmpty()) continue
+            val job = viewModelScope.launch {
+                probeGate.withPermit {
+                    val probed: Map<String, MediaQuality> = mediaQualityProbe.probeAll(paths)
+                    if (probed.isNotEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            qualities = _uiState.value.qualities + probed,
+                        )
+                    }
+                }
             }
+            probeJobs.add(job)
         }
+    }
+
+    /** Cancels any in-flight deferred probe jobs (e.g. before a rescan). */
+    private fun cancelProbes() {
+        probeJobs.forEach { it.cancel() }
+        probeJobs.clear()
     }
 
     /** Toggles selection of a single file path within a duplicate group. */

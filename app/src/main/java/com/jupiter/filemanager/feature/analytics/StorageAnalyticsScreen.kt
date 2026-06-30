@@ -1,5 +1,8 @@
 package com.jupiter.filemanager.feature.analytics
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,9 +26,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DonutLarge
 import androidx.compose.material.icons.filled.FindInPage
+import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,10 +48,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatItemCount
@@ -75,6 +84,15 @@ fun StorageAnalyticsScreen(
     val viewModel: StorageAnalyticsViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // Recover automatically once the user returns from the All-Files-Access
+    // settings screen having granted permission: only re-run when we were blocked.
+    LifecycleResumeEffect(uiState.permissionRequired) {
+        if (uiState.permissionRequired) {
+            viewModel.analyze()
+        }
+        onPauseOrDispose { }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -90,7 +108,7 @@ fun StorageAnalyticsScreen(
                 actions = {
                     IconButton(
                         onClick = viewModel::analyze,
-                        enabled = !uiState.isLoading,
+                        enabled = !uiState.isLoading && !uiState.isScanning,
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
@@ -102,6 +120,16 @@ fun StorageAnalyticsScreen(
         },
     ) { innerPadding ->
         when {
+            // Permission gate takes precedence over an empty scan: don't spin,
+            // show an actionable CTA that opens All-Files-Access settings.
+            uiState.permissionRequired && uiState.overview == null -> {
+                PermissionRequiredView(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                )
+            }
+
             uiState.isLoading && uiState.overview == null -> {
                 LoadingView(modifier = Modifier.padding(innerPadding))
             }
@@ -117,6 +145,7 @@ fun StorageAnalyticsScreen(
             uiState.overview != null -> {
                 AnalyticsContent(
                     overview = uiState.overview!!,
+                    isScanning = uiState.isScanning,
                     onOpenLargeFiles = { onOpenRoute(Destination.Cleanup.route) },
                     modifier = Modifier
                         .fillMaxSize()
@@ -131,6 +160,7 @@ fun StorageAnalyticsScreen(
 @Composable
 private fun AnalyticsContent(
     overview: StorageOverview,
+    isScanning: Boolean,
     onOpenLargeFiles: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -143,6 +173,12 @@ private fun AnalyticsContent(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        if (isScanning) {
+            item(key = "scanning-chip") {
+                ScanningChip()
+            }
+        }
+
         item(key = "donut") {
             BreakdownCard(
                 overview = overview,
@@ -477,6 +513,92 @@ private fun LargeFilesEntry(onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Lightweight "still scanning…" indicator shown above the breakdown while the
+ * incremental walk continues. It never blocks the already-rendered content.
+ */
+@Composable
+private fun ScanningChip() {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(14.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "Still scanning…",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+/**
+ * Actionable empty-state shown when the app lacks broad storage access. Rather
+ * than spinning forever on a scan that can read nothing, it explains the gap and
+ * launches the All-Files-Access settings inline so the user can grant it; the
+ * screen re-runs the scan automatically on resume.
+ */
+@Composable
+private fun PermissionRequiredView(modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.FolderOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "All files access needed",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "To analyze how your storage is used, Jupiter needs permission " +
+                "to access all files on this device.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(
+            onClick = {
+                runCatching {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.fromParts("package", ctx.packageName, null),
+                    )
+                    ctx.startActivity(intent)
+                }.onFailure {
+                    runCatching {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+                        )
+                    }
+                }
+            },
+        ) {
+            Text(text = "Grant All Files Access")
         }
     }
 }

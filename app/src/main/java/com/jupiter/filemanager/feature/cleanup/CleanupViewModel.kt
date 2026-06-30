@@ -3,6 +3,7 @@ package com.jupiter.filemanager.feature.cleanup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.StorageOverview
@@ -30,6 +31,8 @@ import kotlinx.coroutines.launch
  * @property reclaimableBytes total size of the currently selected files, in bytes.
  * @property aiExplanation a natural-language explanation of the overview, when available.
  * @property error a human-readable error message, or null when there is none.
+ * @property permissionRequired true when the scan was skipped because the app lacks
+ *   All-Files-Access; the screen shows an actionable CTA instead of spinning.
  */
 data class CleanupUiState(
     val isScanning: Boolean = false,
@@ -40,6 +43,7 @@ data class CleanupUiState(
     val reclaimableBytes: Long = 0L,
     val aiExplanation: String? = null,
     val error: String? = null,
+    val permissionRequired: Boolean = false,
 )
 
 /**
@@ -64,6 +68,7 @@ class CleanupViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
     private val fileRepository: FileRepository,
     private val aiAssistant: AiAssistant,
+    private val storageAccessManager: StorageAccessManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CleanupUiState())
@@ -80,10 +85,31 @@ class CleanupViewModel @Inject constructor(
      */
     fun scan() {
         scanJob?.cancel()
+
+        // Permission gate: without All-Files-Access the walk silently returns 0 results,
+        // so skip it entirely and surface an actionable CTA instead of spinning.
+        if (!storageAccessManager.hasAllFilesAccess()) {
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    permissionRequired = true,
+                    error = null,
+                    overview = null,
+                    largeFiles = emptyList(),
+                    duplicateGroups = emptyList(),
+                    selectedForDeletion = emptySet(),
+                    reclaimableBytes = 0L,
+                    aiExplanation = null,
+                )
+            }
+            return
+        }
+
         scanJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isScanning = true,
+                    permissionRequired = false,
                     error = null,
                     overview = null,
                     largeFiles = emptyList(),
@@ -97,10 +123,12 @@ class CleanupViewModel @Inject constructor(
             loadOverview()
 
             val rootPath = fileRepository.rootDirectory()
-            val largeFilesJob = launch { collectLargeFiles(rootPath) }
-            val duplicatesJob = launch { collectDuplicates(rootPath) }
-            largeFilesJob.join()
-            duplicatesJob.join()
+            // Duplicate scanning is the slowest pass; let its groups stream in as a
+            // secondary indicator rather than gating isScanning on its completion.
+            launch { collectDuplicates(rootPath) }
+            // The primary scan (overview + large files) determines when the
+            // full-screen spinner clears; duplicates continue in the background.
+            collectLargeFiles(rootPath)
             _uiState.update { it.copy(isScanning = false) }
         }
     }

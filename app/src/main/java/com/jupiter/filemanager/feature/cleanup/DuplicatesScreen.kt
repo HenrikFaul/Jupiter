@@ -1,5 +1,9 @@
 package com.jupiter.filemanager.feature.cleanup
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,8 +25,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -47,13 +53,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatRelativeTime
@@ -86,6 +95,15 @@ fun DuplicatesScreen(
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     var showConfirm by remember { mutableStateOf(false) }
+
+    // When the user returns from the system settings screen after we asked for
+    // All-Files-Access, re-run the scan so a just-granted permission recovers.
+    LifecycleResumeEffect(state.permissionRequired) {
+        if (state.permissionRequired) {
+            viewModel.scan()
+        }
+        onPauseOrDispose { }
+    }
 
     LaunchedEffect(state.errorMessage, state.infoMessage) {
         val message = state.errorMessage ?: state.infoMessage
@@ -144,6 +162,10 @@ fun DuplicatesScreen(
                 .padding(padding),
         ) {
             when {
+                state.permissionRequired -> {
+                    PermissionRequiredView()
+                }
+
                 state.groups.isEmpty() && state.isScanning -> {
                     LoadingView()
                 }
@@ -214,6 +236,74 @@ fun DuplicatesScreen(
                 }
             },
         )
+    }
+}
+
+/**
+ * Actionable empty-state shown when the app lacks All-Files-Access. Explains why
+ * the scan can't run and offers a button that opens the system settings screen to
+ * grant access. On return, the screen's ON_RESUME effect re-runs the scan.
+ */
+@Composable
+private fun PermissionRequiredView() {
+    val ctx = LocalContext.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.FolderOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "All Files Access needed",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "To find duplicate files across your storage, Jupiter needs " +
+                "permission to access all files. Grant access and the scan will start " +
+                "automatically.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Button(
+            onClick = {
+                runCatching {
+                    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        Intent(
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.fromParts("package", ctx.packageName, null),
+                        )
+                    } else {
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", ctx.packageName, null),
+                        )
+                    }.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    ctx.startActivity(intent)
+                }.onFailure {
+                    runCatching {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) },
+                        )
+                    }
+                }
+            },
+        ) {
+            Text("Grant All Files Access")
+        }
     }
 }
 

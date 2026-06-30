@@ -19,6 +19,17 @@ interface StorageAnalyticsRepository {
     suspend fun storageOverview(): AppResult<StorageOverview>
 
     /**
+     * Streams a [StorageOverview] incrementally: emits a partial overview early
+     * and progressively as the primary volume is walked, with the final emission
+     * representing the complete, fully-walked result.
+     *
+     * Unlike [storageOverview] this never front-loads the entire walk before the
+     * first value, so consumers can render a meaningful breakdown within
+     * milliseconds and refine it as more of the tree is analyzed.
+     */
+    fun observeStorageOverview(): Flow<StorageOverview>
+
+    /**
      * Streams files under [rootPath] whose size is at least [minSizeBytes],
      * emitting each match as it is found.
      */

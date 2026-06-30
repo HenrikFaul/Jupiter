@@ -1,5 +1,9 @@
 package com.jupiter.filemanager.feature.cleanup
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,8 +25,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Done
+import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,11 +55,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatRelativeTime
@@ -82,7 +91,18 @@ fun SmartMergeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
     var showConfirm by remember { mutableStateOf(false) }
+
+    // When the user returns from the All-Files-Access settings screen, re-run the
+    // scan ONLY if we were previously blocked on permission so a just-granted
+    // permission recovers automatically.
+    LifecycleResumeEffect(state.permissionRequired) {
+        if (state.permissionRequired) {
+            viewModel.scan()
+        }
+        onPauseOrDispose { }
+    }
 
     LaunchedEffect(state.errorMessage, state.infoMessage) {
         val message = state.errorMessage ?: state.infoMessage
@@ -135,6 +155,12 @@ fun SmartMergeScreen(
                 .padding(padding),
         ) {
             when {
+                state.permissionRequired -> {
+                    PermissionRequiredView(
+                        onGrant = { launchAllFilesAccessSettings(context.packageName, context::startActivity) },
+                    )
+                }
+
                 state.recommendations.isEmpty() && state.isScanning -> {
                     LoadingView()
                 }
@@ -214,6 +240,78 @@ fun SmartMergeScreen(
                 }
             },
         )
+    }
+}
+
+/**
+ * Launches the system "All files access" settings for this app so the user can
+ * grant the permission Smart Merge needs. Prefers the app-scoped action and
+ * falls back to the global list; failures are swallowed so we never crash.
+ */
+private fun launchAllFilesAccessSettings(
+    packageName: String,
+    startActivity: (Intent) -> Unit,
+) {
+    val launched = runCatching {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.fromParts("package", packageName, null),
+            )
+        } else {
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", packageName, null),
+            )
+        }
+        startActivity(intent)
+    }.isSuccess
+
+    if (!launched && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+        }
+    }
+}
+
+/**
+ * Actionable empty-state shown when the app lacks "All files access". Explains why
+ * the scan can't run and offers a button that opens the settings screen inline.
+ */
+@Composable
+private fun PermissionRequiredView(onGrant: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.FolderOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "All files access needed",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Smart Merge scans your storage for duplicate copies to merge. " +
+                "Grant \"All files access\" so it can read your files.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Button(onClick = onGrant) {
+            Text("Grant All Files Access")
+        }
     }
 }
 

@@ -14,6 +14,8 @@ import com.jupiter.filemanager.domain.model.MediaQuality
  * @param isDeleting whether a delete operation is currently running.
  * @param errorMessage a transient error message to surface, or null.
  * @param infoMessage a transient informational message (e.g. after a delete), or null.
+ * @param permissionRequired true when the scan was skipped because the app lacks
+ *   All-Files-Access; the screen renders an actionable CTA instead of spinning.
  */
 data class DuplicatesUiState(
     val isScanning: Boolean = false,
@@ -23,10 +25,11 @@ data class DuplicatesUiState(
     val isDeleting: Boolean = false,
     val errorMessage: String? = null,
     val infoMessage: String? = null,
+    val permissionRequired: Boolean = false,
 ) {
-    /** True when there are no groups and scanning has finished. */
+    /** True when there are no groups and scanning has finished (and access is granted). */
     val isEmpty: Boolean
-        get() = !isScanning && groups.isEmpty()
+        get() = !isScanning && !permissionRequired && groups.isEmpty()
 
     /** Total bytes wasted across every discovered duplicate group. */
     val totalWastedBytes: Long

@@ -1,5 +1,8 @@
 package com.jupiter.filemanager.feature.cleanup
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -43,15 +47,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatItemCount
@@ -78,6 +85,16 @@ fun CleanupScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // When permission was missing, re-run the scan once the user returns to the
+    // screen (e.g. after granting All-Files-Access in Settings).
+    val permissionRequired by rememberUpdatedState(uiState.permissionRequired)
+    LifecycleResumeEffect(Unit) {
+        if (permissionRequired) {
+            viewModel.scan()
+        }
+        onPauseOrDispose {}
+    }
 
     Scaffold(
         topBar = {
@@ -113,6 +130,14 @@ fun CleanupScreen(
         },
     ) { innerPadding ->
         when {
+            uiState.permissionRequired -> {
+                PermissionRequiredView(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                )
+            }
+
             uiState.error != null && uiState.overview == null &&
                 uiState.largeFiles.isEmpty() && uiState.duplicateGroups.isEmpty() -> {
                 ErrorView(
@@ -422,6 +447,60 @@ private fun ScanCallToAction(onScan: () -> Unit) {
             ) {
                 Text(text = "Start scan")
             }
+        }
+    }
+}
+
+/**
+ * Full-screen empty-state shown when the app lacks All-Files-Access. Offers an
+ * actionable button that opens the system "All files access" settings inline; on
+ * return the screen re-runs the scan via the ON_RESUME recovery effect.
+ */
+@Composable
+private fun PermissionRequiredView(modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.FolderOff,
+            contentDescription = null,
+            modifier = Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = "All files access needed",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        Text(
+            text = "Jupiter needs all-files access to scan your storage for large " +
+                "files and duplicates. Grant access, then return here to continue.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Button(
+            onClick = {
+                runCatching {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.fromParts("package", ctx.packageName, null),
+                    )
+                    ctx.startActivity(intent)
+                }.onFailure {
+                    runCatching {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+                        )
+                    }
+                }
+            },
+            modifier = Modifier.padding(top = 16.dp),
+        ) {
+            Text(text = "Grant All Files Access")
         }
     }
 }

@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
@@ -52,41 +53,24 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
             )
 
         try {
-            // Accumulators keyed by category; preserves enum declaration order on output.
-            val sizeByCategory = LinkedHashMap<StorageCategory, Long>()
-            val countByCategory = LinkedHashMap<StorageCategory, Int>()
-            var totalAnalyzedBytes = 0L
+            val accumulator = OverviewAccumulator()
 
             for (file in dataSource.walkTopDown(volume.rootPath)) {
                 currentCoroutineContext().ensureActive()
 
+                val path = safePath(file)
+                if (isExcludedPath(path)) continue
                 if (!isRegularFile(file)) continue
 
-                val size = safeLength(file)
-                val category = categoryFor(file)
-
-                sizeByCategory[category] = (sizeByCategory[category] ?: 0L) + size
-                countByCategory[category] = (countByCategory[category] ?: 0) + 1
-                totalAnalyzedBytes += size
-            }
-
-            // Emit a stable, complete set of categories (zero-usage ones included)
-            // so consumers can render a deterministic breakdown.
-            val categories = StorageCategory.entries.map { category ->
-                CategoryUsage(
-                    category = category,
-                    sizeBytes = sizeByCategory[category] ?: 0L,
-                    fileCount = countByCategory[category] ?: 0,
+                // Name-only classification avoids the ~6 syscalls/file that building a
+                // full FileItem costs; size is the only metadata read we still need.
+                accumulator.add(
+                    category = categoryForPath(path, file.name),
+                    size = safeLength(file),
                 )
             }
 
-            AppResult.Success(
-                StorageOverview(
-                    volume = volume,
-                    categories = categories,
-                    totalAnalyzedBytes = totalAnalyzedBytes,
-                ),
-            )
+            AppResult.Success(accumulator.toOverview(volume))
         } catch (security: SecurityException) {
             AppResult.Failure(AppError.AccessDenied(volume.rootPath))
         } catch (error: Exception) {
@@ -98,6 +82,52 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
             )
         }
     }
+
+    /**
+     * Incremental variant of [storageOverview]: walks the primary volume once and
+     * emits a partial [StorageOverview] roughly every [OVERVIEW_EMIT_FILES] files
+     * or [OVERVIEW_EMIT_MILLIS] ms (whichever comes first), plus a final complete
+     * emission. The first partial arrives within milliseconds so the UI can clear
+     * its loading state immediately and refine the breakdown progressively.
+     *
+     * Uses the same heavy-dir exclusions and name-only classification as
+     * [storageOverview], so the final emission is equivalent to its result.
+     */
+    override fun observeStorageOverview(): Flow<StorageOverview> = flow {
+        val volume: StorageVolumeInfo = volumeProvider.volumes().firstOrNull { it.isPrimary }
+            ?: volumeProvider.volumes().firstOrNull()
+            ?: return@flow
+
+        val accumulator = OverviewAccumulator()
+        var sinceLastEmit = 0
+        var lastEmitAt = System.currentTimeMillis()
+
+        for (file in dataSource.walkTopDown(volume.rootPath)) {
+            currentCoroutineContext().ensureActive()
+
+            val path = safePath(file)
+            if (isExcludedPath(path)) continue
+            if (!isRegularFile(file)) continue
+
+            accumulator.add(
+                category = categoryForPath(path, file.name),
+                size = safeLength(file),
+            )
+
+            sinceLastEmit++
+            val now = System.currentTimeMillis()
+            if (sinceLastEmit >= OVERVIEW_EMIT_FILES ||
+                now - lastEmitAt >= OVERVIEW_EMIT_MILLIS
+            ) {
+                emit(accumulator.toOverview(volume))
+                sinceLastEmit = 0
+                lastEmitAt = now
+            }
+        }
+
+        // Final, authoritative snapshot (also covers the empty-tree case).
+        emit(accumulator.toOverview(volume))
+    }.flowOn(dispatcher)
 
     /**
      * Streams every regular file under [rootPath] whose length is at least
@@ -123,25 +153,69 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
      */
     override fun findDuplicates(rootPath: String): Flow<DuplicateGroup> = flow {
         // First pass: group candidate files by size. Files with a unique size cannot
-        // be duplicates and are discarded immediately to bound hashing work.
+        // be duplicates and are discarded immediately to bound hashing work. Tiny
+        // files and heavy/noise directories are excluded to keep the work focused
+        // on the buckets that actually matter for reclaiming space.
         val bySize = LinkedHashMap<Long, MutableList<File>>()
         for (file in dataSource.walkTopDown(rootPath)) {
             currentCoroutineContext().ensureActive()
 
+            val path = safePath(file)
+            if (isExcludedPath(path)) continue
             if (!isRegularFile(file)) continue
+
             val size = safeLength(file)
-            if (size <= 0L) continue // skip empties; trivially "equal" but not useful
+            if (size < MIN_DUPLICATE_SIZE) continue // skip tiny/empty: not worth hashing
 
             bySize.getOrPut(size) { mutableListOf() }.add(file)
         }
 
-        // Second pass: within each size bucket, confirm equality by content hash.
-        for ((_, candidates) in bySize) {
+        // Second pass: resolve each size bucket independently and emit its duplicate
+        // groups as soon as they are confirmed, so the UI gets results progressively
+        // instead of waiting for every bucket to finish.
+        for ((size, candidates) in bySize) {
             currentCoroutineContext().ensureActive()
             if (candidates.size < 2) continue
 
-            val byHash = LinkedHashMap<String, MutableList<File>>()
+            resolveBucket(size, candidates, this)
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Confirms duplicates within a single same-size [candidates] bucket and emits
+     * each resolved [DuplicateGroup] into [collector].
+     *
+     * To avoid full-hashing files that only coincidentally share a size, candidates
+     * are first split by a cheap prefix pre-hash (first [PREHASH_BYTES] bytes). Only
+     * prefix groups with a genuine collision (two or more members) are escalated to
+     * a full streamed SHA-1; singleton prefix groups are discarded without ever
+     * reading the whole file.
+     */
+    private suspend fun resolveBucket(
+        size: Long,
+        candidates: List<File>,
+        collector: FlowCollector<DuplicateGroup>,
+    ) {
+        // Optimization: a bucket of exactly two files can skip the prefix stage and
+        // go straight to full hashing (the prefix would just duplicate that work).
+        val byPrefix: Map<String, List<File>> = if (candidates.size == 2) {
+            mapOf("" to candidates)
+        } else {
+            val grouped = LinkedHashMap<String, MutableList<File>>()
             for (file in candidates) {
+                currentCoroutineContext().ensureActive()
+                val prefix = prefixHash(file, size) ?: continue
+                grouped.getOrPut(prefix) { mutableListOf() }.add(file)
+            }
+            grouped
+        }
+
+        for ((_, prefixGroup) in byPrefix) {
+            currentCoroutineContext().ensureActive()
+            if (prefixGroup.size < 2) continue // unique prefix -> cannot be a duplicate
+
+            val byHash = LinkedHashMap<String, MutableList<File>>()
+            for (file in prefixGroup) {
                 currentCoroutineContext().ensureActive()
                 val hash = hashFile(file) ?: continue
                 byHash.getOrPut(hash) { mutableListOf() }.add(file)
@@ -149,7 +223,7 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
 
             for ((hash, group) in byHash) {
                 if (group.size < 2) continue
-                emit(
+                collector.emit(
                     DuplicateGroup(
                         hash = hash,
                         files = group.map { dataSource.toFileItem(it) },
@@ -157,18 +231,54 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
                 )
             }
         }
-    }.flowOn(dispatcher)
+    }
 
     // region Internals -----------------------------------------------------------
 
     /**
-     * Maps a file to its [StorageCategory], preferring an explicit Downloads-path
-     * heuristic and otherwise translating its [FileType] classification.
+     * Mutable, order-preserving accumulator of per-[StorageCategory] usage. Shared
+     * by [storageOverview] and [observeStorageOverview] so both produce identical
+     * breakdowns; [toOverview] snapshots the current state into an immutable
+     * [StorageOverview] (callable repeatedly for incremental emissions).
      */
-    private fun categoryFor(file: File): StorageCategory {
-        if (isInDownloads(file)) return StorageCategory.DOWNLOADS
+    private class OverviewAccumulator {
+        private val sizeByCategory = LinkedHashMap<StorageCategory, Long>()
+        private val countByCategory = LinkedHashMap<StorageCategory, Int>()
+        private var totalAnalyzedBytes = 0L
 
-        return when (fileTypeOf(file)) {
+        fun add(category: StorageCategory, size: Long) {
+            sizeByCategory[category] = (sizeByCategory[category] ?: 0L) + size
+            countByCategory[category] = (countByCategory[category] ?: 0) + 1
+            totalAnalyzedBytes += size
+        }
+
+        fun toOverview(volume: StorageVolumeInfo): StorageOverview {
+            // Emit a stable, complete set of categories (zero-usage ones included)
+            // so consumers can render a deterministic breakdown.
+            val categories = StorageCategory.entries.map { category ->
+                CategoryUsage(
+                    category = category,
+                    sizeBytes = sizeByCategory[category] ?: 0L,
+                    fileCount = countByCategory[category] ?: 0,
+                )
+            }
+            return StorageOverview(
+                volume = volume,
+                categories = categories,
+                totalAnalyzedBytes = totalAnalyzedBytes,
+            )
+        }
+    }
+
+    /**
+     * Maps a file to its [StorageCategory] using only its [path] and [name]
+     * (no syscalls), preferring an explicit Downloads-path heuristic and otherwise
+     * translating its name-only [FileType] classification.
+     */
+    private fun categoryForPath(path: String, name: String): StorageCategory {
+        if (isInDownloads(path)) return StorageCategory.DOWNLOADS
+
+        return when (dataSource.fileTypeFor(name, isDirectory = false)) {
             FileType.IMAGE -> StorageCategory.IMAGES
             FileType.VIDEO -> StorageCategory.VIDEOS
             FileType.AUDIO -> StorageCategory.AUDIO
@@ -179,19 +289,29 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
         }
     }
 
-    /** Derives the [FileType] of [file] via the shared data-source mapping. */
-    private fun fileTypeOf(file: File): FileType =
-        runCatching { dataSource.toFileItem(file).type }.getOrDefault(FileType.OTHER)
-
     /**
      * Heuristic: treat any file located within a path segment named "Download" or
      * "Downloads" as belonging to the DOWNLOADS category.
      */
-    private fun isInDownloads(file: File): Boolean {
-        val path = runCatching { file.absolutePath }.getOrDefault("")
+    private fun isInDownloads(path: String): Boolean {
         if (path.isEmpty()) return false
         val lower = path.lowercase()
         return lower.contains("/download/") || lower.contains("/downloads/")
+    }
+
+    /** Best-effort absolute path; empty string when it cannot be resolved. */
+    private fun safePath(file: File): String =
+        runCatching { file.absolutePath }.getOrDefault("")
+
+    /**
+     * True when [path] lies under a heavy or noise directory that analytics should
+     * skip (app-private sandboxes and system-managed caches). Matching is done on
+     * path segments to avoid false positives on similarly-named user folders.
+     */
+    private fun isExcludedPath(path: String): Boolean {
+        if (path.isEmpty()) return false
+        val lower = path.lowercase()
+        return EXCLUDED_SEGMENTS.any { lower.contains(it) }
     }
 
     /** True when [file] is an ordinary, readable, non-directory file. */
@@ -233,6 +353,37 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Computes a cheap SHA-1 over only the first [PREHASH_BYTES] bytes of [file]
+     * (bounded by [size]), used to split same-size candidates before committing to
+     * a full-content hash. Returns null when the file cannot be read.
+     *
+     * For files no larger than the prefix window this reads the whole file, which is
+     * acceptable since such files are tiny by definition.
+     */
+    private suspend fun prefixHash(file: File, size: Long): String? {
+        return try {
+            val digest = MessageDigest.getInstance(HASH_ALGORITHM)
+            val limit = if (size in 1 until PREHASH_BYTES.toLong()) size.toInt() else PREHASH_BYTES
+            val buffer = ByteArray(limit)
+            file.inputStream().use { stream ->
+                var offset = 0
+                while (offset < limit) {
+                    currentCoroutineContext().ensureActive()
+                    val read = stream.read(buffer, offset, limit - offset)
+                    if (read < 0) break
+                    offset += read
+                }
+                if (offset > 0) digest.update(buffer, 0, offset)
+            }
+            digest.digest().toHexString()
+        } catch (_: SecurityException) {
+            null
+        } catch (_: java.io.IOException) {
+            null
+        }
+    }
+
     /** Lowercase hexadecimal rendering of a digest byte array. */
     private fun ByteArray.toHexString(): String {
         val builder = StringBuilder(size * 2)
@@ -249,6 +400,30 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
     private companion object {
         const val HASH_ALGORITHM = "SHA-1"
         const val HASH_BUFFER_SIZE = 64 * 1024
+
+        /** Bytes of file prefix used for the cheap pre-hash that splits same-size buckets. */
+        const val PREHASH_BYTES = 8 * 1024
+
+        /** Files smaller than this are never considered for duplicate detection. */
+        const val MIN_DUPLICATE_SIZE = 4 * 1024L
+
+        /** Emit a partial overview at least every this many newly-counted files. */
+        const val OVERVIEW_EMIT_FILES = 400
+
+        /** Emit a partial overview at least this often (ms) during the walk. */
+        const val OVERVIEW_EMIT_MILLIS = 250L
+
+        /**
+         * Lowercased path fragments whose presence marks a file as living in a
+         * heavy/noise directory analytics should skip.
+         */
+        val EXCLUDED_SEGMENTS: List<String> = listOf(
+            "/android/data/",
+            "/android/obb/",
+            "/.thumbnails/",
+            "/.trashed",
+        )
+
         val HEX_DIGITS = "0123456789abcdef".toCharArray()
     }
 }

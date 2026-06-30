@@ -3,6 +3,7 @@ package com.jupiter.filemanager.feature.cleanup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.data.media.MediaQualityProbe
+import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.MediaQuality
@@ -10,6 +11,7 @@ import com.jupiter.filemanager.domain.model.MergeRecommendation
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,10 +38,14 @@ import javax.inject.Inject
 class SmartMergeViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
     private val qualityProbe: MediaQualityProbe,
+    private val storageAccessManager: StorageAccessManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SmartMergeUiState())
     val uiState: StateFlow<SmartMergeUiState> = _uiState.asStateFlow()
+
+    /** Tracks the in-flight async quality-probe pass so a rescan can cancel it. */
+    private var probeJob: Job? = null
 
     init {
         scan()
@@ -47,15 +53,38 @@ class SmartMergeViewModel @Inject constructor(
 
     /** Starts (or restarts) a duplicate scan and rebuilds merge recommendations. */
     fun scan() {
+        // Permission gate: without all-files access the walk yields nothing and the
+        // spinner would appear to hang forever. Surface an actionable CTA instead.
+        if (!storageAccessManager.hasAllFilesAccess()) {
+            probeJob?.cancel()
+            probeJob = null
+            _uiState.value = _uiState.value.copy(
+                isScanning = false,
+                permissionRequired = true,
+                recommendations = emptyList(),
+                keepSelections = emptyMap(),
+                qualities = emptyMap(),
+                errorMessage = null,
+                infoMessage = null,
+            )
+            return
+        }
+
+        // Cancel any previous async probe before restarting the scan.
+        probeJob?.cancel()
+        probeJob = null
+
         viewModelScope.launch {
             val root = android.os.Environment.getExternalStorageDirectory()?.absolutePath
                 ?: "/storage/emulated/0"
-            val collected = mutableListOf<MergeRecommendation>()
-            val qualities = mutableMapOf<String, MediaQuality>()
+            // Groups collected during the scan, keyed by hash, so the async probe
+            // pass can re-rank them in place once qualities arrive.
+            val collectedGroups = mutableListOf<DuplicateGroup>()
             analyticsRepository.findDuplicates(root)
                 .onStart {
                     _uiState.value = _uiState.value.copy(
                         isScanning = true,
+                        permissionRequired = false,
                         recommendations = emptyList(),
                         keepSelections = emptyMap(),
                         qualities = emptyMap(),
@@ -72,21 +101,56 @@ class SmartMergeViewModel @Inject constructor(
                 .onCompletion { cause ->
                     if (cause == null) {
                         _uiState.value = _uiState.value.copy(isScanning = false)
+                        // Probe qualities asynchronously AFTER collection so the
+                        // scan spinner is never blocked on blocking JNI metadata reads.
+                        startQualityProbe(collectedGroups.toList())
                     }
                 }
                 .collect { group ->
                     if (group.files.size > 1) {
-                        // Probe quality for this group's files (off-main), then
-                        // build a quality-ranked recommendation from it.
-                        val groupQualities = qualityProbe.probeAll(group.files.map { it.path })
-                        qualities.putAll(groupQualities)
-                        collected.add(buildRecommendation(group, qualities))
-                        _uiState.value = _uiState.value.copy(
-                            recommendations = collected.toList(),
-                            qualities = qualities.toMap(),
-                        )
+                        // Emit a recommendation IMMEDIATELY using a size+lastModified
+                        // ranking (no quality yet) so the spinner leaves on first group.
+                        collectedGroups.add(group)
+                        val recommendations = collectedGroups.map {
+                            buildRecommendation(it, emptyMap())
+                        }
+                        _uiState.value = _uiState.value.copy(recommendations = recommendations)
                     }
                 }
+        }
+    }
+
+    /**
+     * Probes media quality for every collected group asynchronously (off-main),
+     * merges the results into state, and RE-RANKS each recommendation's
+     * recommended keep path by quality score (then size, then last-modified).
+     *
+     * User keep overrides in [SmartMergeUiState.keepSelections] are preserved by
+     * the screen, so re-ranking only moves the default recommendation.
+     */
+    private fun startQualityProbe(groups: List<DuplicateGroup>) {
+        if (groups.isEmpty()) return
+        probeJob = viewModelScope.launch(Dispatchers.IO) {
+            val qualities = mutableMapOf<String, MediaQuality>()
+            for (group in groups) {
+                val probed = qualityProbe.probeAll(group.files.map { it.path })
+                qualities.putAll(probed)
+                // Merge incrementally and re-rank as each group's quality lands so
+                // the UI improves progressively rather than in one late burst.
+                val snapshot = qualities.toMap()
+                val current = _uiState.value
+                val reRanked = current.recommendations.map { rec ->
+                    if (rec.group.files.any { it.path in snapshot }) {
+                        buildRecommendation(rec.group, snapshot)
+                    } else {
+                        rec
+                    }
+                }
+                _uiState.value = current.copy(
+                    recommendations = reRanked,
+                    qualities = snapshot,
+                )
+            }
         }
     }
 

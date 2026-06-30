@@ -2,8 +2,9 @@ package com.jupiter.filemanager.data.file
 
 import android.content.Context
 import com.jupiter.filemanager.core.util.extensionOf
-import com.jupiter.filemanager.core.util.fileTypeFor
 import com.jupiter.filemanager.core.util.mimeTypeFor
+import com.jupiter.filemanager.domain.model.FileType
+import com.jupiter.filemanager.core.util.fileTypeFor as classifyFileType
 import com.jupiter.filemanager.domain.model.FileItem
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -81,6 +82,7 @@ class FileSystemDataSource @Inject constructor(
             sizeBytes = if (isDirectory) 0L else safeLong { file.length() },
             lastModified = safeLong { file.lastModified() },
             type = fileTypeFor(name, isDirectory),
+            // (delegates to the pure name-only classifier below)
             extension = extension,
             mimeType = mimeType,
             isHidden = safeBoolean { file.isHidden } || name.startsWith('.'),
@@ -89,6 +91,17 @@ class FileSystemDataSource @Inject constructor(
             canWrite = safeBoolean { file.canWrite() },
         )
     }
+
+    /**
+     * Pure, name-only classification of a file into a high-level [FileType].
+     *
+     * Depends solely on [name] and [isDirectory] (no file-system syscalls), so it
+     * is cheap to call for every entry of a large walk. [toFileItem] delegates to
+     * this method, guaranteeing the classification is identical whether a full
+     * [FileItem] is built or only the type is needed.
+     */
+    fun fileTypeFor(name: String, isDirectory: Boolean): FileType =
+        classifyFileType(name, isDirectory)
 
     /**
      * Lazily walks the tree rooted at [rootPath] in depth-first, top-down order.
