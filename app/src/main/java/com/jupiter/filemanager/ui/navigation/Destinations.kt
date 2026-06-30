@@ -137,4 +137,10 @@ sealed class Destination(val route: String) {
     data object SyncConflicts : Destination("sync_conflicts")
 
     data object DualPane : Destination("dual_pane")
+
+    // ---- Growth: monetization & onboarding ----
+
+    data object Paywall : Destination("paywall")
+
+    data object WhatsNew : Destination("whats_new")
 }

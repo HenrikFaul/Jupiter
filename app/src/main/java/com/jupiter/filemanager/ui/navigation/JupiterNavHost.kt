@@ -14,6 +14,7 @@ import com.jupiter.filemanager.feature.analytics.StorageAnalyticsScreen
 import com.jupiter.filemanager.feature.archive.ArchiveManagerScreen
 import com.jupiter.filemanager.feature.automation.AutomationScreen
 import com.jupiter.filemanager.feature.automation.RuleBuilderScreen
+import com.jupiter.filemanager.feature.billing.PaywallScreen
 import com.jupiter.filemanager.feature.browser.DualPaneScreen
 import com.jupiter.filemanager.feature.browser.FileBrowserScreen
 import com.jupiter.filemanager.feature.cleanup.CleanupScreen
@@ -45,6 +46,7 @@ import com.jupiter.filemanager.feature.transfer.TransferScreen
 import com.jupiter.filemanager.feature.transfer.WifiTransferScreen
 import com.jupiter.filemanager.feature.vault.VaultScreen
 import com.jupiter.filemanager.feature.version.VersionHistoryScreen
+import com.jupiter.filemanager.feature.whatsnew.WhatsNewScreen
 import com.jupiter.filemanager.feature.workspace.WorkspaceDetailScreen
 import com.jupiter.filemanager.feature.workspace.WorkspacesScreen
 
@@ -189,6 +191,7 @@ fun JupiterNavHost(
 
         composable(route = Destination.Settings.route) {
             SettingsScreen(
+                onOpenRoute = { route -> navController.navigate(route) },
                 onBack = { navController.popBackStack() },
             )
         }
@@ -508,6 +511,22 @@ fun JupiterNavHost(
             DualPaneScreen(
                 onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        // ---------------------------------------------------------------------
+        // Growth: billing & what's new
+        // ---------------------------------------------------------------------
+
+        composable(route = Destination.Paywall.route) {
+            PaywallScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(route = Destination.WhatsNew.route) {
+            WhatsNewScreen(
+                onDismiss = { navController.popBackStack() },
             )
         }
     }

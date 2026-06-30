@@ -13,25 +13,17 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Immutable UI state for the settings screen.
- *
- * Mirrors the user-facing preferences persisted by [SettingsDataStore].
- */
-data class SettingsUiState(
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val showHidden: Boolean = false,
-    val dualPaneEnabled: Boolean = false,
-    val aiEnabled: Boolean = false,
-    val aiApiKey: String = "",
-)
-
-/**
  * Exposes persisted user preferences as a single [StateFlow] and forwards
  * mutations to [SettingsDataStore].
  *
  * Reads are composed from the individual preference flows so the UI always
  * reflects the latest persisted values; writes are dispatched on
  * [viewModelScope] and persisted asynchronously by the DataStore.
+ *
+ * The original appearance/browsing/assistant preferences are preserved; the
+ * personalization (accent color, AMOLED black, dynamic color) and privacy
+ * (analytics opt-in) preferences are additive and default to values that keep
+ * the current behavior unchanged.
  */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -44,13 +36,21 @@ class SettingsViewModel @Inject constructor(
         settings.dualPaneEnabled,
         settings.aiEnabled,
         settings.aiApiKey,
-    ) { themeMode, showHidden, dualPaneEnabled, aiEnabled, aiApiKey ->
+        settings.accentColorArgb,
+        settings.amoledBlack,
+        settings.dynamicColor,
+        settings.analyticsOptIn,
+    ) { values ->
         SettingsUiState(
-            themeMode = themeMode,
-            showHidden = showHidden,
-            dualPaneEnabled = dualPaneEnabled,
-            aiEnabled = aiEnabled,
-            aiApiKey = aiApiKey,
+            themeMode = values[0] as ThemeMode,
+            showHidden = values[1] as Boolean,
+            dualPaneEnabled = values[2] as Boolean,
+            aiEnabled = values[3] as Boolean,
+            aiApiKey = values[4] as String,
+            accentColorArgb = values[5] as Long,
+            amoledBlack = values[6] as Boolean,
+            dynamicColor = values[7] as Boolean,
+            analyticsOptIn = values[8] as Boolean,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -90,6 +90,40 @@ class SettingsViewModel @Inject constructor(
     fun setAiApiKey(value: String) {
         viewModelScope.launch {
             settings.setAiApiKey(value.trim())
+        }
+    }
+
+    /**
+     * Persists the selected accent color packed as ARGB. A value of 0L means
+     * "use the dynamic/brand default", preserving the current look.
+     */
+    fun setAccentColorArgb(value: Long) {
+        viewModelScope.launch {
+            settings.setAccentColorArgb(value)
+        }
+    }
+
+    /** Persists whether dark theme should use pure-black (AMOLED) surfaces. */
+    fun setAmoledBlack(value: Boolean) {
+        viewModelScope.launch {
+            settings.setAmoledBlack(value)
+        }
+    }
+
+    /** Persists whether Material You dynamic color is enabled (on S+). */
+    fun setDynamicColor(value: Boolean) {
+        viewModelScope.launch {
+            settings.setDynamicColor(value)
+        }
+    }
+
+    /**
+     * Persists the anonymous-analytics opt-in. Defaults to off; analytics only
+     * ever runs after an explicit opt-in here.
+     */
+    fun setAnalyticsOptIn(value: Boolean) {
+        viewModelScope.launch {
+            settings.setAnalyticsOptIn(value)
         }
     }
 }

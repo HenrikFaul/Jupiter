@@ -1,13 +1,17 @@
 package com.jupiter.filemanager.feature.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,15 +19,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Colorize
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Visibility
@@ -37,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -51,6 +62,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
@@ -62,6 +74,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.domain.model.ThemeMode
+import com.jupiter.filemanager.ui.navigation.Destination
+import com.jupiter.filemanager.ui.theme.AccentColor
+import com.jupiter.filemanager.ui.theme.AccentPalette
 import androidx.compose.foundation.clickable as clickableModifier
 import androidx.compose.foundation.selection.selectable as selectableModifier
 
@@ -70,13 +85,19 @@ import androidx.compose.foundation.selection.selectable as selectableModifier
  *
  * Renders a theme-mode selector (System / Light / Dark) plus toggles for
  * showing hidden files, enabling the dual-pane browser and the AI assistant,
- * a masked Claude API-key field, followed by a static About section. All
- * persistence is delegated to [SettingsViewModel]; this composable contains
- * no file or preference IO.
+ * a masked Claude API-key field, a Personalization section (accent color,
+ * AMOLED black, dynamic color), a Privacy opt-in for anonymous analytics, a
+ * Jupiter Pro entry point, followed by a static About section. All persistence
+ * is delegated to [SettingsViewModel]; this composable contains no file or
+ * preference IO.
+ *
+ * @param onOpenRoute navigates to a named route (e.g. the Pro paywall).
+ * @param onBack invoked when the user dismisses the screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onOpenRoute: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
@@ -115,6 +136,28 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            SettingsSectionHeader(title = "Personalization")
+            AccentColorPicker(
+                selectedArgb = uiState.accentColorArgb,
+                onAccentSelected = viewModel::setAccentColorArgb,
+            )
+            SettingsSwitchRow(
+                icon = Icons.Filled.DarkMode,
+                title = "AMOLED black",
+                subtitle = "Use pure-black backgrounds in dark theme",
+                checked = uiState.amoledBlack,
+                onCheckedChange = viewModel::setAmoledBlack,
+            )
+            SettingsSwitchRow(
+                icon = Icons.Filled.Palette,
+                title = "Dynamic color",
+                subtitle = "Match your wallpaper colors on Android 12+",
+                checked = uiState.dynamicColor,
+                onCheckedChange = viewModel::setDynamicColor,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             SettingsSectionHeader(title = "Browsing")
             SettingsSwitchRow(
                 icon = Icons.Filled.Visibility,
@@ -148,6 +191,27 @@ fun SettingsScreen(
             AiApiKeyField(
                 apiKey = uiState.aiApiKey,
                 onApiKeyChange = viewModel::setAiApiKey,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Privacy")
+            SettingsSwitchRow(
+                icon = Icons.Filled.Insights,
+                title = "Help improve Jupiter",
+                subtitle = "Share anonymous usage data (opt-in)",
+                checked = uiState.analyticsOptIn,
+                onCheckedChange = viewModel::setAnalyticsOptIn,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Jupiter Pro")
+            SettingsNavigationRow(
+                icon = Icons.Filled.Star,
+                title = "Jupiter Pro",
+                subtitle = "Support development and explore Pro benefits",
+                onClick = { onOpenRoute(Destination.Paywall.route) },
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -301,6 +365,103 @@ private fun ThemeModeRow(
             selected = selected,
             onClick = null,
         )
+    }
+}
+
+/**
+ * Horizontal row of selectable accent-color swatches plus a "default" option.
+ *
+ * The "default" swatch (argb 0L) keeps the dynamic/brand color so the existing
+ * look is preserved unless the user explicitly picks an accent. The currently
+ * selected swatch is marked with a check.
+ */
+@Composable
+private fun AccentColorPicker(
+    selectedArgb: Long,
+    onAccentSelected: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.Colorize,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                text = "Accent color",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 16.dp),
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AccentSwatch(
+                color = MaterialTheme.colorScheme.primary,
+                selected = selectedArgb == 0L,
+                contentDescription = "Default accent",
+                onClick = { onAccentSelected(0L) },
+            )
+            AccentPalette.forEach { accent: AccentColor ->
+                AccentSwatch(
+                    color = accent.color,
+                    selected = selectedArgb == accent.argb,
+                    contentDescription = accent.name,
+                    onClick = { onAccentSelected(accent.argb) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A single circular accent swatch. Shows a check overlay when [selected].
+ */
+@Composable
+private fun AccentSwatch(
+    color: Color,
+    selected: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .size(40.dp)
+            .clickableModifier(onClickLabel = contentDescription) { onClick() },
+        shape = CircleShape,
+        color = color,
+        border = if (selected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
+    ) {
+        if (selected) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
     }
 }
 

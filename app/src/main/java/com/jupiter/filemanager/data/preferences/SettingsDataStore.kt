@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.jupiter.filemanager.domain.model.SortDirection
@@ -53,6 +54,11 @@ class SettingsDataStore @Inject constructor(
         val DUAL_PANE_ENABLED = booleanPreferencesKey("dual_pane_enabled")
         val AI_ENABLED = booleanPreferencesKey("ai_enabled")
         val AI_API_KEY = stringPreferencesKey("ai_api_key")
+        val ACCENT_COLOR_ARGB = longPreferencesKey("accent_color_argb")
+        val AMOLED_BLACK = booleanPreferencesKey("amoled_black")
+        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val ANALYTICS_OPT_IN = booleanPreferencesKey("analytics_opt_in")
+        val PRO_UNLOCKED = booleanPreferencesKey("pro_unlocked")
     }
 
     /** Current theme mode; defaults to [ThemeMode.SYSTEM]. */
@@ -99,6 +105,37 @@ class SettingsDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.AI_API_KEY] ?: "" }
 
+    /**
+     * Custom accent color packed as an ARGB [Long]; defaults to 0L meaning
+     * "use the dynamic/brand default" (no custom accent applied).
+     */
+    val accentColorArgb: Flow<Long> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.ACCENT_COLOR_ARGB] ?: 0L }
+
+    /** Whether dark theme should use pure-black (AMOLED) surfaces; defaults to false. */
+    val amoledBlack: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.AMOLED_BLACK] ?: false }
+
+    /** Whether Material You dynamic color is enabled (on S+); defaults to true. */
+    val dynamicColor: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.DYNAMIC_COLOR] ?: true }
+
+    /** Whether the user has opted in to anonymous analytics; defaults to false. */
+    val analyticsOptIn: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.ANALYTICS_OPT_IN] ?: false }
+
+    /**
+     * Whether Jupiter Pro is unlocked; defaults to true so no existing feature is
+     * gated or regressed until a billing product is actually configured.
+     */
+    val proUnlocked: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.PRO_UNLOCKED] ?: true }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         dataStore.edit { prefs -> prefs[Keys.THEME_MODE] = mode.name }
     }
@@ -125,6 +162,26 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setAiApiKey(value: String) {
         dataStore.edit { prefs -> prefs[Keys.AI_API_KEY] = value }
+    }
+
+    suspend fun setAccentColorArgb(value: Long) {
+        dataStore.edit { prefs -> prefs[Keys.ACCENT_COLOR_ARGB] = value }
+    }
+
+    suspend fun setAmoledBlack(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.AMOLED_BLACK] = value }
+    }
+
+    suspend fun setDynamicColor(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.DYNAMIC_COLOR] = value }
+    }
+
+    suspend fun setAnalyticsOptIn(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.ANALYTICS_OPT_IN] = value }
+    }
+
+    suspend fun setProUnlocked(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.PRO_UNLOCKED] = value }
     }
 
     /**

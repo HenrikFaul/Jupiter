@@ -153,3 +153,50 @@ val JupiterDarkColors: ColorScheme = darkColorScheme(
     inversePrimary = md_dark_inversePrimary,
     surfaceTint = md_dark_surfaceTint,
 )
+
+// ---------------------------------------------------------------------------
+// Accent palette (Personalization).
+//
+// A small curated set of selectable accent colors users can apply on top of
+// the brand scheme. Each entry carries a stable ARGB [Long] suitable for
+// persistence via SettingsDataStore.accentColorArgb. An argb of 0L means
+// "no override" — use the dynamic/brand default (preserving current look).
+// ---------------------------------------------------------------------------
+
+/**
+ * A selectable accent color option.
+ *
+ * @param name a short human-readable label for UI (e.g. settings color picker).
+ * @param color the [Color] swatch to render.
+ * @param argb the persisted ARGB value (as [Long]); pair with
+ *   [SettingsDataStore.setAccentColorArgb]. Never 0L for real entries (0L is
+ *   reserved to mean "use the dynamic/brand default").
+ */
+data class AccentColor(
+    val name: String,
+    val color: Color,
+    val argb: Long,
+)
+
+private fun accent(name: String, argb: Long): AccentColor =
+    AccentColor(name = name, color = Color(argb), argb = argb)
+
+/**
+ * Curated list of selectable accent colors for the Personalization settings.
+ *
+ * The first entry ("Jupiter Blue") matches the brand primary so the default
+ * selection preserves the current look. These are vivid, high-chroma seeds;
+ * the theme derives a full tonal [ColorScheme] from the chosen seed.
+ */
+val AccentPalette: List<AccentColor> = listOf(
+    accent("Jupiter Blue", 0xFF2563EB),
+    accent("Indigo", 0xFF4F46E5),
+    accent("Violet", 0xFF7C3AED),
+    accent("Magenta", 0xFFC026D3),
+    accent("Rose", 0xFFE11D48),
+    accent("Orange", 0xFFEA580C),
+    accent("Amber", 0xFFD97706),
+    accent("Emerald", 0xFF059669),
+    accent("Teal", 0xFF0D9488),
+    accent("Cyan", 0xFF0891B2),
+)

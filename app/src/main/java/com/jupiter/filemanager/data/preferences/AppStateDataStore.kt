@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -40,6 +41,7 @@ class AppStateDataStore @Inject constructor(
 
     private object Keys {
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
+        val LAST_SEEN_WHATS_NEW_VERSION = intPreferencesKey("last_seen_whats_new_version")
     }
 
     /** Whether the user has finished the onboarding flow; defaults to false. */
@@ -47,8 +49,20 @@ class AppStateDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.ONBOARDING_COMPLETED] ?: false }
 
+    /**
+     * The app [BuildConfig.VERSION_CODE] for which the "What's New" sheet was last
+     * shown; defaults to 0 so the sheet appears on first run after this feature ships.
+     */
+    val lastSeenWhatsNewVersion: Flow<Int> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.LAST_SEEN_WHATS_NEW_VERSION] ?: 0 }
+
     suspend fun setOnboardingCompleted(value: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.ONBOARDING_COMPLETED] = value }
+    }
+
+    suspend fun setLastSeenWhatsNewVersion(value: Int) {
+        dataStore.edit { prefs -> prefs[Keys.LAST_SEEN_WHATS_NEW_VERSION] = value }
     }
 
     /**
