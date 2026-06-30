@@ -62,6 +62,14 @@ interface ConnectionRepository {
     suspend fun addCloudAccount(provider: CloudProvider, displayName: String)
 
     /**
+     * Replaces the persisted cloud account record sharing [account]'s id with the
+     * given [account]. No-op if no record with that id currently exists. Used to
+     * promote a placeholder entry to a connected one (real email/quota) and to
+     * mutate connection state without changing the account's identity.
+     */
+    suspend fun updateCloudAccount(account: CloudAccount)
+
+    /**
      * Removes the cloud account identified by [id].
      */
     suspend fun removeCloudAccount(id: String)

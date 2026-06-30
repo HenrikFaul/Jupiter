@@ -52,7 +52,12 @@ class ConnectionRepositoryImpl @Inject constructor(
         /** Set of `id|displayName|type|host|username|port|basePath` records, one per remote. */
         val REMOTES = stringSetPreferencesKey("remotes")
 
-        /** Set of `id|provider|displayName` records, one per linked cloud account. */
+        /**
+         * Set of
+         * `id|provider|displayName|isConnected|usedBytes|totalBytes|accountEmail`
+         * records, one per linked cloud account. Legacy 3-field
+         * (`id|provider|displayName`) records still decode with defaulted tail.
+         */
         val CLOUD_ACCOUNTS = stringSetPreferencesKey("cloud_accounts")
     }
 
@@ -131,6 +136,20 @@ class ConnectionRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun updateCloudAccount(account: CloudAccount) {
+        dataStore.edit { prefs ->
+            val current = prefs[Keys.CLOUD_ACCOUNTS].orEmpty()
+            // Only replace when a record with this id already exists, preserving
+            // the no-op-on-missing contract.
+            if (current.none { decodeCloudAccount(it)?.id == account.id }) return@edit
+            val updated = current
+                .filterNot { decodeCloudAccount(it)?.id == account.id }
+                .toMutableSet()
+            updated.add(encodeCloudAccount(account))
+            prefs[Keys.CLOUD_ACCOUNTS] = updated
+        }
+    }
+
     override suspend fun removeCloudAccount(id: String) {
         dataStore.edit { prefs ->
             val current = prefs[Keys.CLOUD_ACCOUNTS].orEmpty()
@@ -206,29 +225,52 @@ class ConnectionRepositoryImpl @Inject constructor(
             )
         }
 
-        /** Encodes a [CloudAccount] as `id|provider|displayName`. */
+        /**
+         * Encodes a [CloudAccount] as
+         * `id|provider|displayName|isConnected|usedBytes|totalBytes|accountEmail`.
+         */
         fun encodeCloudAccount(account: CloudAccount): String = buildString {
             append(account.id)
             append(FIELD_DELIMITER)
             append(account.provider.name)
             append(FIELD_DELIMITER)
             append(account.displayName.sanitize())
+            append(FIELD_DELIMITER)
+            append(account.isConnected.toString())
+            append(FIELD_DELIMITER)
+            append(account.usedBytes.toString())
+            append(FIELD_DELIMITER)
+            append(account.totalBytes.toString())
+            append(FIELD_DELIMITER)
+            append(account.accountEmail?.sanitize().orEmpty())
         }
 
-        /** Decodes a cloud account record, returning null when malformed. */
+        /**
+         * Decodes a cloud account record, returning null when malformed.
+         *
+         * Tolerates the legacy 3-field format (`id|provider|displayName`) by
+         * defaulting the connection/quota/email tail, so accounts persisted before
+         * those fields existed still surface. An empty `accountEmail` field decodes
+         * back to null.
+         */
         fun decodeCloudAccount(record: String): CloudAccount? {
             val parts = record.split(FIELD_DELIMITER)
             if (parts.size < 3) return null
             val id = parts[0]
             if (id.isEmpty()) return null
             val provider = runCatching { CloudProvider.valueOf(parts[1]) }.getOrNull() ?: return null
+            val isConnected = parts.getOrNull(3)?.toBooleanStrictOrNull() ?: false
+            val usedBytes = parts.getOrNull(4)?.toLongOrNull() ?: 0L
+            val totalBytes = parts.getOrNull(5)?.toLongOrNull() ?: 0L
+            val accountEmail = parts.getOrNull(6)?.takeIf { it.isNotEmpty() }
             return CloudAccount(
                 id = id,
                 provider = provider,
                 displayName = parts[2],
-                usedBytes = 0L,
-                totalBytes = 0L,
-                isConnected = false,
+                usedBytes = usedBytes,
+                totalBytes = totalBytes,
+                isConnected = isConnected,
+                accountEmail = accountEmail,
             )
         }
     }

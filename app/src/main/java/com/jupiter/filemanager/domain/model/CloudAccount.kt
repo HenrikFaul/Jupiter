@@ -21,6 +21,8 @@ enum class CloudProvider {
  * @param usedBytes bytes currently used in the account's quota.
  * @param totalBytes total bytes available in the account's quota.
  * @param isConnected whether the account is currently authenticated/connected.
+ * @param accountEmail the real signed-in account email, when known (e.g. the
+ *   Google account the user authenticated with); null until connected.
  */
 data class CloudAccount(
     val id: String,
@@ -29,4 +31,5 @@ data class CloudAccount(
     val usedBytes: Long = 0L,
     val totalBytes: Long = 0L,
     val isConnected: Boolean = false,
+    val accountEmail: String? = null,
 )
