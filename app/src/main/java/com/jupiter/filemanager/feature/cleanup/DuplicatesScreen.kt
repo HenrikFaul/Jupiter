@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -392,17 +394,31 @@ private fun DuplicateGroupCard(
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-            group.files.forEachIndexed { index, file ->
+            // Best copy first: highest probed quality score, then largest size.
+            val ranked = remember(group, qualities) {
+                group.files.sortedWith(
+                    compareByDescending<FileItem> { qualities[it.path]?.score ?: 0L }
+                        .thenByDescending { it.sizeBytes },
+                )
+            }
+            val bestQuality = qualities[ranked.firstOrNull()?.path]
+            ranked.forEachIndexed { index, file ->
+                val quality = qualities[file.path]
                 DuplicateFileRow(
                     file = file,
                     isKept = index == 0,
                     isSelected = file.path in selectedPaths,
-                    quality = qualities[file.path],
+                    quality = quality,
+                    relativeNote = relativeQualityNote(
+                        isBest = index == 0,
+                        best = bestQuality,
+                        current = quality,
+                    ),
                     onToggle = { onToggle(file.path) },
                     onOpen = { onOpenFile(file) },
                     onCopyPath = { onCopyPath(file.path) },
                 )
-                if (index != group.files.lastIndex) {
+                if (index != ranked.lastIndex) {
                     HorizontalDivider(
                         modifier = Modifier.padding(start = 16.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -419,15 +435,28 @@ private fun DuplicateFileRow(
     isKept: Boolean,
     isSelected: Boolean,
     quality: MediaQuality?,
+    relativeNote: String?,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
     onCopyPath: () -> Unit,
 ) {
+    // The best copy is highlighted; the remaining (removable) copies are muted.
+    val rowBackground = if (isKept) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+    } else {
+        Color.Transparent
+    }
+    val nameColor = if (isKept) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onOpen)
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .background(rowBackground)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
@@ -446,13 +475,31 @@ private fun DuplicateFileRow(
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = file.name,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = file.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isKept) FontWeight.SemiBold else FontWeight.Normal,
+                    color = nameColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                if (isKept) {
+                    QualityBadge(
+                        text = "BEST",
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    QualityBadge(
+                        text = "DUPLICATE",
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Text(
                 text = if (isKept) {
                     "Recommended to keep • ${formatBytes(file.sizeBytes)}"
@@ -469,11 +516,22 @@ private fun DuplicateFileRow(
                 overflow = TextOverflow.Ellipsis,
             )
             val qualityLabel = quality?.label?.takeIf { it.isNotBlank() }
-            if (qualityLabel != null) {
+            if (qualityLabel != null || relativeNote != null) {
+                val qualityLine = buildString {
+                    if (qualityLabel != null) append(qualityLabel)
+                    if (relativeNote != null) {
+                        if (isNotEmpty()) append(" • ")
+                        append(relativeNote)
+                    }
+                }
                 Text(
-                    text = qualityLabel,
+                    text = qualityLine,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = if (isKept) {
+                        MaterialTheme.colorScheme.secondary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -499,6 +557,49 @@ private fun DuplicateFileRow(
             checked = isSelected,
             onCheckedChange = { onToggle() },
         )
+    }
+}
+
+/** Small pill badge used to mark the best copy vs. removable duplicates. */
+@Composable
+private fun QualityBadge(
+    text: String,
+    containerColor: Color,
+    contentColor: Color,
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = containerColor,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = contentColor,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+/**
+ * Tiny relative-quality indicator for a copy compared to the best one in its
+ * group. Only meaningful when both files have a probed (non-zero) score.
+ */
+private fun relativeQualityNote(
+    isBest: Boolean,
+    best: MediaQuality?,
+    current: MediaQuality?,
+): String? {
+    if (best == null || current == null) return null
+    if (best.score <= 0L || current.score <= 0L) return null
+    if (isBest) return "best quality"
+    return when {
+        current.score >= best.score -> "same quality"
+        current.width > 0 && best.width > 0 && current.height > 0 && best.height > 0 &&
+            (current.width.toLong() * current.height) < (best.width.toLong() * best.height) ->
+            "lower resolution"
+        else -> "lower quality"
     }
 }
 

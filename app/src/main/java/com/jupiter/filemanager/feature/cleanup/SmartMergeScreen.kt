@@ -27,6 +27,8 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.outlined.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -67,6 +69,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.domain.model.MergeRecommendation
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.LoadingView
@@ -195,6 +198,7 @@ fun SmartMergeScreen(
                                     recommendation.recommendedKeepPath,
                                 ),
                                 qualityLabel = { path -> state.qualityLabelFor(path) },
+                                qualityOf = { path -> state.qualities[path] },
                                 onSelectKeep = { path ->
                                     viewModel.selectKeep(recommendation.group.hash, path)
                                 },
@@ -370,10 +374,35 @@ private fun MergeGroupCard(
     recommendation: MergeRecommendation,
     keepPath: String,
     qualityLabel: (String) -> String,
+    qualityOf: (String) -> MediaQuality?,
     onSelectKeep: (String) -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onCopyPath: (String) -> Unit,
 ) {
+    val files = recommendation.group.files
+    val keptFile = files.firstOrNull { it.path == keepPath } ?: files.firstOrNull()
+    // Order the comparison so the copy the user is keeping is first (the winner),
+    // followed by the copies that will be removed — mirrors the merge outcome.
+    val ordered = remember(files, keepPath) {
+        files.sortedByDescending { it.path == keepPath }
+    }
+
+    // The best score present in this group; used to render a relative "higher /
+    // lower / same quality" indicator per copy so the ranking is explicit.
+    val bestScore = files.maxOfOrNull { qualityOf(it.path)?.score ?: 0L } ?: 0L
+    val keptScore = keptFile?.let { qualityOf(it.path)?.score ?: 0L } ?: 0L
+    val keptSize = keptFile?.sizeBytes ?: 0L
+
+    // Explain WHY this copy was chosen: highest probed quality when available,
+    // otherwise it fell back to the largest / newest copy.
+    val reason = keepReasonFor(
+        keptFile = keptFile,
+        keptScore = keptScore,
+        hasProbedQuality = bestScore > 0L,
+        files = files,
+        qualityOf = qualityOf,
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -391,7 +420,7 @@ private fun MergeGroupCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "${recommendation.group.files.size} copies",
+                    text = "${files.size} copies",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -402,23 +431,33 @@ private fun MergeGroupCard(
                 )
             }
             Text(
-                text = "Keeping the best-quality copy — the rest will be removed.",
+                text = reason,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-            recommendation.group.files.forEachIndexed { index, file ->
+            ordered.forEachIndexed { index, file ->
+                val isKept = file.path == keepPath
+                val fileScore = qualityOf(file.path)?.score ?: 0L
                 MergeFileRow(
                     file = file,
-                    isKept = file.path == keepPath,
+                    isKept = isKept,
                     isRecommended = file.path == recommendation.recommendedKeepPath,
                     qualityLabel = qualityLabel(file.path),
+                    relativeQuality = relativeQualityLabel(
+                        hasProbedQuality = bestScore > 0L,
+                        isKept = isKept,
+                        fileScore = fileScore,
+                        keptScore = keptScore,
+                        fileSize = file.sizeBytes,
+                        keptSize = keptSize,
+                    ),
                     onSelect = { onSelectKeep(file.path) },
                     onOpen = { onOpenFile(file) },
                     onCopyPath = { onCopyPath(file.path) },
                 )
-                if (index != recommendation.group.files.lastIndex) {
+                if (index != ordered.lastIndex) {
                     HorizontalDivider(
                         modifier = Modifier.padding(start = 16.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -429,19 +468,83 @@ private fun MergeGroupCard(
     }
 }
 
+/**
+ * Human-readable justification for keeping [keptFile] over the other copies.
+ * Prefers a quality-based reason (highest probed score) and otherwise falls back
+ * to the size/recency tie-breakers the ViewModel's comparator actually uses.
+ */
+private fun keepReasonFor(
+    keptFile: FileItem?,
+    keptScore: Long,
+    hasProbedQuality: Boolean,
+    files: List<FileItem>,
+    qualityOf: (String) -> MediaQuality?,
+): String {
+    if (keptFile == null) return "Keeping the best copy — the rest will be removed."
+    // The kept copy wins on quality when it has the strictly highest probed score.
+    val othersMaxScore = files
+        .filter { it.path != keptFile.path }
+        .maxOfOrNull { qualityOf(it.path)?.score ?: 0L } ?: 0L
+    if (hasProbedQuality && keptScore > othersMaxScore) {
+        return "Keeping the highest-quality copy — the rest will be removed."
+    }
+    val isLargest = files.all { it.sizeBytes <= keptFile.sizeBytes }
+    if (isLargest && files.any { it.sizeBytes < keptFile.sizeBytes }) {
+        return "Quality looks equal — keeping the largest copy; the rest will be removed."
+    }
+    return "Quality looks equal — keeping the most recent copy; the rest will be removed."
+}
+
+/**
+ * Short relative-quality tag comparing a copy to the kept copy: the winner is
+ * flagged "Best quality", others get "higher / lower / same" based on probed
+ * score (or size when no quality was probed). Empty when nothing meaningful.
+ */
+private fun relativeQualityLabel(
+    hasProbedQuality: Boolean,
+    isKept: Boolean,
+    fileScore: Long,
+    keptScore: Long,
+    fileSize: Long,
+    keptSize: Long,
+): String {
+    if (isKept) return "Best quality"
+    if (hasProbedQuality && (fileScore > 0L || keptScore > 0L)) {
+        return when {
+            fileScore < keptScore -> "Lower quality"
+            fileScore > keptScore -> "Higher quality"
+            else -> "Same quality"
+        }
+    }
+    return when {
+        fileSize < keptSize -> "Smaller"
+        fileSize > keptSize -> "Larger"
+        else -> "Same size"
+    }
+}
+
 @Composable
 private fun MergeFileRow(
     file: FileItem,
     isKept: Boolean,
     isRecommended: Boolean,
     qualityLabel: String,
+    relativeQuality: String,
     onSelect: () -> Unit,
     onOpen: () -> Unit,
     onCopyPath: () -> Unit,
 ) {
+    // The kept copy gets a subtle primary wash so the winner is unmistakable at a
+    // glance; removable copies stay on the plain card surface.
+    val rowBackground = if (isKept) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+    } else {
+        androidx.compose.ui.graphics.Color.Transparent
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(rowBackground)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -470,46 +573,46 @@ private fun MergeFileRow(
                 .weight(1f)
                 .clickable(onClick = onOpen),
         ) {
-            Text(
-                text = file.name,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = buildString {
-                    if (isKept) {
-                        append("Keeping this copy")
-                    } else {
-                        append(formatRelativeTime(file.lastModified))
-                    }
-                    append(" • ")
-                    append(formatBytes(file.sizeBytes))
-                    if (isRecommended && !isKept) {
-                        append(" • Recommended")
-                    }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isKept || isRecommended) {
-                    MaterialTheme.colorScheme.primary
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isKept) {
+                    KeepRemoveBadge(kept = true)
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (qualityLabel.isNotEmpty()) {
+                    KeepRemoveBadge(kept = false)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = qualityLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = file.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = file.path,
+                text = buildString {
+                    append(formatBytes(file.sizeBytes))
+                    if (qualityLabel.isNotEmpty()) {
+                        append(" • ")
+                        append(qualityLabel)
+                    }
+                    if (relativeQuality.isNotEmpty()) {
+                        append(" • ")
+                        append(relativeQuality)
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isKept) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontWeight = if (isKept) FontWeight.Medium else FontWeight.Normal,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = formatRelativeTime(file.lastModified) + " • " + file.path,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -522,6 +625,50 @@ private fun MergeFileRow(
                 imageVector = Icons.Outlined.ContentCopy,
                 contentDescription = "Copy path",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Prominent pill marking a copy as the one being kept ("KEEP · best quality",
+ * primary) or a removable duplicate ("REMOVE", muted). Purely presentational.
+ */
+@Composable
+private fun KeepRemoveBadge(kept: Boolean) {
+    val container = if (kept) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val content = if (kept) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = container,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (kept) {
+                Icon(
+                    imageVector = Icons.Outlined.WorkspacePremium,
+                    contentDescription = null,
+                    tint = content,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Text(
+                text = if (kept) "KEEP · best quality" else "REMOVE",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = content,
+                maxLines = 1,
             )
         }
     }
