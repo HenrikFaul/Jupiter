@@ -123,6 +123,11 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
 
+    // Room — persistent file index (fast browse/search/duplicate reuse)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
     // Security / vault
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.security.crypto)

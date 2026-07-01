@@ -3,8 +3,10 @@ package com.jupiter.filemanager.feature.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FilterOption
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.feature.ai.AiAssistant
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,10 +50,19 @@ data class SearchUiState(
  * is enabled and the [AiAssistant] is configured, the raw query is first parsed
  * into a structured [FilterOption]; otherwise a plain case-insensitive substring
  * filter is used.
+ *
+ * When the persistent file index is enabled (see [SettingsDataStore.indexingEnabled])
+ * and the query is a plain substring, the cached index is queried first via
+ * [FileIndexRepository.search] to render instant results, then reconciled with a
+ * fresh live walk so anything new/removed since the last index pass is reflected.
+ * The index is a best-effort cache: when it is empty or disabled, behavior is
+ * identical to the original walk-only search.
  */
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val fileRepository: FileRepository,
+    private val indexRepository: FileIndexRepository,
+    private val settings: SettingsDataStore,
     private val aiAssistant: AiAssistant,
 ) : ViewModel() {
 
@@ -108,12 +120,36 @@ class SearchViewModel @Inject constructor(
                 )
             }
 
+            // Fast path: when the index is enabled, show cached matches immediately
+            // so results appear without waiting for the storage walk. This is a
+            // one-shot snapshot; the live walk below then supersedes it. A blank
+            // query never reaches here (guarded above).
+            val indexEnabled = withContext(Dispatchers.IO) {
+                runCatching { settings.indexingEnabled.first() }.getOrDefault(true)
+            }
+            val instant: List<FileItem> = if (indexEnabled) {
+                runCatching { indexRepository.search(rawQuery).first() }
+                    .getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+            if (instant.isNotEmpty()) {
+                _uiState.update { it.copy(results = instant) }
+            }
+
             val filter = resolveFilter(rawQuery)
             val rootPath = fileRepository.rootDirectory()
+
+            // Accumulator for the authoritative live walk. Starts empty so files
+            // removed since the last index pass drop out of the results as the
+            // walk progresses.
             val collected = mutableListOf<FileItem>()
+            var walkEmitted = false
 
             fileRepository.search(rootPath, filter)
                 .catch { throwable ->
+                    // On walk failure keep any instant index results already shown
+                    // rather than clearing them, so the user still sees something.
                     _uiState.update {
                         it.copy(
                             isSearching = false,
@@ -123,9 +159,23 @@ class SearchViewModel @Inject constructor(
                     }
                 }
                 .onCompletion {
-                    _uiState.update { it.copy(isSearching = false, aiInterpreting = false) }
+                    // If the live walk produced nothing (e.g. no storage access)
+                    // but the index had matches, fall back to the index results.
+                    if (!walkEmitted && instant.isNotEmpty()) {
+                        _uiState.update {
+                            it.copy(isSearching = false, aiInterpreting = false, results = instant)
+                        }
+                    } else {
+                        _uiState.update { it.copy(isSearching = false, aiInterpreting = false) }
+                    }
                 }
                 .collect { item ->
+                    if (!walkEmitted) {
+                        // First live result: clear the instant index snapshot so the
+                        // walk's authoritative results replace it cleanly.
+                        walkEmitted = true
+                        collected.clear()
+                    }
                     collected.add(item)
                     _uiState.update { it.copy(results = collected.toList()) }
                 }

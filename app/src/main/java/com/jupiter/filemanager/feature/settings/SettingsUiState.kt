@@ -26,4 +26,9 @@ data class SettingsUiState(
     val dynamicColor: Boolean = true,
     // Privacy (additive). Analytics is opt-in and off by default.
     val analyticsOptIn: Boolean = false,
+    // Indexing (additive). The persistent file index speeds up search and is on
+    // by default; [indexedCount] and [indexing] reflect the current index state.
+    val indexingEnabled: Boolean = true,
+    val indexedCount: Int = 0,
+    val indexing: Boolean = false,
 )

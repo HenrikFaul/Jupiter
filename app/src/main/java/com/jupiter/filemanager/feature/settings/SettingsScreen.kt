@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
@@ -39,7 +41,9 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ViewColumn
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -221,6 +225,24 @@ fun SettingsScreen(
                 icon = Icons.Filled.Storage,
                 title = "Storage analysis",
                 subtitle = "Review usage and reclaim space",
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            SettingsSectionHeader(title = "Indexing")
+            SettingsSwitchRow(
+                icon = Icons.Filled.Bolt,
+                title = "Index files for fast search",
+                subtitle = "Cache file metadata so search is instant instead of " +
+                    "re-scanning storage every time",
+                checked = uiState.indexingEnabled,
+                onCheckedChange = viewModel::setIndexingEnabled,
+            )
+            IndexStatusRow(
+                indexedCount = uiState.indexedCount,
+                indexing = uiState.indexing,
+                enabled = uiState.indexingEnabled,
+                onRebuild = viewModel::rebuildIndex,
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -513,6 +535,72 @@ private fun SettingsSwitchRow(
             onCheckedChange = onCheckedChange,
             modifier = Modifier.padding(start = 8.dp),
         )
+    }
+}
+
+/**
+ * Status line for the persistent file index: shows how many entries are cached
+ * (with an inline spinner while a rebuild is running) alongside a "Rebuild"
+ * action. The rebuild button is disabled while indexing is off or already in
+ * progress so repeated taps can't stack work.
+ */
+@Composable
+private fun IndexStatusRow(
+    indexedCount: Int,
+    indexing: Boolean,
+    enabled: Boolean,
+    onRebuild: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = when {
+                    !enabled -> "Indexing is off"
+                    indexing -> "Indexing files…"
+                    else -> "$indexedCount files indexed"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (enabled && !indexing) {
+                Text(
+                    text = "Rebuild to refresh cached metadata",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (indexing) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .padding(end = 12.dp)
+                    .size(20.dp),
+                strokeWidth = 2.dp,
+            )
+        }
+        FilledTonalButton(
+            onClick = onRebuild,
+            enabled = enabled && !indexing,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "Rebuild",
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
     }
 }
 

@@ -2,8 +2,12 @@ package com.jupiter.filemanager.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
+import com.jupiter.filemanager.domain.model.IndexStats
 import com.jupiter.filemanager.domain.model.ThemeMode
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +32,8 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsDataStore,
+    private val indexRepository: FileIndexRepository,
+    private val indexingScheduler: IndexingScheduler,
 ) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -40,7 +46,12 @@ class SettingsViewModel @Inject constructor(
         settings.amoledBlack,
         settings.dynamicColor,
         settings.analyticsOptIn,
+        settings.indexingEnabled,
+        indexRepository.stats(),
+        indexingScheduler.observeStatus(),
     ) { values ->
+        val stats = values[10] as IndexStats
+        val workInfo = values[11] as WorkInfo?
         SettingsUiState(
             themeMode = values[0] as ThemeMode,
             showHidden = values[1] as Boolean,
@@ -51,6 +62,10 @@ class SettingsViewModel @Inject constructor(
             amoledBlack = values[6] as Boolean,
             dynamicColor = values[7] as Boolean,
             analyticsOptIn = values[8] as Boolean,
+            indexingEnabled = values[9] as Boolean,
+            indexedCount = stats.indexedCount,
+            indexing = workInfo?.state == WorkInfo.State.RUNNING ||
+                workInfo?.state == WorkInfo.State.ENQUEUED,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -125,5 +140,30 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settings.setAnalyticsOptIn(value)
         }
+    }
+
+    /**
+     * Persists whether the persistent file index is enabled. Enabling it kicks
+     * off an immediate rebuild so search benefits from cached metadata right
+     * away; disabling it clears the cached entries to free storage. Both the
+     * rebuild and the clear are best-effort and never block the UI.
+     */
+    fun setIndexingEnabled(value: Boolean) {
+        viewModelScope.launch {
+            settings.setIndexingEnabled(value)
+            if (value) {
+                indexingScheduler.rebuildNow()
+            } else {
+                runCatching { indexRepository.clear() }
+            }
+        }
+    }
+
+    /**
+     * Enqueues (or restarts) a full index rebuild via the [IndexingScheduler].
+     * The scheduler swallows enqueue failures, so this never crashes the screen.
+     */
+    fun rebuildIndex() {
+        indexingScheduler.rebuildNow()
     }
 }

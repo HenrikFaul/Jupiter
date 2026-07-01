@@ -76,6 +76,7 @@ class SettingsDataStore @Inject constructor(
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val ANALYTICS_OPT_IN = booleanPreferencesKey("analytics_opt_in")
         val PRO_UNLOCKED = booleanPreferencesKey("pro_unlocked")
+        val INDEXING_ENABLED = booleanPreferencesKey("indexing_enabled")
     }
 
     /** Current theme mode; defaults to [ThemeMode.SYSTEM]. */
@@ -193,6 +194,15 @@ class SettingsDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.PRO_UNLOCKED] ?: true }
 
+    /**
+     * Whether the persistent file index is enabled; defaults to true so search
+     * (and later duplicate scans) can reuse cached metadata instead of always
+     * re-walking storage. When disabled, callers fall back to live walks only.
+     */
+    val indexingEnabled: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.INDEXING_ENABLED] ?: true }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         dataStore.edit { prefs -> prefs[Keys.THEME_MODE] = mode.name }
     }
@@ -248,6 +258,10 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setProUnlocked(value: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.PRO_UNLOCKED] = value }
+    }
+
+    suspend fun setIndexingEnabled(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.INDEXING_ENABLED] = value }
     }
 
     /**
