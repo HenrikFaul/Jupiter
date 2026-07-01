@@ -9,6 +9,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.domain.model.MergeRecommendation
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
+import com.jupiter.filemanager.domain.repository.TrashRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,7 +21,6 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 
 /**
@@ -39,6 +39,7 @@ class SmartMergeViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
     private val qualityProbe: MediaQualityProbe,
     private val storageAccessManager: StorageAccessManager,
+    private val trashRepository: TrashRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SmartMergeUiState())
@@ -180,20 +181,23 @@ class SmartMergeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isMerging = true, errorMessage = null, infoMessage = null)
 
-            // Resolve the paths to remove for every recommendation using the
-            // current keep selection (user override or recommended default).
-            val toRemove = state.recommendations.flatMap { rec ->
+            // Resolve the FileItems to remove for every recommendation using the
+            // current keep selection (user override or recommended default). Keeping
+            // the FileItem (not just the path) lets us route the deletion through the
+            // trash-aware path.
+            val toRemove: List<FileItem> = state.recommendations.flatMap { rec ->
                 val keepPath = state.keepPathFor(rec.group.hash, rec.recommendedKeepPath)
-                rec.group.files.map { it.path }.filter { it != keepPath }
+                rec.group.files.filter { it.path != keepPath }
             }
 
             val (deleted, failed) = withContext(Dispatchers.IO) {
                 val deletedPaths = mutableSetOf<String>()
                 var failures = 0
-                for (path in toRemove) {
-                    val file = File(path)
-                    if (!file.exists() || file.delete()) {
-                        deletedPaths.add(path)
+                for (item in toRemove) {
+                    // NO DATA LOSS: only counts as merged once the removable copy is
+                    // safely in the Recycle Bin; a failed move preserves the source.
+                    if (trashRepository.moveToTrash(item)) {
+                        deletedPaths.add(item.path)
                     } else {
                         failures++
                     }

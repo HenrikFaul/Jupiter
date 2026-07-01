@@ -7,6 +7,7 @@ import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
+import com.jupiter.filemanager.domain.repository.TrashRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,7 +21,6 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 
 /**
@@ -38,6 +38,7 @@ class DuplicatesViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
     private val mediaQualityProbe: MediaQualityProbe,
     private val storageAccessManager: StorageAccessManager,
+    private val trashRepository: TrashRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DuplicatesUiState())
@@ -186,15 +187,24 @@ class DuplicatesViewModel @Inject constructor(
     }
 
     /**
-     * Deletes the currently selected files on a background dispatcher, then
-     * refreshes group state by removing the deleted files and dropping any group
-     * that no longer contains duplicates.
+     * Moves the currently selected files into the Recycle Bin on a background
+     * dispatcher, then refreshes group state by removing the trashed files and
+     * dropping any group that no longer contains duplicates.
+     *
+     * A file only counts as "deleted" when it was actually moved to trash; if a
+     * move fails the source is PRESERVED (never hard-deleted) and it is reported
+     * as a failure.
      */
     fun deleteSelected() {
         val state = _uiState.value
         if (state.selectedPaths.isEmpty() || state.isDeleting) return
 
-        val targets = state.selectedPaths.toList()
+        // Resolve the selected paths back to their FileItems so they can be routed
+        // through the trash-aware delete path.
+        val itemsByPath = state.groups.asSequence()
+            .flatMap { it.files.asSequence() }
+            .associateBy { it.path }
+        val targets = state.selectedPaths.mapNotNull { itemsByPath[it] }
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isDeleting = true, errorMessage = null, infoMessage = null)
@@ -202,10 +212,9 @@ class DuplicatesViewModel @Inject constructor(
             val (deleted, failed) = withContext(Dispatchers.IO) {
                 val deletedPaths = mutableSetOf<String>()
                 var failures = 0
-                for (path in targets) {
-                    val file = File(path)
-                    if (!file.exists() || file.delete()) {
-                        deletedPaths.add(path)
+                for (item in targets) {
+                    if (trashRepository.moveToTrash(item)) {
+                        deletedPaths.add(item.path)
                     } else {
                         failures++
                     }

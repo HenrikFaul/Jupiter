@@ -61,6 +61,8 @@ sealed class Destination(val route: String) {
 
     data object Downloads : Destination("downloads")
 
+    data object Trash : Destination("trash")
+
     // ---- Organization ----
 
     data object Tags : Destination("tags")

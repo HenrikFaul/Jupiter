@@ -7,6 +7,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileOperationProgress
 import com.jupiter.filemanager.domain.model.FileOperationType
 import com.jupiter.filemanager.domain.model.OperationState
+import com.jupiter.filemanager.domain.repository.TrashRepository
 import java.io.File
 import java.io.IOException
 import javax.inject.Inject
@@ -31,6 +32,7 @@ import kotlinx.coroutines.withContext
 @Singleton
 class FileOperationsManager @Inject constructor(
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
+    private val trashRepository: TrashRepository,
 ) {
 
     private companion object {
@@ -56,11 +58,17 @@ class FileOperationsManager @Inject constructor(
         transfer(items, destinationPath, FileOperationType.MOVE)
 
     /**
-     * Recursively deletes [items]. Returns [AppResult.Success] when everything was removed, or a
-     * [AppResult.Failure] describing the first failure encountered.
+     * "Deletes" [items] by moving each into the app-managed Recycle Bin (see [TrashRepository]).
+     *
+     * THE CARDINAL RULE — NO DATA LOSS: a file is only ever removed from its original location once
+     * it is safely inside the trash. If [TrashRepository.moveToTrash] returns `false` for an item,
+     * the source is left untouched (never hard-deleted) and the failure is recorded so the caller
+     * can report it. Returns [AppResult.Success] only when every existing item was trashed;
+     * otherwise a [AppResult.Failure] so the UI surfaces that some files were preserved.
      */
     suspend fun delete(items: List<FileItem>): AppResult<Unit> = withContext(dispatcher) {
         try {
+            var anyFailed = false
             for (item in items) {
                 if (!currentCoroutineContext().isActive) {
                     return@withContext AppResult.Failure(
@@ -69,13 +77,19 @@ class FileOperationsManager @Inject constructor(
                 }
                 val file = File(item.path)
                 if (!file.exists()) continue
-                if (!deleteRecursively(file)) {
-                    return@withContext AppResult.Failure(
-                        AppError.Io("Failed to delete: " + file.absolutePath),
-                    )
+                // Route through the Recycle Bin. On failure PRESERVE the source (do not fall back
+                // to a hard delete) and keep going so one bad item can't abort the rest.
+                if (!trashRepository.moveToTrash(item)) {
+                    anyFailed = true
                 }
             }
-            AppResult.Success(Unit)
+            if (anyFailed) {
+                AppResult.Failure(
+                    AppError.Io("Some items could not be moved to Recycle Bin"),
+                )
+            } else {
+                AppResult.Success(Unit)
+            }
         } catch (ce: CancellationException) {
             throw ce
         } catch (e: SecurityException) {

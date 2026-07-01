@@ -44,6 +44,7 @@ import com.jupiter.filemanager.feature.transfer.NearbyTransferScreen
 import com.jupiter.filemanager.feature.transfer.TransferCenterScreen
 import com.jupiter.filemanager.feature.transfer.TransferScreen
 import com.jupiter.filemanager.feature.transfer.WifiTransferScreen
+import com.jupiter.filemanager.feature.trash.TrashScreen
 import com.jupiter.filemanager.feature.vault.VaultScreen
 import com.jupiter.filemanager.feature.version.VersionHistoryScreen
 import com.jupiter.filemanager.feature.whatsnew.WhatsNewScreen
@@ -283,6 +284,12 @@ fun JupiterNavHost(
         composable(route = Destination.Downloads.route) {
             DownloadsScreen(
                 onOpenFile = { item -> openByType(item) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(route = Destination.Trash.route) {
+            TrashScreen(
                 onBack = { navController.popBackStack() },
             )
         }

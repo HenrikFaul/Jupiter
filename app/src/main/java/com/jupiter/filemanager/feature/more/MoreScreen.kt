@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CopyAll
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Lock
@@ -140,6 +141,12 @@ private fun rememberMoreSections(): List<MoreSection> = listOf(
                 subtitle = "Recommended duplicate cleanup",
                 icon = Icons.Filled.Merge,
                 route = Destination.SmartMerge.route,
+            ),
+            MoreTool(
+                title = "Recycle Bin",
+                subtitle = "Restore or permanently remove deleted files",
+                icon = Icons.Filled.Delete,
+                route = Destination.Trash.route,
             ),
         ),
     ),
