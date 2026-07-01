@@ -11,6 +11,7 @@ import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageOverview
 import com.jupiter.filemanager.domain.model.StorageVolumeInfo
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import java.io.File
 import java.security.MessageDigest
@@ -37,6 +38,7 @@ import kotlinx.coroutines.withContext
 class StorageAnalyticsRepositoryImpl @Inject constructor(
     private val dataSource: FileSystemDataSource,
     private val volumeProvider: StorageVolumeProvider,
+    private val indexRepository: FileIndexRepository,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : StorageAnalyticsRepository {
 
@@ -217,7 +219,20 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
             val byHash = LinkedHashMap<String, MutableList<File>>()
             for (file in prefixGroup) {
                 currentCoroutineContext().ensureActive()
-                val hash = hashFile(file) ?: continue
+                // Reuse a cached full-content hash from the persistent index when the
+                // file is byte-for-byte unchanged (matched on path + size + mtime), so
+                // repeat scans skip re-reading every candidate. On a cache miss, hash
+                // once and write it back for next time. The cache is best-effort — any
+                // index failure falls through to a direct hash.
+                val item = dataSource.toFileItem(file)
+                val cached = runCatching {
+                    indexRepository.hashForUnchanged(item.path, item.sizeBytes, item.lastModified)
+                }.getOrNull()
+                val hash = cached ?: run {
+                    val computed = hashFile(file) ?: return@run null
+                    runCatching { indexRepository.putHash(item, computed) }
+                    computed
+                } ?: continue
                 byHash.getOrPut(hash) { mutableListOf() }.add(file)
             }
 
