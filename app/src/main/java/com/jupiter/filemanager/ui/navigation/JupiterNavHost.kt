@@ -15,6 +15,7 @@ import com.jupiter.filemanager.feature.archive.ArchiveManagerScreen
 import com.jupiter.filemanager.feature.automation.AutomationScreen
 import com.jupiter.filemanager.feature.automation.RuleBuilderScreen
 import com.jupiter.filemanager.feature.billing.PaywallScreen
+import com.jupiter.filemanager.feature.categories.CategoryBrowseScreen
 import com.jupiter.filemanager.feature.browser.DualPaneScreen
 import com.jupiter.filemanager.feature.browser.FileBrowserScreen
 import com.jupiter.filemanager.feature.cleanup.CleanupScreen
@@ -290,6 +291,22 @@ fun JupiterNavHost(
 
         composable(route = Destination.Trash.route) {
             TrashScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Destination.CategoryBrowse.route,
+            arguments = listOf(
+                navArgument(Destination.CategoryBrowse.ARG_TYPE) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            CategoryBrowseScreen(
+                onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
             )
         }

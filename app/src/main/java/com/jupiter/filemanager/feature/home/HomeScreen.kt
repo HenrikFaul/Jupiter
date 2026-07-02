@@ -123,6 +123,7 @@ fun HomeScreen(
                 QuickAccessRow(
                     shortcuts = uiState.quickAccess,
                     onOpenPath = onOpenPath,
+                    onNavigate = onNavigate,
                 )
             }
 
@@ -290,6 +291,7 @@ private fun SearchEntry(onClick: () -> Unit) {
 private fun QuickAccessRow(
     shortcuts: List<QuickAccessShortcut>,
     onOpenPath: (String) -> Unit,
+    onNavigate: (String) -> Unit,
 ) {
     if (shortcuts.isEmpty()) {
         Text(
@@ -307,10 +309,34 @@ private fun QuickAccessRow(
         items(shortcuts, key = { it.id }) { shortcut ->
             QuickAccessTile(
                 shortcut = shortcut,
-                onClick = { onOpenPath(shortcut.path) },
+                onClick = {
+                    // Category-backed shortcuts open the instant, device-wide
+                    // MediaStore listing; anything else falls back to browsing
+                    // the concrete folder path.
+                    val category = categoryForShortcut(shortcut.id)
+                    if (category != null) {
+                        onNavigate(Destination.CategoryBrowse.create(category))
+                    } else {
+                        onOpenPath(shortcut.path)
+                    }
+                },
             )
         }
     }
+}
+
+/**
+ * Maps a Quick Access shortcut [id] to the [StorageCategory] whose instant
+ * MediaStore listing it should open, or null when the shortcut has no category
+ * equivalent and should simply browse its folder path.
+ */
+private fun categoryForShortcut(id: String): StorageCategory? = when (id) {
+    "images" -> StorageCategory.IMAGES
+    "videos" -> StorageCategory.VIDEOS
+    "audio" -> StorageCategory.AUDIO
+    "documents" -> StorageCategory.DOCUMENTS
+    "downloads" -> StorageCategory.DOWNLOADS
+    else -> null
 }
 
 /** A single Quick Access folder tile with icon, name and aggregated usage. */

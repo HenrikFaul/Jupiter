@@ -63,6 +63,18 @@ sealed class Destination(val route: String) {
 
     data object Trash : Destination("trash")
 
+    /**
+     * Instant, device-wide category listing backed by MediaStore.
+     *
+     * The [ARG_TYPE] argument carries a [com.jupiter.filemanager.domain.model.StorageCategory]
+     * name (e.g. "IMAGES"); [create] builds the concrete route from a category.
+     */
+    data object CategoryBrowse : Destination("category?type={type}") {
+        const val ARG_TYPE = "type"
+        fun create(category: com.jupiter.filemanager.domain.model.StorageCategory): String =
+            "category?type=" + category.name
+    }
+
     // ---- Organization ----
 
     data object Tags : Destination("tags")
