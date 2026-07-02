@@ -12,10 +12,11 @@
 A 20-discipline research sweep was launched (target ≥1000 web sources). **10 disciplines**
 completed before the run hit provider session limits, contributing **629 distinct sources** and
 **118 candidate factors**; the 100 canonical factors below are the top **10 per completed**
-**discipline** (by priority). The 10 rate-limited disciplines (competitor-UX teardown, archive/
-compression correctness, media/EXIF handling, i18n/RTL, QA methodology, battery/background,
-design/motion, trust/onboarding, business metrics, observability/errors) are the **round-2**
-**backlog** — to extend once provider limits reset. Total sources are appended per discipline.
+**discipline** (by priority). The 10 originally-rate-limited disciplines (competitor-UX teardown,
+archive/compression correctness, media/EXIF handling, i18n/RTL, QA methodology, battery/background,
+design/motion, trust/onboarding, business metrics, observability/errors) are now **completed** in the
+companion doc **RESEARCH_VERIFICATION_FACTORS_ROUND2.md** (factors #101-200, 631 further sources) —
+giving 200 verification factors across all 20 disciplines (~1,260 sources). Sources appended below.
 
 | Discipline | Sources | Factors (this doc) |
 |---|--:|--:|
