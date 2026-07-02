@@ -34,6 +34,7 @@ import com.jupiter.filemanager.feature.preview.MusicPlayerScreen
 import com.jupiter.filemanager.feature.preview.PdfViewerScreen
 import com.jupiter.filemanager.feature.preview.PreviewScreen
 import com.jupiter.filemanager.feature.preview.VideoPlayerScreen
+import com.jupiter.filemanager.feature.privacy.DataTransparencyScreen
 import com.jupiter.filemanager.feature.privacy.PrivacyDashboardScreen
 import com.jupiter.filemanager.feature.remote.RemoteBrowserScreen
 import com.jupiter.filemanager.feature.search.SearchScreen
@@ -427,6 +428,12 @@ fun JupiterNavHost(
         composable(route = Destination.PrivacyDashboard.route) {
             PrivacyDashboardScreen(
                 onOpenRoute = { route -> navController.navigate(route) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(route = Destination.DataTransparency.route) {
+            DataTransparencyScreen(
                 onBack = { navController.popBackStack() },
             )
         }

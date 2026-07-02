@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
@@ -206,6 +207,13 @@ fun SettingsScreen(
                 subtitle = "Share anonymous usage data (opt-in)",
                 checked = uiState.analyticsOptIn,
                 onCheckedChange = viewModel::setAnalyticsOptIn,
+            )
+            SettingsNavigationRow(
+                icon = Icons.Filled.Shield,
+                title = "Your data & privacy",
+                subtitle = "See what Jupiter accesses, where your data lives, and how " +
+                    "it's protected",
+                onClick = { onOpenRoute(Destination.DataTransparency.route) },
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

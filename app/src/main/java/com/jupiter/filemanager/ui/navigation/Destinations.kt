@@ -115,6 +115,8 @@ sealed class Destination(val route: String) {
 
     data object PrivacyDashboard : Destination("privacy_dashboard")
 
+    data object DataTransparency : Destination("data_transparency")
+
     data object Automation : Destination("automation")
 
     data object RuleBuilder : Destination("rule_builder")
