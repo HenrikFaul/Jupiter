@@ -5,9 +5,13 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.IndexStats
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
+import java.io.File
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -47,6 +51,88 @@ class FileIndexRepositoryImpl @Inject constructor(
     override suspend fun upsert(items: List<FileItem>) = withContext(ioDispatcher) {
         val now = System.currentTimeMillis()
         dao.upsertAll(items.map { toEntry(it, now) })
+    }
+
+    override suspend fun indexFile(item: FileItem) = withContext(ioDispatcher) {
+        val now = System.currentTimeMillis()
+        // Preserve a known hash only when the file's identity (size + mtime) is
+        // unchanged; otherwise clear it so it will be recomputed lazily.
+        val preservedHash = if (item.isDirectory) {
+            null
+        } else {
+            dao.getByPath(item.path)?.takeIf {
+                it.sizeBytes == item.sizeBytes && it.lastModified == item.lastModified
+            }?.contentHash
+        }
+        dao.upsertAll(listOf(toEntry(item, now).copy(contentHash = preservedHash)))
+    }
+
+    override suspend fun removeByPath(path: String) = withContext(ioDispatcher) {
+        dao.deleteByPath(path)
+        // Remove any subtree: match children under "path/" so siblings sharing a
+        // path prefix (e.g. ".../foo" vs ".../foobar") are never affected.
+        val prefix = path.trimEnd('/') + "/"
+        val descendants = dao.childPathsUnder(prefix)
+        descendants.forEach { dao.deleteByPath(it) }
+    }
+
+    override suspend fun onMovedOrRenamed(fromPath: String, toItem: FileItem) =
+        withContext(ioDispatcher) {
+            removeByPath(fromPath)
+            indexFile(toItem)
+        }
+
+    override suspend fun findContentDuplicates(item: FileItem): List<FileItem> =
+        withContext(ioDispatcher) {
+            if (item.isDirectory) return@withContext emptyList()
+
+            val hash = dao.hashIfUnchanged(item.path, item.sizeBytes, item.lastModified)
+                ?: computeHash(item.path)?.also { putHash(item, it) }
+                ?: return@withContext emptyList()
+
+            dao.byHash(hash)
+                .asSequence()
+                .filter { it.path != item.path }
+                .map(::toFileItem)
+                .toList()
+        }
+
+    /**
+     * Streams the file at [path] through a chunked SHA-1 digest. Cancellable and
+     * total: any IO error (missing file, permission denied) yields null rather
+     * than throwing, so best-effort callers never fail on a bad file.
+     */
+    private suspend fun computeHash(path: String): String? {
+        return try {
+            val file = File(path)
+            if (!file.isFile) return null
+            val digest = MessageDigest.getInstance("SHA-1")
+            val buffer = ByteArray(DEFAULT_HASH_BUFFER)
+            file.inputStream().use { stream ->
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    if (read > 0) digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest().toHexString()
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Lowercase, unseparated hex, matching the app's existing SHA-1 hash format. */
+    private fun ByteArray.toHexString(): String {
+        val builder = StringBuilder(size * 2)
+        for (byte in this) {
+            val value = byte.toInt() and 0xFF
+            builder.append(HEX_DIGITS[value ushr 4])
+            builder.append(HEX_DIGITS[value and 0x0F])
+        }
+        return builder.toString()
     }
 
     override suspend fun hashForUnchanged(
@@ -101,4 +187,12 @@ class FileIndexRepositoryImpl @Inject constructor(
         contentHash = null,
         indexedAt = indexedAt,
     )
+
+    private companion object {
+        /** 64 KiB read window for streamed hashing. */
+        const val DEFAULT_HASH_BUFFER = 64 * 1024
+
+        /** Lowercase hex alphabet used by [toHexString]. */
+        val HEX_DIGITS = "0123456789abcdef".toCharArray()
+    }
 }

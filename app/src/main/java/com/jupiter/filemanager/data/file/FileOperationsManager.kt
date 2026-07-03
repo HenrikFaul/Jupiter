@@ -7,6 +7,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileOperationProgress
 import com.jupiter.filemanager.domain.model.FileOperationType
 import com.jupiter.filemanager.domain.model.OperationState
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.TrashRepository
 import java.io.File
 import java.io.IOException
@@ -33,6 +34,8 @@ import kotlinx.coroutines.withContext
 class FileOperationsManager @Inject constructor(
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
     private val trashRepository: TrashRepository,
+    private val fileSystemDataSource: FileSystemDataSource,
+    private val indexRepository: FileIndexRepository,
 ) {
 
     private companion object {
@@ -127,6 +130,10 @@ class FileOperationsManager @Inject constructor(
 
         // Build a flat plan of every regular file that will be copied, with its destination path.
         val plan = ArrayList<PlannedFile>()
+        // Top-level (source item -> destination file) pairs, used to update the file index once the
+        // transfer completes successfully. Only the created roots are indexed here; deep re-indexing
+        // of copied/moved trees is left to the live observer / next scan per the index contract.
+        val topLevelTargets = ArrayList<Pair<FileItem, File>>()
         var totalBytes = 0L
         try {
             for (item in items) {
@@ -171,6 +178,7 @@ class FileOperationsManager @Inject constructor(
                     return@flow
                 }
                 totalBytes += planEntry(source, target, plan)
+                topLevelTargets.add(item to target)
             }
         } catch (ce: CancellationException) {
             throw ce
@@ -261,6 +269,21 @@ class FileOperationsManager @Inject constructor(
             if (type == FileOperationType.MOVE) {
                 for (src in moveSources) {
                     if (src.exists()) deleteRecursively(src)
+                }
+            }
+
+            // BEST-EFFORT live index update. Wrapped so an index failure can never change the
+            // outcome or safety of the copy/move itself. A COPY indexes each created root; a MOVE
+            // records the rename (old path removed, new path indexed) for each moved root.
+            runCatching {
+                for ((item, target) in topLevelTargets) {
+                    if (!target.exists()) continue
+                    val newItem = fileSystemDataSource.toFileItem(target)
+                    if (type == FileOperationType.MOVE) {
+                        indexRepository.onMovedOrRenamed(item.path, newItem)
+                    } else {
+                        indexRepository.indexFile(newItem)
+                    }
                 }
             }
 

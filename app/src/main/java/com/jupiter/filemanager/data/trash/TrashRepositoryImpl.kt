@@ -3,9 +3,11 @@ package com.jupiter.filemanager.data.trash
 import android.content.Context
 import com.jupiter.filemanager.core.result.AppError
 import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.data.file.FileSystemDataSource
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.TrashItem
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.TrashRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -38,6 +40,8 @@ class TrashRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dao: TrashDao,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    private val indexRepository: FileIndexRepository,
+    private val fileSystemDataSource: FileSystemDataSource,
 ) : TrashRepository {
 
     /**
@@ -78,6 +82,9 @@ class TrashRepositoryImpl @Inject constructor(
                     deletedAt = System.currentTimeMillis(),
                 ),
             )
+            // BEST-EFFORT: drop the trashed source (and, if a directory, its subtree) from the live
+            // index. Wrapped so an index failure can never compromise trash safety.
+            runCatching { indexRepository.removeByPath(item.path) }
             true
         } catch (ce: CancellationException) {
             throw ce
@@ -125,6 +132,13 @@ class TrashRepositoryImpl @Inject constructor(
         destination.parentFile?.mkdirs()
         if (movePath(trashed, destination)) {
             dao.delete(id)
+            // BEST-EFFORT: re-index the restored payload at its recovered location. Wrapped so an
+            // index failure can never turn a successful restore into a reported failure.
+            runCatching {
+                if (destination.exists()) {
+                    indexRepository.indexFile(fileSystemDataSource.toFileItem(destination))
+                }
+            }
             AppResult.Success(Unit)
         } else {
             AppResult.Failure(AppError.Io("Could not restore \"" + entry.name + "\""))

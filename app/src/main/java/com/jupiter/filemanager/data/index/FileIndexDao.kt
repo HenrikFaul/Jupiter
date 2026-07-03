@@ -37,6 +37,25 @@ interface FileIndexDao {
     suspend fun getByPath(path: String): FileIndexEntry?
 
     /**
+     * Returns every indexed **file** (never a directory) whose content hash
+     * equals [hash]. Used to surface content-duplicates regardless of name.
+     */
+    @Query("SELECT * FROM file_index WHERE contentHash = :hash AND isDirectory = 0")
+    suspend fun byHash(hash: String): List<FileIndexEntry>
+
+    /** Deletes the single row for [path], if present. */
+    @Query("DELETE FROM file_index WHERE path = :path")
+    suspend fun deleteByPath(path: String)
+
+    /**
+     * Returns the paths of every row whose path begins with [prefix], used to
+     * recursively remove an indexed directory subtree. Callers pass a prefix
+     * that already includes the trailing separator to avoid sibling matches.
+     */
+    @Query("SELECT path FROM file_index WHERE path LIKE :prefix || '%'")
+    suspend fun childPathsUnder(prefix: String): List<String>
+
+    /**
      * Returns the cached content hash for [path] only when size and mtime are
      * unchanged from what was indexed, so callers can reuse it without rehashing.
      */

@@ -3,6 +3,7 @@ package com.jupiter.filemanager
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.jupiter.filemanager.data.index.DownloadIndexObserver
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -24,6 +25,20 @@ class JupiterApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
+
+    /**
+     * Keeps the persistent file index live for files that arrive outside of in-app
+     * operations (e.g. downloads), indexing them immediately and flagging content
+     * duplicates. Started once here so the index is already current on app open.
+     */
+    @Inject
+    lateinit var downloadIndexObserver: DownloadIndexObserver
+
+    override fun onCreate() {
+        super.onCreate()
+        // Best-effort: a failure to register the observer must never crash startup.
+        runCatching { downloadIndexObserver.start() }
+    }
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
