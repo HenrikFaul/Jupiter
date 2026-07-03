@@ -70,11 +70,23 @@ class FileIndexRepositoryImpl @Inject constructor(
     override suspend fun removeByPath(path: String) = withContext(ioDispatcher) {
         dao.deleteByPath(path)
         // Remove any subtree: match children under "path/" so siblings sharing a
-        // path prefix (e.g. ".../foo" vs ".../foobar") are never affected.
-        val prefix = path.trimEnd('/') + "/"
+        // path prefix (e.g. ".../foo" vs ".../foobar") are never affected. The
+        // prefix is LIKE-escaped so that literal '_' / '%' in a directory name
+        // (both common) cannot act as wildcards and over-match sibling folders
+        // (e.g. deleting "photos_2024" must not purge "photosX2024").
+        val prefix = escapeLike(path.trimEnd('/')) + "/"
         val descendants = dao.childPathsUnder(prefix)
         descendants.forEach { dao.deleteByPath(it) }
     }
+
+    /**
+     * Escapes SQL LIKE metacharacters so the value matches literally under an
+     * `ESCAPE '\'` clause. Backslash must be escaped first.
+     */
+    private fun escapeLike(value: String): String =
+        value.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
 
     override suspend fun onMovedOrRenamed(fromPath: String, toItem: FileItem) =
         withContext(ioDispatcher) {

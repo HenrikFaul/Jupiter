@@ -51,8 +51,13 @@ interface FileIndexDao {
      * Returns the paths of every row whose path begins with [prefix], used to
      * recursively remove an indexed directory subtree. Callers pass a prefix
      * that already includes the trailing separator to avoid sibling matches.
+     *
+     * The prefix MUST have its LIKE metacharacters (`\`, `%`, `_`) escaped by the
+     * caller (see [FileIndexRepositoryImpl.escapeLike]); the `ESCAPE '\'` clause
+     * makes those escapes literal so a real `_` in a directory name (very common)
+     * cannot act as a single-character wildcard and over-match sibling folders.
      */
-    @Query("SELECT path FROM file_index WHERE path LIKE :prefix || '%'")
+    @Query("SELECT path FROM file_index WHERE path LIKE :prefix || '%' ESCAPE '\\'")
     suspend fun childPathsUnder(prefix: String): List<String>
 
     /**
