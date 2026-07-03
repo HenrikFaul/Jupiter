@@ -16,13 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -728,11 +729,16 @@ private fun Pane(
 }
 
 /**
- * A [FileRow] wrapped with the long-press drag gesture and (for folders) window
- * bounds reporting. On drag start it captures the payload — the pane's whole
+ * A [FileRow] whose trailing area carries an explicit drag handle. Pressing the
+ * handle and moving the finger starts a cross-pane drag *immediately* (via
+ * [detectDragGestures], not a long-press) so it never competes with the row's own
+ * tap / long-press. On drag start it captures the payload — the pane's whole
  * selection if it is already in selection mode, else this single [item] — and seeds
  * the shared [drag] state; on each drag it accumulates the pointer's window position;
  * on end/cancel it hands off to [onDrop] (which hit-tests and transfers) or clears.
+ *
+ * Folder rows still report their window bounds into [geometry] (via the row's own
+ * [onGloballyPositioned]) so a drop can be hit-tested against them.
  */
 @Composable
 private fun DraggableFileRow(
@@ -746,39 +752,17 @@ private fun DraggableFileRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    // Row origin in window coordinates, kept current so the drag offset (local)
+    // The drag handle's own window origin, kept current so the drag's local offset
     // can be converted to a window-space pointer position for hit-testing.
-    var rowOrigin by remember { mutableStateOf(Offset.Zero) }
+    var handleOrigin by remember { mutableStateOf(Offset.Zero) }
 
+    // Row modifier: report folder bounds only (drop targets). No drag gesture here —
+    // the drag lives entirely on the handle so the row's tap/long-press is untouched.
     val rowModifier = Modifier
         .onGloballyPositioned { coords ->
-            val bounds = coords.boundsInWindow()
-            rowOrigin = Offset(bounds.left, bounds.top)
             if (item.isDirectory) {
-                geometry.folderBounds[item.path] = bounds
+                geometry.folderBounds[item.path] = coords.boundsInWindow()
             }
-        }
-        .pointerInput(item.path, state.selectionMode, state.selectedPaths) {
-            detectDragGesturesAfterLongPress(
-                onDragStart = { start ->
-                    // Payload: whole selection if already selecting, else this item.
-                    val payload = if (state.selectionMode && state.selectedPaths.isNotEmpty()) {
-                        state.items.filter { state.selectedPaths.contains(it.path) }
-                            .ifEmpty { listOf(item) }
-                    } else {
-                        listOf(item)
-                    }
-                    drag.source = pane
-                    drag.items = payload
-                    drag.pointer = rowOrigin + start
-                },
-                onDrag = { change, dragAmount ->
-                    change.consume()
-                    drag.pointer += dragAmount
-                },
-                onDragEnd = { onDrop() },
-                onDragCancel = { drag.clear() },
-            )
         }
 
     val background = if (shared) {
@@ -795,5 +779,41 @@ private fun DraggableFileRow(
         onLongClick = onLongClick,
         dense = true,
         modifier = rowModifier.then(background),
+        dragHandle = {
+            Icon(
+                imageVector = Icons.Filled.DragHandle,
+                contentDescription = "Drag to other pane",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(40.dp)
+                    .onGloballyPositioned { coords ->
+                        val b = coords.boundsInWindow()
+                        handleOrigin = Offset(b.left, b.top)
+                    }
+                    .pointerInput(item.path, state.selectionMode, state.selectedPaths) {
+                        detectDragGestures(
+                            onDragStart = { local ->
+                                // Payload: whole selection if already selecting, else this item.
+                                val payload = if (state.selectionMode && state.selectedPaths.isNotEmpty()) {
+                                    state.items.filter { state.selectedPaths.contains(it.path) }
+                                        .ifEmpty { listOf(item) }
+                                } else {
+                                    listOf(item)
+                                }
+                                drag.source = pane
+                                drag.items = payload
+                                drag.pointer = handleOrigin + local
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                drag.pointer += dragAmount
+                            },
+                            onDragEnd = { onDrop() },
+                            onDragCancel = { drag.clear() },
+                        )
+                    }
+                    .padding(8.dp),
+            )
+        },
     )
 }

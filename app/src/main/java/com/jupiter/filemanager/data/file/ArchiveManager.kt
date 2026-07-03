@@ -9,9 +9,14 @@ import com.github.junrar.Junrar
 import org.apache.commons.compress.archivers.ArchiveEntry
 import org.apache.commons.compress.archivers.ArchiveInputStream
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
+import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
@@ -19,6 +24,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -179,6 +185,322 @@ class ArchiveManager @Inject constructor(
             )
         } finally {
             // Remove a half-written archive on cancellation or failure.
+            if (!completed) {
+                destination.delete()
+            }
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Container archive formats supported by [createArchive].
+     *
+     *  - [ZIP] — JDK `java.util.zip` (delegates to [createZip]).
+     *  - [SEVEN_Z] — Commons Compress `SevenZOutputFile`.
+     *  - [TAR] / [TAR_GZ] / [TAR_BZ2] — Commons Compress `TarArchiveOutputStream`,
+     *    optionally wrapped in gzip/bzip2 compressors.
+     */
+    enum class ArchiveFormat { ZIP, SEVEN_Z, TAR, TAR_GZ, TAR_BZ2 }
+
+    /**
+     * Compresses [items] (files and/or directories, recursively) into a single archive
+     * of the given [format], written to [destinationPath].
+     *
+     * Mirrors [createZip]'s progress contract: a leading [OperationState.RUNNING]
+     * snapshot, per-file/per-chunk RUNNING snapshots, and a terminal
+     * [OperationState.COMPLETED] (or [OperationState.FAILED] on error, deleting the
+     * partial output). The archive-relative entry names reuse [collectZipSources] so
+     * round-trips match the ZIP layout. Work runs on the injected [IoDispatcher] and is
+     * cooperative with cancellation.
+     */
+    fun createArchive(
+        items: List<FileItem>,
+        destinationPath: String,
+        format: ArchiveFormat,
+    ): Flow<FileOperationProgress> = when (format) {
+        ArchiveFormat.ZIP -> createZip(items, destinationPath)
+        ArchiveFormat.TAR -> createTar(items, destinationPath, Compression.NONE)
+        ArchiveFormat.TAR_GZ -> createTar(items, destinationPath, Compression.GZIP)
+        ArchiveFormat.TAR_BZ2 -> createTar(items, destinationPath, Compression.BZIP2)
+        ArchiveFormat.SEVEN_Z -> createSevenZ(items, destinationPath)
+    }
+
+    /**
+     * Writes [items] into a (optionally gzip/bzip2-compressed) TAR archive at
+     * [destinationPath] via Commons Compress, streaming progress like [createZip].
+     */
+    private fun createTar(
+        items: List<FileItem>,
+        destinationPath: String,
+        compression: Compression,
+    ): Flow<FileOperationProgress> = flow {
+        val entries: List<ZipSource> = items.flatMap { item ->
+            collectZipSources(File(item.path))
+        }
+
+        val totalBytes: Long = entries.sumOf { it.file.length() }
+        val totalItems: Int = entries.size
+
+        emit(
+            FileOperationProgress(
+                type = FileOperationType.COMPRESS,
+                state = OperationState.RUNNING,
+                processedItems = 0,
+                totalItems = totalItems,
+                processedBytes = 0L,
+                totalBytes = totalBytes,
+                currentFileName = "",
+            ),
+        )
+
+        val destination = File(destinationPath)
+        destination.parentFile?.mkdirs()
+
+        var processedItems = 0
+        var processedBytes = 0L
+        var completed = false
+
+        try {
+            val fileOut: OutputStream = BufferedOutputStream(FileOutputStream(destination))
+            val compressed: OutputStream = when (compression) {
+                Compression.NONE -> fileOut
+                Compression.GZIP -> GzipCompressorOutputStream(fileOut)
+                Compression.BZIP2 -> BZip2CompressorOutputStream(fileOut)
+            }
+            TarArchiveOutputStream(compressed).use { tar ->
+                tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)
+                for (source in entries) {
+                    currentCoroutineContext().ensureActive()
+
+                    val isDirectoryEntry = source.entryName.endsWith("/") || source.file.isDirectory
+
+                    if (isDirectoryEntry) {
+                        val dirName = if (source.entryName.endsWith("/")) {
+                            source.entryName
+                        } else {
+                            source.entryName + "/"
+                        }
+                        val entry = TarArchiveEntry(dirName).apply {
+                            modTime = java.util.Date(source.file.lastModified())
+                        }
+                        tar.putArchiveEntry(entry)
+                        tar.closeArchiveEntry()
+                        processedItems += 1
+                        emit(
+                            FileOperationProgress(
+                                type = FileOperationType.COMPRESS,
+                                state = OperationState.RUNNING,
+                                processedItems = processedItems,
+                                totalItems = totalItems,
+                                processedBytes = processedBytes,
+                                totalBytes = totalBytes,
+                                currentFileName = source.file.name,
+                            ),
+                        )
+                        continue
+                    }
+
+                    val entry = TarArchiveEntry(source.entryName).apply {
+                        size = source.file.length()
+                        modTime = java.util.Date(source.file.lastModified())
+                    }
+                    tar.putArchiveEntry(entry)
+
+                    BufferedInputStream(FileInputStream(source.file)).use { input ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            tar.write(buffer, 0, read)
+                            processedBytes += read
+
+                            emit(
+                                FileOperationProgress(
+                                    type = FileOperationType.COMPRESS,
+                                    state = OperationState.RUNNING,
+                                    processedItems = processedItems,
+                                    totalItems = totalItems,
+                                    processedBytes = processedBytes,
+                                    totalBytes = totalBytes,
+                                    currentFileName = source.file.name,
+                                ),
+                            )
+                        }
+                    }
+
+                    tar.closeArchiveEntry()
+                    processedItems += 1
+                }
+            }
+            completed = true
+
+            emit(
+                FileOperationProgress(
+                    type = FileOperationType.COMPRESS,
+                    state = OperationState.COMPLETED,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    processedBytes = processedBytes,
+                    totalBytes = totalBytes,
+                    currentFileName = destination.name,
+                ),
+            )
+        } catch (security: SecurityException) {
+            emit(
+                failure(
+                    type = FileOperationType.COMPRESS,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    processedBytes = processedBytes,
+                    totalBytes = totalBytes,
+                    message = security.message ?: "Access denied while creating archive.",
+                ),
+            )
+        } catch (io: IOException) {
+            emit(
+                failure(
+                    type = FileOperationType.COMPRESS,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    processedBytes = processedBytes,
+                    totalBytes = totalBytes,
+                    message = io.message ?: "Failed to create archive.",
+                ),
+            )
+        } finally {
+            if (!completed) {
+                destination.delete()
+            }
+        }
+    }.flowOn(dispatcher)
+
+    /**
+     * Writes [items] into a 7z archive at [destinationPath] via [SevenZOutputFile],
+     * streaming progress like [createZip].
+     */
+    private fun createSevenZ(
+        items: List<FileItem>,
+        destinationPath: String,
+    ): Flow<FileOperationProgress> = flow {
+        val entries: List<ZipSource> = items.flatMap { item ->
+            collectZipSources(File(item.path))
+        }
+
+        val totalBytes: Long = entries.sumOf { it.file.length() }
+        val totalItems: Int = entries.size
+
+        emit(
+            FileOperationProgress(
+                type = FileOperationType.COMPRESS,
+                state = OperationState.RUNNING,
+                processedItems = 0,
+                totalItems = totalItems,
+                processedBytes = 0L,
+                totalBytes = totalBytes,
+                currentFileName = "",
+            ),
+        )
+
+        val destination = File(destinationPath)
+        destination.parentFile?.mkdirs()
+
+        var processedItems = 0
+        var processedBytes = 0L
+        var completed = false
+
+        try {
+            SevenZOutputFile(destination).use { sevenZ ->
+                for (source in entries) {
+                    currentCoroutineContext().ensureActive()
+
+                    val isDirectoryEntry = source.entryName.endsWith("/") || source.file.isDirectory
+
+                    if (isDirectoryEntry) {
+                        val entryName = source.entryName.trimEnd('/')
+                        val entry = sevenZ.createArchiveEntry(source.file, entryName)
+                        sevenZ.putArchiveEntry(entry)
+                        sevenZ.closeArchiveEntry()
+                        processedItems += 1
+                        emit(
+                            FileOperationProgress(
+                                type = FileOperationType.COMPRESS,
+                                state = OperationState.RUNNING,
+                                processedItems = processedItems,
+                                totalItems = totalItems,
+                                processedBytes = processedBytes,
+                                totalBytes = totalBytes,
+                                currentFileName = source.file.name,
+                            ),
+                        )
+                        continue
+                    }
+
+                    val entry = sevenZ.createArchiveEntry(source.file, source.entryName)
+                    sevenZ.putArchiveEntry(entry)
+
+                    BufferedInputStream(FileInputStream(source.file)).use { input ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            sevenZ.write(buffer, 0, read)
+                            processedBytes += read
+
+                            emit(
+                                FileOperationProgress(
+                                    type = FileOperationType.COMPRESS,
+                                    state = OperationState.RUNNING,
+                                    processedItems = processedItems,
+                                    totalItems = totalItems,
+                                    processedBytes = processedBytes,
+                                    totalBytes = totalBytes,
+                                    currentFileName = source.file.name,
+                                ),
+                            )
+                        }
+                    }
+
+                    sevenZ.closeArchiveEntry()
+                    processedItems += 1
+                }
+            }
+            completed = true
+
+            emit(
+                FileOperationProgress(
+                    type = FileOperationType.COMPRESS,
+                    state = OperationState.COMPLETED,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    processedBytes = processedBytes,
+                    totalBytes = totalBytes,
+                    currentFileName = destination.name,
+                ),
+            )
+        } catch (security: SecurityException) {
+            emit(
+                failure(
+                    type = FileOperationType.COMPRESS,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    processedBytes = processedBytes,
+                    totalBytes = totalBytes,
+                    message = security.message ?: "Access denied while creating archive.",
+                ),
+            )
+        } catch (io: IOException) {
+            emit(
+                failure(
+                    type = FileOperationType.COMPRESS,
+                    processedItems = processedItems,
+                    totalItems = totalItems,
+                    processedBytes = processedBytes,
+                    totalBytes = totalBytes,
+                    message = io.message ?: "Failed to create archive.",
+                ),
+            )
+        } finally {
             if (!completed) {
                 destination.delete()
             }

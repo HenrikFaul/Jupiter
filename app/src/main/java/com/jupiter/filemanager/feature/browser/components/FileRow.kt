@@ -62,6 +62,9 @@ import com.jupiter.filemanager.ui.components.iconForFile
  * @param onLongClick invoked on a long press.
  * @param onOverflowClick invoked when the trailing overflow button is tapped.
  * @param dense when true, renders a tighter row without the trailing overflow button.
+ * @param dragHandle optional trailing drag-handle content. When non-null it is rendered
+ *   in the trailing area (in place of the overflow button); single-pane callers omit it
+ *   so the row stays visually identical to its historical appearance.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -74,6 +77,7 @@ fun FileRow(
     modifier: Modifier = Modifier,
     onOverflowClick: () -> Unit = {},
     dense: Boolean = false,
+    dragHandle: (@Composable () -> Unit)? = null,
 ) {
     val horizontalPadding = if (dense) 8.dp else 16.dp
     val verticalPadding = if (dense) 8.dp else 12.dp
@@ -124,7 +128,9 @@ fun FileRow(
                 modifier = Modifier.weight(1f),
             )
 
-            if (!selectionMode && !dense) {
+            if (dragHandle != null) {
+                dragHandle()
+            } else if (!selectionMode && !dense) {
                 IconButton(onClick = onOverflowClick) {
                     Icon(
                         imageVector = Icons.Filled.MoreVert,
