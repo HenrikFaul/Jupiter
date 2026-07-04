@@ -128,6 +128,16 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.21.0] - 2026-07-04
+### Changed
+- **Smart Cleanup összecsukható szekciók — sokkal egyértelműbb tap-affordancia**: a "Large files" és "Duplicate files" fejlécek mostantól **kitöltött, kattintható Card**-ként jelennek meg (tonális háttér + **"Show"/"Hide"** felirat + forgó chevron), így vizuálisan is nyilvánvaló, hogy a szekció NEVÉRE koppintva nyílik/csukódik. Nyitott állapotban a kártya `secondaryContainer` színt kap. A viselkedés változatlanul helyes: alapból **összecsukva** (`mutableStateOf(false)`), a fájl-sorok CSAK `if (largeExpanded)` / `if (duplicatesExpanded)` mögött generálódnak — koppintásra jelennek meg. (A 0.20.0-ban már bekerült a logika; ez a kör a felismerhetőséget javítja, hogy a felhasználó biztosan lássa a kattintható kontrollt.)
+### Fixed
+- A korábbi bare `Row` fejléc (kicsi chevronnal) nem olvasódott egyértelműen kattinthatónak — ezért tűnhetett úgy, hogy "nem lehet a Large files / Duplicate files-ra kattintva összecsukni-kibontani". A Card-alapú fejléc ezt megszünteti.
+### Changed
+- `app/build.gradle.kts`: `versionName` → 0.21.0.
+### Planned next
+- Widget `onNewIntent`; több ellenőrzési faktor kikényszerített teszté; compress valós idejű progressz.
+
 ## [jupiter:0.20.0] - 2026-07-04
 ### Added
 - **Dual pane élő ejtés-cél kiemelés**: húzás közben a mutató alatt lévő MAPPA dinamikusan besötétedik (követi az ujjat, minden mozdulatnál újraszámolva), így látszik hova esik; a cél-panel is halványan kiemelődik. Az ejtés viselkedése és minden dual-pane funkció változatlan.

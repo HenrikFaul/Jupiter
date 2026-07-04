@@ -663,10 +663,11 @@ private fun AiExplanationSection(
 }
 
 /**
- * A tappable, collapsible section header. Shows the title, a summary subtitle (kept
- * visible even when collapsed) and a chevron that rotates to indicate expanded state.
- * When [expandable] is false (no rows to show) the header is inert and the chevron is
- * hidden, but the summary text still renders.
+ * A tappable, collapsible section header rendered as a filled Card so it clearly reads
+ * as a button: tapping the whole card toggles the section. Shows the title, a summary
+ * subtitle (kept visible even when collapsed) and a chevron that rotates to indicate
+ * expanded state. When [expandable] is false (no rows to show) the card is inert and the
+ * chevron is hidden, but the summary text still renders.
  */
 @Composable
 private fun CollapsibleSectionHeader(
@@ -680,34 +681,54 @@ private fun CollapsibleSectionHeader(
         targetValue = if (expanded) 180f else 0f,
         label = "chevronRotation",
     )
-    Row(
+    // A tonal container so the header visibly reads as a tappable control (the primary
+    // affordance the user asked for: "files appear when I tap the section name"). The
+    // colour lifts slightly when expanded to reinforce the open state.
+    val containerColor = if (expanded) {
+        MaterialTheme.colorScheme.secondaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (expandable) {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(28.dp)
-                    .rotate(chevronRotation),
-            )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (expandable) {
+                Text(
+                    text = if (expanded) "Hide" else "Show",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .rotate(chevronRotation),
+                )
+            }
         }
     }
 }
