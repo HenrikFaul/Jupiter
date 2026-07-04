@@ -128,6 +128,16 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.20.0] - 2026-07-04
+### Added
+- **Dual pane élő ejtés-cél kiemelés**: húzás közben a mutató alatt lévő MAPPA dinamikusan besötétedik (követi az ujjat, minden mozdulatnál újraszámolva), így látszik hova esik; a cél-panel is halványan kiemelődik. Az ejtés viselkedése és minden dual-pane funkció változatlan.
+- **Smart Cleanup**: a "Large files" és "Duplicate files" szekciók **összecsukhatók, alapból összecsukva** (a fejlécek látszanak, a sorok kattintásra nyílnak); a sorok valódi bélyegképet mutatnak; a "Reclaim X" alsó sáv `navigationBarsPadding`-gel a rendszer navigációs gombjai FÖLÉ került (használhatóvá vált).
+- **Index kezdeti felmérés auto-indítás**: app-indításkor, ha az index üres, háttérben lefut a alapos felmérés (`ensureIndexed`, KEEP policy — nem szakít meg futó felmérést); utána a valós idejű delták + a letöltés-figyelő tartják naprakészen, így megnyitáskor nincs deep-scan várakozás. Csak `indexedCount==0`-nál indul.
+### Changed
+- `app/build.gradle.kts`: `versionName` → 0.20.0.
+### Planned next
+- Widget `onNewIntent`; több ellenőrzési faktor kikényszerített teszté; compress valós idejű progressz.
+
 ## [jupiter:0.19.0] - 2026-07-02
 ### Added
 - **App-szintű videó-bélyegképek**: a `JupiterApp` mostantól `coil.ImageLoaderFactory`, `VideoFrameDecoder`-rel — az `AsyncImage` valódi videó-kockát mutat MINDENHOL (Compress, duplikátum-sorok, kategória-böngésző, dual-pane…), a korábbi csapó-ikon helyett.
