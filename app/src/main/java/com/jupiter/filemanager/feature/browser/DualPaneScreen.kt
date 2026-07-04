@@ -808,7 +808,13 @@ private fun DraggableFileRow(
     // Live drop-target highlight: this folder is the one currently under the dragged
     // object. Recomputed every drag move via drag.hoverTarget, so only the row under
     // the finger lights up. Composed *over* the existing Compare (shared) tint.
-    val isDropHover = drag.active && item.isDirectory && item.path == drag.hoverTarget
+    // The `drag.source != pane` guard is essential: hoverTarget is a folder PATH, and
+    // when both panes show the same directory (e.g. after Sync/Equalize/Swap) the SAME
+    // path exists in both — without the guard the SOURCE pane's copy would light up too.
+    val isDropHover = drag.active &&
+        drag.source != pane &&
+        item.isDirectory &&
+        item.path == drag.hoverTarget
     var background: Modifier = Modifier
     if (shared) {
         background = background.background(
