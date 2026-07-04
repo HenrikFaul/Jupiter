@@ -128,6 +128,18 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.19.0] - 2026-07-02
+### Added
+- **App-szintű videó-bélyegképek**: a `JupiterApp` mostantól `coil.ImageLoaderFactory`, `VideoFrameDecoder`-rel — az `AsyncImage` valódi videó-kockát mutat MINDENHOL (Compress, duplikátum-sorok, kategória-böngésző, dual-pane…), a korábbi csapó-ikon helyett.
+- **Compress finomítás**: a válogatóban a **teljes fájlnév** + működő előnézet; minden Target-quality presetnél **becsült méret ("≈ N MB")** tömörítés előtt (`MediaCompressor.estimateCompressedSize` heurisztika); a részletnézet is videó-kockát mutat.
+- **"Duplicate cleanup"** (a Duplicates + Smart Merge összeolvasztva): egy menüpont, ami egyesíti a kézi többszörös-kijelölés + törlés (Duplicates) és az egy-kattintásos **"Keep best"** (a legjobb példány megtartása, a többi kijelölése — Smart Merge) képességet. A duplikátum-sorok valódi bélyegképet mutatnak.
+### Removed
+- A redundáns **Smart Merge** képernyő/VM/UiState törölve; `Destination.SmartMerge` + NavHost útvonal + a More csempe eltávolítva. Nulla maradék hivatkozás (grep-ellenőrzött). Semmilyen képesség nem veszett el.
+### Changed
+- `app/build.gradle.kts`: `versionName` → 0.19.0.
+### Planned next
+- Több ellenőrzési faktor kikényszerített teszté; widget `onNewIntent`; compress valós idejű progressz finomítás.
+
 ## [jupiter:0.18.0] - 2026-07-02
 ### Added
 - **Eszköz-érzékeny tömörítés** (`feature/compress`, `data/media/DeviceDisplayProfile`+`MediaCompressor`): kiolvassa a telefon valódi kijelzőméretét és ajánl cél-felbontást/bitrátát (SOHA nem nagyít fel); képek (Bitmap újrakódolás) és videó (Media3 Transformer, Main-szálú korutin-híd progresszel+megszakítással) tömörítése; Eredeti→Tömörített + megtakarított hely. More → Compress.
