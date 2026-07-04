@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Compress
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.AutoMode
@@ -148,6 +150,12 @@ private fun rememberMoreSections(): List<MoreSection> = listOf(
                 icon = Icons.Filled.Delete,
                 route = Destination.Trash.route,
             ),
+            MoreTool(
+                title = "Compress",
+                subtitle = "Shrink photos & videos to your screen size",
+                icon = Icons.Filled.Compress,
+                route = Destination.Compress.route,
+            ),
         ),
     ),
     MoreSection(
@@ -158,6 +166,12 @@ private fun rememberMoreSections(): List<MoreSection> = listOf(
                 subtitle = "Group files with tags",
                 icon = Icons.Filled.Label,
                 route = Destination.Tags.route,
+            ),
+            MoreTool(
+                title = "Albums",
+                subtitle = "Browse photos grouped by album",
+                icon = Icons.Filled.PhotoLibrary,
+                route = Destination.Albums.route,
             ),
             MoreTool(
                 title = "Project Workspaces",

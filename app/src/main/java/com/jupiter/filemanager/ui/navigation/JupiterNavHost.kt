@@ -35,6 +35,8 @@ import com.jupiter.filemanager.feature.preview.PdfViewerScreen
 import com.jupiter.filemanager.feature.preview.PreviewScreen
 import com.jupiter.filemanager.feature.preview.VideoPlayerScreen
 import com.jupiter.filemanager.feature.privacy.DataTransparencyScreen
+import com.jupiter.filemanager.feature.compress.CompressScreen
+import com.jupiter.filemanager.feature.albums.AlbumsScreen
 import com.jupiter.filemanager.feature.privacy.PrivacyDashboardScreen
 import com.jupiter.filemanager.feature.remote.RemoteBrowserScreen
 import com.jupiter.filemanager.feature.search.SearchScreen
@@ -434,6 +436,19 @@ fun JupiterNavHost(
 
         composable(route = Destination.DataTransparency.route) {
             DataTransparencyScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(route = Destination.Compress.route) {
+            CompressScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(route = Destination.Albums.route) {
+            AlbumsScreen(
+                onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
             )
         }

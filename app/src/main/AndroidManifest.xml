@@ -93,6 +93,22 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!--
+            Home-screen widget listing the user's favorite folders/files. Tapping a
+            row launches MainActivity with an OPEN_PATH extra. Not exported: only the
+            system AppWidget host delivers the APPWIDGET_UPDATE broadcast.
+        -->
+        <receiver
+            android:name=".widget.FavoritesWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/favorites_widget_info" />
+        </receiver>
+
     </application>
 
 </manifest>

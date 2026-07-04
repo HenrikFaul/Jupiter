@@ -128,6 +128,12 @@ sealed class Destination(val route: String) {
         fun create(path: String): String = "archive?path=" + android.net.Uri.encode(path)
     }
 
+    /** Device-aware media compression (image + video). */
+    data object Compress : Destination("compress")
+
+    /** Image albums grouped by MediaStore bucket/folder. */
+    data object Albums : Destination("albums")
+
     data object MusicPlayer : Destination("music?path={path}") {
         const val ARG_PATH = "path"
         fun create(path: String): String = "music?path=" + android.net.Uri.encode(path)

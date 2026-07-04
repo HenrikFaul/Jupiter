@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
@@ -58,6 +59,17 @@ class MainActivity : FragmentActivity() {
                 ) {
                     val navController = rememberNavController()
 
+                    // Widget deep link: the Favorites home-screen widget launches us with
+                    // an OPEN_PATH extra; navigate straight to that folder once.
+                    val widgetPath = remember {
+                        intent?.getStringExtra(WIDGET_OPEN_PATH_EXTRA)?.takeIf { it.isNotBlank() }
+                    }
+                    LaunchedEffect(widgetPath) {
+                        if (widgetPath != null) {
+                            navController.navigate(Destination.Browser.create(widgetPath))
+                        }
+                    }
+
                     // One-shot: surface the "What's New" sheet for this build once the
                     // main shell has been reached. Runs after first composition only;
                     // the view model persists the seen version so it never repeats.
@@ -74,5 +86,9 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    private companion object {
+        const val WIDGET_OPEN_PATH_EXTRA = "com.jupiter.filemanager.OPEN_PATH"
     }
 }
