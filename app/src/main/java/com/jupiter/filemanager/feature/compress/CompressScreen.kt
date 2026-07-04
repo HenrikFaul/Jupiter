@@ -164,7 +164,10 @@ private fun PickerContent(
 
 /**
  * One square, cropped media thumbnail with a size badge and (for video) a play
- * glyph. Uses the file's type icon as placeholder/error, matching the browser.
+ * glyph, plus the full filename beneath it. Uses the file's type icon as
+ * placeholder/error, matching the browser. The AsyncImage is driven by an
+ * [ImageRequest] over the file path so the app-wide loader renders both image
+ * and video thumbnails (falling back to the type icon on error).
  */
 @Composable
 private fun MediaCell(
@@ -172,45 +175,61 @@ private fun MediaCell(
     onPick: (FileItem) -> Unit,
 ) {
     val fallback = rememberVectorPainter(iconForFile(item))
-    Box(
-        modifier = Modifier
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onPick(item) },
+    Column(
+        modifier = Modifier.clickable { onPick(item) },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(File(item.path))
-                .crossfade(true)
-                .size(256)
-                .build(),
-            contentDescription = item.name,
-            contentScale = ContentScale.Crop,
-            placeholder = fallback,
-            error = fallback,
-            modifier = Modifier.fillMaxSize(),
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(12.dp)),
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(File(item.path))
+                    .crossfade(true)
+                    .size(256)
+                    .build(),
+                contentDescription = item.name,
+                contentScale = ContentScale.Crop,
+                placeholder = fallback,
+                error = fallback,
+                modifier = Modifier.fillMaxSize(),
+            )
 
-        if (item.type == FileType.VIDEO) {
-            Icon(
-                imageVector = Icons.Filled.PlayCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.align(Alignment.Center).size(32.dp),
+            if (item.type == FileType.VIDEO) {
+                Icon(
+                    imageVector = Icons.Filled.PlayCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.align(Alignment.Center).size(32.dp),
+                )
+            }
+
+            Text(
+                text = formatBytes(item.sizeBytes),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimary,
+                maxLines = 1,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
 
         Text(
-            text = formatBytes(item.sizeBytes),
+            text = item.name,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onPrimary,
-            maxLines = 1,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(6.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.primary)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
         )
     }
 }
@@ -265,6 +284,7 @@ private fun ConfigureContent(
             PresetChips(
                 presets = state.presets,
                 selected = state.selectedPreset,
+                estimates = state.estimates,
                 enabled = !state.isCompressing,
                 onSelect = onSelectPreset,
             )
@@ -366,6 +386,7 @@ private fun SourceHeader(
 private fun PresetChips(
     presets: List<CompressPreset>,
     selected: CompressPreset?,
+    estimates: Map<Int, Long>,
     enabled: Boolean,
     onSelect: (CompressPreset) -> Unit,
 ) {
@@ -378,14 +399,24 @@ private fun PresetChips(
                     val isSelected = selected != null &&
                         preset.targetLongEdgePx == selected.targetLongEdgePx &&
                         preset.label == selected.label
+                    val estimate = estimates[preset.targetLongEdgePx]
                     FilterChip(
                         selected = isSelected,
                         enabled = enabled,
                         onClick = { onSelect(preset) },
                         label = {
-                            Text(
-                                if (preset.recommended) "${preset.label} ★" else preset.label,
-                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    if (preset.recommended) "${preset.label} ★" else preset.label,
+                                )
+                                if (estimate != null) {
+                                    Text(
+                                        text = "≈ ${formatBytes(estimate)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         },
                         colors = FilterChipDefaults.filterChipColors(),
                     )

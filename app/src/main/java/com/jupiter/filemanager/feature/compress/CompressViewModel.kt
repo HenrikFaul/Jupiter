@@ -101,6 +101,7 @@ class CompressViewModel @Inject constructor(
                 sourceDims = null,
                 presets = emptyList(),
                 selectedPreset = null,
+                estimates = emptyMap(),
                 isCompressing = false,
                 progress = 0,
                 result = null,
@@ -126,6 +127,23 @@ class CompressViewModel @Inject constructor(
                     },
                 )
             }
+
+            // Pre-compression size estimates per preset — a pure off-main heuristic
+            // that never runs the codec and never throws.
+            if (presets.isNotEmpty()) {
+                val estimates = presets.associate { preset ->
+                    preset.targetLongEdgePx to compressor.estimateCompressedSize(item, preset, dims)
+                }
+                _uiState.update { current ->
+                    // Only apply if this is still the current source (guard races
+                    // with a newer pick).
+                    if (current.sourceItem?.path == item.path) {
+                        current.copy(estimates = estimates)
+                    } else {
+                        current
+                    }
+                }
+            }
         }
     }
 
@@ -144,6 +162,7 @@ class CompressViewModel @Inject constructor(
                 sourceDims = null,
                 presets = emptyList(),
                 selectedPreset = null,
+                estimates = emptyMap(),
                 isCompressing = false,
                 progress = 0,
                 result = null,

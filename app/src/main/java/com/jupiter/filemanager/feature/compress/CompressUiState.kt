@@ -56,6 +56,9 @@ data class CompressResult(
  *   source pairing; exactly one is marked recommended when non-empty.
  * @property selectedPreset the preset the user (or the default recommendation)
  *   has chosen, or null before a source is picked.
+ * @property estimates estimated compressed size (bytes) per preset, keyed by
+ *   [CompressPreset.targetLongEdgePx]. A pure pre-compression heuristic; empty
+ *   until estimates have been computed for the current source.
  * @property isCompressing whether a compression job is currently running.
  * @property progress 0..100 progress of the running compression (videos report
  *   real progress; images complete effectively instantly).
@@ -70,6 +73,7 @@ data class CompressUiState(
     val sourceDims: MediaDimensions? = null,
     val presets: List<CompressPreset> = emptyList(),
     val selectedPreset: CompressPreset? = null,
+    val estimates: Map<Int, Long> = emptyMap(),
     val isCompressing: Boolean = false,
     val progress: Int = 0,
     val result: CompressResult? = null,

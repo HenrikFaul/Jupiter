@@ -20,7 +20,6 @@ import com.jupiter.filemanager.feature.browser.DualPaneScreen
 import com.jupiter.filemanager.feature.browser.FileBrowserScreen
 import com.jupiter.filemanager.feature.cleanup.CleanupScreen
 import com.jupiter.filemanager.feature.cleanup.DuplicatesScreen
-import com.jupiter.filemanager.feature.cleanup.SmartMergeScreen
 import com.jupiter.filemanager.feature.cloud.CloudHubScreen
 import com.jupiter.filemanager.feature.cloud.NasConnectionsScreen
 import com.jupiter.filemanager.feature.details.FileDetailsScreen
@@ -273,13 +272,6 @@ fun JupiterNavHost(
 
         composable(route = Destination.Duplicates.route) {
             DuplicatesScreen(
-                onOpenFile = { item -> openByType(item) },
-                onBack = { navController.popBackStack() },
-            )
-        }
-
-        composable(route = Destination.SmartMerge.route) {
-            SmartMergeScreen(
                 onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
             )

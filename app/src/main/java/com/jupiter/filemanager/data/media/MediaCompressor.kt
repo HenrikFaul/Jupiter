@@ -77,6 +77,18 @@ class MediaCompressor @Inject constructor(
 
         /** How often video progress is sampled while a transform runs. */
         const val PROGRESS_POLL_MS = 250L
+
+        /** Rough encoded bytes-per-pixel for JPEG at ~q80 (size-estimate heuristic). */
+        const val JPEG_BYTES_PER_PIXEL = 0.28
+
+        /** Assumed audio bitrate (bps) folded into video size estimates. */
+        const val ESTIMATE_AUDIO_BITRATE_BPS = 128_000.0
+
+        /** Damping applied to the pixel-ratio fallback when duration/bitrate are unknown. */
+        const val VIDEO_FALLBACK_FACTOR = 0.6
+
+        /** Assumed height/width ratio for an image of unknown dimensions (16:9 landscape). */
+        const val UNKNOWN_IMAGE_ASPECT = 9.0 / 16.0
     }
 
     // =====================================================================
@@ -149,6 +161,109 @@ class MediaCompressor @Inject constructor(
         } else {
             MediaDimensions(width, height)
         }
+    }
+
+    // =====================================================================
+    // Size estimation (pure heuristic — never runs the codec)
+    // =====================================================================
+
+    /**
+     * Estimates the resulting file size (bytes) of compressing [item] with
+     * [preset], WITHOUT running any encoder. Runs off the main thread and never
+     * throws — on any failure it falls back to [FileItem.sizeBytes].
+     *
+     * The result is always clamped to at most the source size (compression can
+     * never be reported as producing a larger file here).
+     *
+     *  - **Images**: `targetPixels * ~0.28 bytes` (JPEG q≈80), where targetPixels
+     *    is the source area scaled to [CompressPreset.targetLongEdgePx] (never
+     *    upscaled).
+     *  - **Videos**: `(bitrate/8) * durationSec + (audio 128k/8) * durationSec`.
+     *    When duration or bitrate are unknown, falls back to
+     *    `sourceSize * pixelRatio * 0.6`.
+     */
+    suspend fun estimateCompressedSize(
+        item: FileItem,
+        preset: CompressPreset,
+        dims: MediaDimensions?,
+    ): Long = withContext(dispatcher) {
+        val source = item.sizeBytes.coerceAtLeast(0L)
+        try {
+            when (item.type) {
+                FileType.IMAGE -> estimateImageSize(item, preset, dims, source)
+                FileType.VIDEO -> estimateVideoSize(item, preset, dims, source)
+                else -> source
+            }
+        } catch (_: Throwable) {
+            source
+        }
+    }
+
+    private fun estimateImageSize(
+        item: FileItem,
+        preset: CompressPreset,
+        dims: MediaDimensions?,
+        source: Long,
+    ): Long {
+        val target = preset.targetLongEdgePx
+        if (target <= 0) return source
+        val targetPixels: Double = if (dims != null && dims.width > 0 && dims.height > 0) {
+            val longEdge = max(dims.width, dims.height)
+            val scale = if (longEdge <= target) 1.0 else target.toDouble() / longEdge
+            (dims.width * scale) * (dims.height * scale)
+        } else {
+            // Unknown dimensions: approximate a landscape frame bounded by the target.
+            target.toDouble() * (target.toDouble() * UNKNOWN_IMAGE_ASPECT)
+        }
+        val estimate = (targetPixels * JPEG_BYTES_PER_PIXEL).toLong()
+        return estimate.coerceIn(0L, source)
+    }
+
+    private suspend fun estimateVideoSize(
+        item: FileItem,
+        preset: CompressPreset,
+        dims: MediaDimensions?,
+        source: Long,
+    ): Long {
+        val durationMs = videoDurationMs(item.path)
+        val bitrate = preset.bitrateBps
+        val estimate: Long = if (durationMs > 0L && bitrate > 0) {
+            val durationSec = durationMs / 1000.0
+            val videoBytes = (bitrate / 8.0) * durationSec
+            val audioBytes = (ESTIMATE_AUDIO_BITRATE_BPS / 8.0) * durationSec
+            (videoBytes + audioBytes).toLong()
+        } else {
+            // Duration/bitrate unknown: scale the source by the pixel-area ratio.
+            val ratio = pixelRatio(dims, preset.targetLongEdgePx)
+            (source * ratio * VIDEO_FALLBACK_FACTOR).toLong()
+        }
+        return estimate.coerceIn(0L, source)
+    }
+
+    /** Fraction of source pixels retained when scaling to [target] (never > 1.0). */
+    private fun pixelRatio(dims: MediaDimensions?, target: Int): Double {
+        if (dims == null || dims.width <= 0 || dims.height <= 0 || target <= 0) return 1.0
+        val longEdge = max(dims.width, dims.height)
+        val scale = if (longEdge <= target) 1.0 else target.toDouble() / longEdge
+        val sourcePixels = dims.width.toDouble() * dims.height.toDouble()
+        val targetPixels = (dims.width * scale) * (dims.height * scale)
+        return (targetPixels / max(1.0, sourcePixels)).coerceIn(0.0, 1.0)
+    }
+
+    /** Reads the video duration in ms via [MediaMetadataRetriever], or 0 when unknown. */
+    private suspend fun videoDurationMs(path: String): Long {
+        var duration = 0L
+        withRetriever(path) { retriever ->
+            duration = try {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?: 0L
+            } catch (_: Throwable) {
+                0L
+            }
+        }
+        return duration
     }
 
     // =====================================================================

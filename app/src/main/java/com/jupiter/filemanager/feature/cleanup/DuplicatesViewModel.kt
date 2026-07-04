@@ -171,6 +171,37 @@ class DuplicatesViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(selectedPaths = extras)
     }
 
+    /**
+     * One-tap "keep the best copy in each group, select the rest" — the capability
+     * absorbed from the former Smart Merge screen.
+     *
+     * For every group, the BEST file is the highest probed [MediaQuality.score]
+     * (ties broken by larger on-disk size, then most-recent modification); every
+     * OTHER file in the group is added to [DuplicatesUiState.selectedPaths] so the
+     * user can review the selection and delete with the existing flow.
+     */
+    fun selectDuplicatesKeepingBest() {
+        val qualities = _uiState.value.qualities
+        // Best copy is greatest: highest quality score, then largest size, then
+        // most recently modified. Everything else in the group is selected.
+        val comparator = compareBy<com.jupiter.filemanager.domain.model.FileItem> {
+            qualities[it.path]?.score ?: 0L
+        }
+            .thenBy { it.sizeBytes }
+            .thenBy { it.lastModified }
+
+        val toSelect = _uiState.value.groups
+            .asSequence()
+            .flatMap { group ->
+                val best = group.files.maxWithOrNull(comparator)
+                group.files.asSequence()
+                    .filter { best == null || it.path != best.path }
+                    .map { it.path }
+            }
+            .toSet()
+        _uiState.value = _uiState.value.copy(selectedPaths = toSelect)
+    }
+
     /** Clears the current selection. */
     fun clearSelection() {
         _uiState.value = _uiState.value.copy(selectedPaths = emptySet())

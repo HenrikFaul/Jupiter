@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.FolderOff
@@ -56,7 +57,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -66,14 +70,18 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.iconForFile
+import java.io.File
 import kotlinx.coroutines.launch
 
 /**
@@ -118,7 +126,7 @@ fun DuplicatesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Duplicate Files") },
+                title = { Text("Duplicate cleanup") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -128,6 +136,12 @@ fun DuplicatesScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { viewModel.selectDuplicatesKeepingBest() }) {
+                        Icon(
+                            imageVector = Icons.Outlined.AutoAwesome,
+                            contentDescription = "Keep best copy in each group",
+                        )
+                    }
                     IconButton(onClick = { viewModel.selectAllExtras() }) {
                         Icon(
                             imageVector = Icons.Outlined.DoneAll,
@@ -191,6 +205,12 @@ fun DuplicatesScreen(
                                 groupCount = state.groups.size,
                                 wastedBytes = state.totalWastedBytes,
                                 isScanning = state.isScanning,
+                            )
+                        }
+                        item {
+                            KeepBestBanner(
+                                enabled = !state.isDeleting,
+                                onKeepBest = { viewModel.selectDuplicatesKeepingBest() },
                             )
                         }
                         items(state.groups, key = { it.hash }) { group ->
@@ -357,6 +377,61 @@ private fun SummaryCard(
     }
 }
 
+/**
+ * Prominent one-tap action that selects every duplicate copy while keeping the
+ * best copy in each group. The user can then review the selection and remove the
+ * rest with the existing delete flow. This absorbs the former "Smart Merge".
+ */
+@Composable
+private fun KeepBestBanner(
+    enabled: Boolean,
+    onKeepBest: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Keep the best copy",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Text(
+                    text = "Auto-select every duplicate and keep the highest-quality copy in each group.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Button(
+                onClick = onKeepBest,
+                enabled = enabled,
+            ) {
+                Text("Keep best")
+            }
+        }
+    }
+}
+
 @Composable
 private fun DuplicateGroupCard(
     group: DuplicateGroup,
@@ -459,18 +534,40 @@ private fun DuplicateFileRow(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val isThumbnailable = file.type == FileType.IMAGE || file.type == FileType.VIDEO
         Surface(
             shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.size(40.dp),
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = iconForFile(file),
+            if (isThumbnailable) {
+                // Real image/video thumbnail via Coil. Video frames decode because the
+                // app registers a VideoFrameDecoder app-wide (see JupiterApp). The type
+                // icon serves as both placeholder and error fallback.
+                val fallbackPainter = rememberVectorPainter(iconForFile(file))
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(File(file.path))
+                        .crossfade(true)
+                        .size(96)
+                        .build(),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(22.dp),
+                    contentScale = ContentScale.Crop,
+                    placeholder = fallbackPainter,
+                    error = fallbackPainter,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp)),
                 )
+            } else {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = iconForFile(file),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.width(12.dp))

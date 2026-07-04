@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Merge
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -133,16 +132,10 @@ private fun rememberMoreSections(): List<MoreSection> = listOf(
                 route = Destination.Cleanup.route,
             ),
             MoreTool(
-                title = "Duplicates",
-                subtitle = "Find duplicate files",
+                title = "Duplicate cleanup",
+                subtitle = "Find duplicates and keep the best copy",
                 icon = Icons.Filled.CopyAll,
                 route = Destination.Duplicates.route,
-            ),
-            MoreTool(
-                title = "Smart Merge",
-                subtitle = "Recommended duplicate cleanup",
-                icon = Icons.Filled.Merge,
-                route = Destination.SmartMerge.route,
             ),
             MoreTool(
                 title = "Recycle Bin",

@@ -57,8 +57,6 @@ sealed class Destination(val route: String) {
 
     data object Duplicates : Destination("duplicates")
 
-    data object SmartMerge : Destination("smart_merge")
-
     data object Downloads : Destination("downloads")
 
     data object Trash : Destination("trash")
