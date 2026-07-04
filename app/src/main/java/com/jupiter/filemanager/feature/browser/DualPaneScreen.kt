@@ -93,12 +93,21 @@ private class DragState {
     var items by mutableStateOf<List<FileItem>>(emptyList())
     var pointer by mutableStateOf(Offset.Zero)
 
+    /**
+     * The path of the FOLDER currently under the pointer in the *other* (non-source)
+     * pane, or null when the pointer is over that pane's background, over the source
+     * pane, or off both panes. Recomputed on every drag move so the row under the
+     * finger is highlighted live. Compared against [FileItem.path] by folder rows.
+     */
+    var hoverTarget by mutableStateOf<String?>(null)
+
     val active: Boolean get() = source != null && items.isNotEmpty()
 
     fun clear() {
         source = null
         items = emptyList()
         pointer = Offset.Zero
+        hoverTarget = null
     }
 }
 
@@ -206,6 +215,18 @@ fun DualPaneScreen(
 
     val showActionBar = activeState.selectionMode
 
+    // Hit-tests a WINDOW-space [pointer] against the OTHER (non-source) pane and
+    // returns the FOLDER path directly under it, or null when the pointer is over
+    // that pane's background, over the source pane, or off both panes. Drives both
+    // the live drop-target highlight (via drag.hoverTarget) and the drop resolution.
+    fun computeDropFolder(pointer: Offset): String? {
+        val source = drag.source ?: return null
+        val target = if (source == Pane.LEFT) Pane.RIGHT else Pane.LEFT
+        val targetGeom = if (target == Pane.LEFT) leftGeom else rightGeom
+        if (!targetGeom.bounds.contains(pointer)) return null
+        return targetGeom.folderBounds.entries.firstOrNull { it.value.contains(pointer) }?.key
+    }
+
     // Resolves a released pointer position into a transfer, honouring [dropMode].
     // Runs the transfer on the SOURCE pane's ViewModel into the hit-tested target.
     fun handleDrop() {
@@ -230,7 +251,7 @@ fun DualPaneScreen(
         }
 
         // Prefer a specific folder row under the pointer; else the pane's folder.
-        val folderHit = targetGeom.folderBounds.entries.firstOrNull { it.value.contains(p) }?.key
+        val folderHit = computeDropFolder(p)
         val destination = folderHit ?: targetState.currentPath
 
         // Never transfer a folder into itself.
@@ -367,6 +388,7 @@ fun DualPaneScreen(
                         pane = Pane.LEFT,
                         sharedNames = sharedNames,
                         onDrop = { handleDrop() },
+                        computeDropFolder = { computeDropFolder(it) },
                         onCrumbPath = { path ->
                             activePane = Pane.LEFT
                             leftViewModel.openDirectory(path)
@@ -404,6 +426,7 @@ fun DualPaneScreen(
                         pane = Pane.RIGHT,
                         sharedNames = sharedNames,
                         onDrop = { handleDrop() },
+                        computeDropFolder = { computeDropFolder(it) },
                         onCrumbPath = { path ->
                             activePane = Pane.RIGHT
                             rightViewModel.openDirectory(path)
@@ -646,6 +669,7 @@ private fun Pane(
     pane: Pane,
     sharedNames: Set<String>,
     onDrop: () -> Unit,
+    computeDropFolder: (Offset) -> String?,
     onCrumbPath: (String) -> Unit,
     onItemClick: (FileItem) -> Unit,
     onItemLongClick: (FileItem) -> Unit,
@@ -658,9 +682,23 @@ private fun Pane(
         Color.Transparent
     }
 
+    // This pane is the live drop target when a drag from the OTHER pane is currently
+    // hovering over its bounds. Tint the whole column faintly so the destination is
+    // obvious even when the pointer is over background (not a specific folder row).
+    val isDropTarget = drag.active &&
+        drag.source != null &&
+        drag.source != pane &&
+        geometry.bounds.contains(drag.pointer)
+    val paneTint = if (isDropTarget) {
+        Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f))
+    } else {
+        Modifier
+    }
+
     Column(
         modifier = modifier
             .border(BorderStroke(2.dp, borderColor))
+            .then(paneTint)
             .onGloballyPositioned { geometry.bounds = it.boundsInWindow() },
     ) {
         Breadcrumbs(
@@ -709,6 +747,7 @@ private fun Pane(
                                 pane = pane,
                                 shared = sharedNames.contains(item.name),
                                 onDrop = onDrop,
+                                computeDropFolder = computeDropFolder,
                                 onClick = { onItemClick(item) },
                                 onLongClick = { onItemLongClick(item) },
                             )
@@ -749,6 +788,7 @@ private fun DraggableFileRow(
     pane: Pane,
     shared: Boolean,
     onDrop: () -> Unit,
+    computeDropFolder: (Offset) -> String?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -765,10 +805,20 @@ private fun DraggableFileRow(
             }
         }
 
-    val background = if (shared) {
-        Modifier.background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f))
-    } else {
-        Modifier
+    // Live drop-target highlight: this folder is the one currently under the dragged
+    // object. Recomputed every drag move via drag.hoverTarget, so only the row under
+    // the finger lights up. Composed *over* the existing Compare (shared) tint.
+    val isDropHover = drag.active && item.isDirectory && item.path == drag.hoverTarget
+    var background: Modifier = Modifier
+    if (shared) {
+        background = background.background(
+            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
+        )
+    }
+    if (isDropHover) {
+        background = background.background(
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+        )
     }
 
     FileRow(
@@ -803,10 +853,15 @@ private fun DraggableFileRow(
                                 drag.source = pane
                                 drag.items = payload
                                 drag.pointer = handleOrigin + local
+                                // Seed the highlight from the initial pointer position.
+                                drag.hoverTarget = computeDropFolder(drag.pointer)
                             },
                             onDrag = { change, dragAmount ->
                                 change.consume()
                                 drag.pointer += dragAmount
+                                // Fully dynamic: re-resolve the folder under the pointer
+                                // on every move so the highlight tracks the finger live.
+                                drag.hoverTarget = computeDropFolder(drag.pointer)
                             },
                             onDragEnd = { onDrop() },
                             onDragCancel = { drag.clear() },

@@ -3,6 +3,7 @@ package com.jupiter.filemanager.feature.cleanup
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOff
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -40,6 +43,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -52,7 +56,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,15 +67,19 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageOverview
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.iconForFile
+import java.io.File
 
 /**
  * Cleanup screen: shows a categorized storage breakdown, a selectable list of large
@@ -204,6 +215,12 @@ private fun CleanupContent(
         duplicateGroups.sumOf { it.wastedBytes }
     val safeToCleanBytes = duplicateGroups.sumOf { it.wastedBytes }
 
+    // Collapse state for the file-list sections. Hoisted here (rather than inside the
+    // LazyColumn item lambdas) so it survives when the header scrolls out of view.
+    // Collapsed by default: the section HEADERS stay visible, only the rows are hidden.
+    var largeExpanded by remember { mutableStateOf(false) }
+    var duplicatesExpanded by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(16.dp),
@@ -258,27 +275,34 @@ private fun CleanupContent(
         }
 
         if (hasScanned) {
+            val largeHasRows = largeFiles.isNotEmpty()
             item(key = "large-header") {
-                SectionHeader(
+                CollapsibleSectionHeader(
                     title = "Large files",
                     subtitle = if (largeFiles.isEmpty() && !isScanning) {
                         "No large files found"
                     } else {
                         formatItemCount(largeFiles.size)
                     },
+                    expanded = largeExpanded,
+                    expandable = largeHasRows,
+                    onToggle = { largeExpanded = !largeExpanded },
                 )
             }
-            items(largeFiles, key = { "large-" + it.path }) { file ->
-                SelectableFileRow(
-                    item = file,
-                    selected = file.path in selectedForDeletion,
-                    onToggle = { onToggleSelection(file.path) },
-                    onOpen = { onOpenFile(file) },
-                )
+            if (largeExpanded) {
+                items(largeFiles, key = { "large-" + it.path }) { file ->
+                    SelectableFileRow(
+                        item = file,
+                        selected = file.path in selectedForDeletion,
+                        onToggle = { onToggleSelection(file.path) },
+                        onOpen = { onOpenFile(file) },
+                    )
+                }
             }
 
+            val duplicatesHasRows = duplicateGroups.isNotEmpty()
             item(key = "dup-header") {
-                SectionHeader(
+                CollapsibleSectionHeader(
                     title = "Duplicate files",
                     subtitle = if (duplicateGroups.isEmpty() && !isScanning) {
                         "No duplicates found"
@@ -286,19 +310,24 @@ private fun CleanupContent(
                         val wasted = duplicateGroups.sumOf { it.wastedBytes }
                         duplicateGroups.size.toString() + " groups - " + formatBytes(wasted) + " wasted"
                     },
+                    expanded = duplicatesExpanded,
+                    expandable = duplicatesHasRows,
+                    onToggle = { duplicatesExpanded = !duplicatesExpanded },
                 )
             }
-            duplicateGroups.forEachIndexed { index, group ->
-                item(key = "dup-group-header-" + group.hash + "-" + index) {
-                    DuplicateGroupHeader(group = group)
-                }
-                items(group.files, key = { "dup-" + group.hash + "-" + it.path }) { file ->
-                    SelectableFileRow(
-                        item = file,
-                        selected = file.path in selectedForDeletion,
-                        onToggle = { onToggleSelection(file.path) },
-                        onOpen = { onOpenFile(file) },
-                    )
+            if (duplicatesExpanded) {
+                duplicateGroups.forEachIndexed { index, group ->
+                    item(key = "dup-group-header-" + group.hash + "-" + index) {
+                        DuplicateGroupHeader(group = group)
+                    }
+                    items(group.files, key = { "dup-" + group.hash + "-" + it.path }) { file ->
+                        SelectableFileRow(
+                            item = file,
+                            selected = file.path in selectedForDeletion,
+                            onToggle = { onToggleSelection(file.path) },
+                            onOpen = { onOpenFile(file) },
+                        )
+                    }
                 }
             }
         }
@@ -633,23 +662,53 @@ private fun AiExplanationSection(
     }
 }
 
-/** A section header with a title and a supporting subtitle. */
+/**
+ * A tappable, collapsible section header. Shows the title, a summary subtitle (kept
+ * visible even when collapsed) and a chevron that rotates to indicate expanded state.
+ * When [expandable] is false (no rows to show) the header is inert and the chevron is
+ * hidden, but the summary text still renders.
+ */
 @Composable
-private fun SectionHeader(
+private fun CollapsibleSectionHeader(
     title: String,
     subtitle: String,
+    expanded: Boolean,
+    expandable: Boolean,
+    onToggle: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "chevronRotation",
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (expandable) {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(28.dp)
+                    .rotate(chevronRotation),
+            )
+        }
     }
 }
 
@@ -676,6 +735,49 @@ private fun DuplicateGroupHeader(group: DuplicateGroup) {
     }
 }
 
+/**
+ * Leading thumbnail for a cleanup row. Images and videos render a real cropped,
+ * rounded thumbnail via Coil (video frames decode through the app-wide
+ * VideoFrameDecoder registered in JupiterApp); the type icon serves as both
+ * placeholder and error fallback. Non-media files keep their type icon.
+ */
+@Composable
+private fun FileThumbnail(item: FileItem) {
+    val thumbnailable = item.type == FileType.IMAGE || item.type == FileType.VIDEO
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.size(40.dp),
+    ) {
+        if (thumbnailable) {
+            val fallbackPainter = rememberVectorPainter(iconForFile(item))
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(File(item.path))
+                    .crossfade(true)
+                    .size(96)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                placeholder = fallbackPainter,
+                error = fallbackPainter,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+        } else {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = iconForFile(item),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+    }
+}
+
 /** A selectable file row with a checkbox; tapping the body opens the file. */
 @Composable
 private fun SelectableFileRow(
@@ -697,12 +799,7 @@ private fun SelectableFileRow(
                 onCheckedChange = { onToggle() },
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Icon(
-                imageVector = iconForFile(item),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(32.dp),
-            )
+            FileThumbnail(item = item)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -737,10 +834,15 @@ private fun ReclaimBar(
 ) {
     if (selectedCount == 0) return
 
+    // enableEdgeToEdge() draws the app behind the system bars, so this bottom bar must
+    // add navigation-bar insets or it renders behind the gesture/3-button nav. The
+    // surface background is applied BEFORE the inset padding so it fills the inset area
+    // too, and the content is pushed above the nav buttons.
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            .navigationBarsPadding()
             .padding(16.dp),
     ) {
         LinearProgressIndicator(
