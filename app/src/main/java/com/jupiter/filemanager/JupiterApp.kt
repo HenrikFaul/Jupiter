@@ -7,7 +7,14 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.VideoFrameDecoder
 import com.jupiter.filemanager.data.index.DownloadIndexObserver
+import com.jupiter.filemanager.data.index.IndexingScheduler
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
@@ -43,10 +50,32 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
     @Inject
     lateinit var downloadIndexObserver: DownloadIndexObserver
 
+    /** Schedules the background index survey. */
+    @Inject
+    lateinit var indexingScheduler: IndexingScheduler
+
+    /** Read-only view of the index used to decide whether the initial survey is needed. */
+    @Inject
+    lateinit var fileIndexRepository: FileIndexRepository
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
         // Best-effort: a failure to register the observer must never crash startup.
         runCatching { downloadIndexObserver.start() }
+
+        // Desktop-app-style indexing: build the thorough survey ONCE in the background
+        // (only when the index is still empty), after which the real-time delta hooks +
+        // the download observer keep it live — so opening the app never triggers a deep
+        // scan. KEEP policy means an already-running survey is never interrupted.
+        appScope.launch {
+            runCatching {
+                if (fileIndexRepository.stats().first().indexedCount == 0) {
+                    indexingScheduler.ensureIndexed()
+                }
+            }
+        }
     }
 
     override val workManagerConfiguration: Configuration

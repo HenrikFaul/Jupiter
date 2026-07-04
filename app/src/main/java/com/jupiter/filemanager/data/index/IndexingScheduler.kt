@@ -46,6 +46,26 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
+     * Ensures a background index survey runs, WITHOUT restarting one that is already
+     * pending/running ([ExistingWorkPolicy.KEEP]). Call this on app start so the initial
+     * "thorough survey" is built once in the background — after which the real-time delta
+     * hooks keep it live, so opening the app never waits on a deep scan. Unlike
+     * [rebuildNow] (the explicit user "Rebuild" action) this never interrupts progress.
+     */
+    fun ensureIndexed() {
+        try {
+            val request = OneTimeWorkRequestBuilder<IndexingWorker>().build()
+            workManager.enqueueUniqueWork(
+                IndexingWorker.UNIQUE_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                request,
+            )
+        } catch (_: Exception) {
+            // Best-effort.
+        }
+    }
+
+    /**
      * Observes the current state of the rebuild job, emitting the single most recent
      * [WorkInfo] for the unique work (or null when it has never run). Backed by
      * WorkManager's Flow API so it stays in sync as the worker progresses.
