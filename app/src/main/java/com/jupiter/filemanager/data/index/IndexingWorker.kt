@@ -7,6 +7,7 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import com.jupiter.filemanager.data.file.FileSystemDataSource
 import com.jupiter.filemanager.data.permission.StorageAccessManager
+import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import dagger.assisted.Assisted
@@ -45,6 +46,7 @@ class IndexingWorker @AssistedInject constructor(
     private val mediaStoreIndexSource: MediaStoreIndexSource,
     private val indexRepository: FileIndexRepository,
     private val storageAccess: StorageAccessManager,
+    private val settings: SettingsDataStore,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -53,6 +55,12 @@ class IndexingWorker @AssistedInject constructor(
         if (!storageAccess.hasAllFilesAccess()) {
             return Result.success(outputOf(0, 0))
         }
+
+        // Mark the index INCOMPLETE for the duration of the build. Completeness — not the
+        // row count — is the authority for "the index is trustworthy": if this worker is
+        // killed mid-build, the flag stays false and the next launch rebuilds, instead of
+        // treating a partial index as finished.
+        runCatching { settings.setIndexComplete(false) }
 
         return try {
             // PRIMARY path: bulk-build the index from MediaStore — Android's own
@@ -66,12 +74,15 @@ class IndexingWorker @AssistedInject constructor(
             // the classic filesystem walk so the index is never left empty.
             val finalCount = if (indexed == 0) indexTree(PRIMARY_STORAGE_ROOT) else indexed
 
+            // The full survey finished cleanly — mark the index authoritative.
+            runCatching { settings.setIndexComplete(true) }
             Result.success(outputOf(finalCount, finalCount))
         } catch (cancellation: CancellationException) {
-            // Cooperative cancellation: let WorkManager handle stoppage, don't retry.
+            // Cooperative cancellation: leave the index marked incomplete so it rebuilds.
             throw cancellation
         } catch (_: Exception) {
-            // Transient/unexpected IO — allow WorkManager to retry with backoff.
+            // Transient/unexpected IO — allow WorkManager to retry with backoff; the index
+            // stays marked incomplete until a run succeeds.
             Result.retry()
         }
     }

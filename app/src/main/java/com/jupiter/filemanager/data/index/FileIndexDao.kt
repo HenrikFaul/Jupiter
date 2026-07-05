@@ -36,6 +36,23 @@ interface FileIndexDao {
     @Query("SELECT * FROM file_index WHERE path = :path")
     suspend fun getByPath(path: String): FileIndexEntry?
 
+    /** Returns the rows for [paths] (used to preserve hashes across a batched re-index). */
+    @Query("SELECT * FROM file_index WHERE path IN (:paths)")
+    suspend fun entriesForPaths(paths: List<String>): List<FileIndexEntry>
+
+    /**
+     * Returns [exactPath]'s row plus every descendant row (paths beginning with
+     * [descendantPrefix]), used to rewrite a whole subtree on a directory move/rename
+     * without dropping its descendants. [descendantPrefix] MUST be LIKE-escaped by the
+     * caller and include the trailing separator; `ESCAPE '\'` keeps a literal `_`/`%`
+     * in a folder name from acting as a wildcard.
+     */
+    @Query(
+        "SELECT * FROM file_index WHERE path = :exactPath " +
+            "OR path LIKE :descendantPrefix || '%' ESCAPE '\\'",
+    )
+    suspend fun entriesUnder(exactPath: String, descendantPrefix: String): List<FileIndexEntry>
+
     /**
      * Returns the direct children of [parentPath] as a one-shot list (the suspend
      * counterpart of [childrenOf]). Used to preserve already-computed content hashes

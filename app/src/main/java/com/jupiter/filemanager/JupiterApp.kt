@@ -8,7 +8,7 @@ import coil.ImageLoaderFactory
 import coil.decode.VideoFrameDecoder
 import com.jupiter.filemanager.data.index.DownloadIndexObserver
 import com.jupiter.filemanager.data.index.IndexingScheduler
-import com.jupiter.filemanager.domain.repository.FileIndexRepository
+import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,9 +54,9 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
     @Inject
     lateinit var indexingScheduler: IndexingScheduler
 
-    /** Read-only view of the index used to decide whether the initial survey is needed. */
+    /** Source of truth for whether the last index survey COMPLETED. */
     @Inject
-    lateinit var fileIndexRepository: FileIndexRepository
+    lateinit var settings: SettingsDataStore
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -65,13 +65,15 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
         // Best-effort: a failure to register the observer must never crash startup.
         runCatching { downloadIndexObserver.start() }
 
-        // Desktop-app-style indexing: build the thorough survey ONCE in the background
-        // (only when the index is still empty), after which the real-time delta hooks +
-        // the download observer keep it live — so opening the app never triggers a deep
-        // scan. KEEP policy means an already-running survey is never interrupted.
+        // Desktop-app-style indexing: build the survey in the background whenever the last
+        // one did NOT complete — a partial/interrupted index (rows present but scan killed)
+        // is not trustworthy, so gate on completion, NOT on a non-empty row count. KEEP
+        // policy means a build already in progress is never restarted. After a successful
+        // build the real-time delta hooks + the download observer keep it live, so opening
+        // the app never triggers a deep scan.
         appScope.launch {
             runCatching {
-                if (fileIndexRepository.stats().first().indexedCount == 0) {
+                if (!settings.indexComplete.first()) {
                     indexingScheduler.ensureIndexed()
                 }
             }

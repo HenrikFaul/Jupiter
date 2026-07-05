@@ -72,8 +72,27 @@ class FileIndexRepositoryImpl @Inject constructor(
         }
 
     override suspend fun upsert(items: List<FileItem>) = withContext(ioDispatcher) {
+        if (items.isEmpty()) return@withContext
         val now = System.currentTimeMillis()
-        dao.upsertAll(items.map { toEntry(it, now) })
+        // Preserve an already-computed content hash for any file whose identity (size +
+        // mtime) is unchanged, so a re-index (e.g. the periodic full survey) never discards
+        // the hashes computed lazily for duplicate detection. One batched lookup keeps this
+        // cheap. toEntry() alone would null every hash.
+        val existing = dao.entriesForPaths(items.map { it.path }).associateBy { it.path }
+        val entries = items.map { item ->
+            val prior = existing[item.path]
+            val keepHash = if (prior != null && IndexPathRewrite.identityUnchanged(
+                    item.isDirectory, prior.sizeBytes, prior.lastModified,
+                    item.sizeBytes, item.lastModified,
+                )
+            ) {
+                prior.contentHash
+            } else {
+                null
+            }
+            toEntry(item, now).copy(contentHash = keepHash)
+        }
+        dao.upsertAll(entries)
     }
 
     override suspend fun indexFile(item: FileItem) = withContext(ioDispatcher) {
@@ -113,8 +132,43 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun onMovedOrRenamed(fromPath: String, toItem: FileItem) =
         withContext(ioDispatcher) {
-            removeByPath(fromPath)
-            indexFile(toItem)
+            val oldRoot = fromPath.trimEnd('/')
+            val descendantPrefix = escapeLike(oldRoot) + "/"
+            val affected = dao.entriesUnder(oldRoot, descendantPrefix)
+            if (affected.isEmpty()) {
+                // Nothing indexed under the old path — just index the new location.
+                indexFile(toItem)
+                return@withContext
+            }
+            val newRoot = toItem.path.trimEnd('/')
+            val now = System.currentTimeMillis()
+            // Rewrite the WHOLE subtree's paths under the new root, preserving each row's
+            // cached content hash (a rename/move does not change content). Previously this
+            // dropped every descendant and re-indexed only the new root, losing the subtree
+            // until the next full scan.
+            val rewritten = affected.mapNotNull { entry ->
+                val newPath = IndexPathRewrite.rewrite(oldRoot, newRoot, entry.path)
+                    ?: return@mapNotNull null
+                if (entry.path == oldRoot) {
+                    // The moved/renamed root: adopt the authoritative new item's metadata,
+                    // keeping the hash only if its identity is unchanged.
+                    val keepHash = if (IndexPathRewrite.identityUnchanged(
+                            toItem.isDirectory, entry.sizeBytes, entry.lastModified,
+                            toItem.sizeBytes, toItem.lastModified,
+                        )
+                    ) entry.contentHash else null
+                    toEntry(toItem, now).copy(contentHash = keepHash)
+                } else {
+                    entry.copy(
+                        path = newPath,
+                        parentPath = IndexPathRewrite.parentOf(newPath) ?: "",
+                        name = IndexPathRewrite.nameOf(newPath),
+                    )
+                }
+            }
+            // Drop the old rows, then insert the rewritten ones. (Room can't UPDATE a PK.)
+            affected.forEach { dao.deleteByPath(it.path) }
+            dao.upsertAll(rewritten)
         }
 
     override suspend fun findContentDuplicates(item: FileItem): List<FileItem> =

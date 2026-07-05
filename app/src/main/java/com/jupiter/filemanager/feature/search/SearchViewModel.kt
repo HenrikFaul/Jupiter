@@ -120,13 +120,30 @@ class SearchViewModel @Inject constructor(
                 )
             }
 
-            // Fast path: when the index is enabled, show cached matches immediately
-            // so results appear without waiting for the storage walk. This is a
-            // one-shot snapshot; the live walk below then supersedes it. A blank
-            // query never reaches here (guarded above).
-            val indexEnabled = withContext(Dispatchers.IO) {
-                runCatching { settings.indexingEnabled.first() }.getOrDefault(true)
+            val (indexEnabled, indexComplete) = withContext(Dispatchers.IO) {
+                val enabled = runCatching { settings.indexingEnabled.first() }.getOrDefault(true)
+                val complete = runCatching { settings.indexComplete.first() }.getOrDefault(false)
+                enabled to complete
             }
+
+            // AUTHORITATIVE INDEX PATH: once the index has been fully built, a plain-text
+            // search is served from Room ONLY — no filesystem walk. This is the fix for
+            // "search re-scans the whole volume every time": after a completed index the
+            // storage tree is never traversed for a normal search.
+            val naturalLanguage = _uiState.value.naturalLanguage &&
+                withContext(Dispatchers.IO) { aiAssistant.isEnabled }
+            if (indexEnabled && indexComplete && !naturalLanguage) {
+                val indexed = runCatching { indexRepository.search(rawQuery).first() }
+                    .getOrDefault(emptyList())
+                _uiState.update {
+                    it.copy(results = indexed, isSearching = false, aiInterpreting = false)
+                }
+                return@launch
+            }
+
+            // FALLBACK (index disabled, not yet built, or natural-language query): show any
+            // cached index matches instantly, then reconcile with a live walk. This only
+            // runs until the first full index completes; after that the branch above wins.
             val instant: List<FileItem> = if (indexEnabled) {
                 runCatching { indexRepository.search(rawQuery).first() }
                     .getOrDefault(emptyList())
