@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import com.jupiter.filemanager.data.index.IndexingScheduler
+import com.jupiter.filemanager.data.index.IndexingWorker
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.IndexStats
 import com.jupiter.filemanager.domain.model.ThemeMode
@@ -52,6 +53,11 @@ class SettingsViewModel @Inject constructor(
     ) { values ->
         val stats = values[10] as IndexStats
         val workInfo = values[11] as WorkInfo?
+        val running = workInfo?.state == WorkInfo.State.RUNNING
+        // While running, read the live indexed/total the worker publishes so the UI can
+        // show a real percentage instead of an indeterminate spinner.
+        val indexedSoFar = workInfo?.progress?.getInt(IndexingWorker.KEY_INDEXED_COUNT, 0) ?: 0
+        val indexTotal = workInfo?.progress?.getInt(IndexingWorker.KEY_TOTAL_COUNT, 0) ?: 0
         SettingsUiState(
             themeMode = values[0] as ThemeMode,
             showHidden = values[1] as Boolean,
@@ -64,8 +70,9 @@ class SettingsViewModel @Inject constructor(
             analyticsOptIn = values[8] as Boolean,
             indexingEnabled = values[9] as Boolean,
             indexedCount = stats.indexedCount,
-            indexing = workInfo?.state == WorkInfo.State.RUNNING ||
-                workInfo?.state == WorkInfo.State.ENQUEUED,
+            indexing = running || workInfo?.state == WorkInfo.State.ENQUEUED,
+            indexProgressCurrent = indexedSoFar,
+            indexProgressTotal = indexTotal,
         )
     }.stateIn(
         scope = viewModelScope,

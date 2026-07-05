@@ -128,6 +128,18 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.24.0] - 2026-07-05
+### Added
+- **Villámgyors indexálás (MediaStore-alapú felmérés)** — a 10-ügynökös kutatás (`wf_bf589356-466`, a 10 legjobb technika közül a nyertes kombináció) alapján: a háttér-felmérés eddig a `/storage/emulated/0` fát járta be `java.io`-val (FUSE/sdcardfs → fájlonként ~6 syscall + könyvtáranként `list()` a childCounthoz + `canonicalPath` realpath), ezért 222 GB indexálása **40+ perc alatt is csak ~10%-ig** jutott. Mostantól a felmérés **egyetlen `MediaStore.Files` kurzorból** építi az indexet — ez az Android SAJÁT, előre felépített indexe a megosztott kötetről —, **nulla fájlonkénti syscall és fabejárás nélkül**: a felhasználó fájljainak túlnyomó része **másodpercek alatt** indexelődik (a kutatás szerint ~100–1000× a lefedett halmazra). Új `data/index/MediaStoreIndexSource.kt` (lapozott, batch-elt, kizárja az `Android/data|obb`/`.thumbnails`/`.trashed` szegmenseket). Ha a MediaStore semmit sem ad (provider-hiba), a régi fabejárás a biztonsági tartalék, így az index sosem marad üresen.
+- **Valódi százalékos folyamatjelző**: a worker mostantól `indexed`/`total`-t publikál (a `total` a MediaStore azonnali `count()`-jából), a Beállítások index-sora pedig **"Indexing files… 45%"** + "12 345 / 27 000 files" + determinisztikus `LinearProgressIndicator`-t mutat a végtelen pörgő helyett.
+### Changed
+- **A felmérés NEM hash-el többé** (a `hashCollidingSizes` 2. fázis kikerült a worker kritikus útjából — gigabájtokat olvasott). A duplikátum-hash-ek továbbra is lazán, a Cleanup/Duplicate képernyő első megnyitásakor számolódnak (`hashForEntry`, cache-elve) — a felmérés így nem olvas fájltartalmat.
+- `app/build.gradle.kts`: `versionName` → 0.24.0.
+### Known issues
+- A MediaStore-alapú felmérés fájlokat indexel (nem könyvtár-sorokat); a könyvtár-sorok böngészéskor a per-könyvtár self-heal-lel kerülnek be. Nem-MediaStore fájlok (pl. `.nomedia` mappákban, sosem böngészve) a következő böngészésig/rebuildig hiányozhatnak — a sebesség a prioritás, ahogy a vezető fájlkezelők (Files by Google stb.) is teszik.
+### Planned next
+- Opcionális: a worker expedited/foreground futtatása (a kutatás #3 technikája) a tartalék-bejárás gyorsítására; Room WAL/tranzakció-hangolás a bulk-inserthez.
+
 ## [jupiter:0.23.0] - 2026-07-05
 ### Added
 - **Böngésző ↔ index bekötés**: minden könyvtárlistázás mostantól **öngyógyítja az indexet** (`FileRepositoryImpl.listFiles` → `replaceChildren` a nyers, szűretlen lemez-listával, a már nem létező gyerekeket pruneolva), így böngészés közben az index folyamatosan teljes és naprakész marad (nemcsak a háttér-felmérésből). Új `FileRepository.listFromIndex(path, sort, filter)` — az indexből szolgál ki (ugyanazzal a rendezéssel/szűréssel). Ha egy lemez-olvasás hibázik (átmeneti IO / pillanatnyi engedély-galiba), a böngésző **visszaesik az indexre**, és a korábban meglátogatott mappa utolsó ismert tartalmát mutatja üres hiba helyett.

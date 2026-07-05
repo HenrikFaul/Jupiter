@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -249,6 +250,9 @@ fun SettingsScreen(
             IndexStatusRow(
                 indexedCount = uiState.indexedCount,
                 indexing = uiState.indexing,
+                progressPercent = uiState.indexProgressPercent,
+                progressCurrent = uiState.indexProgressCurrent,
+                progressTotal = uiState.indexProgressTotal,
                 enabled = uiState.indexingEnabled,
                 onRebuild = viewModel::rebuildIndex,
             )
@@ -556,58 +560,80 @@ private fun SettingsSwitchRow(
 private fun IndexStatusRow(
     indexedCount: Int,
     indexing: Boolean,
+    progressPercent: Int?,
+    progressCurrent: Int,
+    progressTotal: Int,
     enabled: Boolean,
     onRebuild: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = when {
-                    !enabled -> "Indexing is off"
-                    indexing -> "Indexing files…"
-                    else -> "$indexedCount files indexed"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (enabled && !indexing) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
-                    text = "Rebuild to refresh cached metadata",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = when {
+                        !enabled -> "Indexing is off"
+                        indexing && progressPercent != null -> "Indexing files… $progressPercent%"
+                        indexing -> "Indexing files…"
+                        else -> "$indexedCount files indexed"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                when {
+                    indexing && progressTotal > 0 -> Text(
+                        text = "$progressCurrent / $progressTotal files",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    enabled && !indexing -> Text(
+                        text = "Rebuild to refresh cached metadata",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (indexing && progressPercent == null) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
+            FilledTonalButton(
+                onClick = onRebuild,
+                enabled = enabled && !indexing,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "Rebuild",
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }
+        // Determinate bar once the worker has published a total; indeterminate until then.
         if (indexing) {
-            CircularProgressIndicator(
-                modifier = Modifier
-                    .padding(end = 12.dp)
-                    .size(20.dp),
-                strokeWidth = 2.dp,
-            )
-        }
-        FilledTonalButton(
-            onClick = onRebuild,
-            enabled = enabled && !indexing,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Refresh,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = "Rebuild",
-                modifier = Modifier.padding(start = 8.dp),
-            )
+            if (progressPercent != null) {
+                LinearProgressIndicator(
+                    progress = { progressPercent / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
         }
     }
 }

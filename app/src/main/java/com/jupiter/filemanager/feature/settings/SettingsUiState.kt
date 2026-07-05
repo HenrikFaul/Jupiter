@@ -31,4 +31,16 @@ data class SettingsUiState(
     val indexingEnabled: Boolean = true,
     val indexedCount: Int = 0,
     val indexing: Boolean = false,
-)
+    // Live progress of an in-flight index build, for a real percentage instead of a
+    // spinner. [indexProgressTotal] is 0 until the worker publishes its first estimate.
+    val indexProgressCurrent: Int = 0,
+    val indexProgressTotal: Int = 0,
+) {
+    /** Percentage [0,100] of the current index build, or null when unknown/not running. */
+    val indexProgressPercent: Int?
+        get() = if (indexing && indexProgressTotal > 0) {
+            ((indexProgressCurrent.toLong() * 100L) / indexProgressTotal).toInt().coerceIn(0, 100)
+        } else {
+            null
+        }
+}

@@ -42,27 +42,31 @@ class IndexingWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val fileSystemDataSource: FileSystemDataSource,
+    private val mediaStoreIndexSource: MediaStoreIndexSource,
     private val indexRepository: FileIndexRepository,
     private val storageAccess: StorageAccessManager,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        // Without broad storage access the walk would only ever see app-scoped dirs,
-        // so there is nothing meaningful to index — treat as a successful no-op.
+        // Without broad storage access neither MediaStore nor a walk can see the shared
+        // volume, so there is nothing meaningful to index — treat as a successful no-op.
         if (!storageAccess.hasAllFilesAccess()) {
-            return Result.success(outputOf(0))
+            return Result.success(outputOf(0, 0))
         }
 
         return try {
-            val indexed = indexTree(PRIMARY_STORAGE_ROOT)
-            // Second phase: precompute content hashes for size-colliding files (the only
-            // duplicate candidates) so the Cleanup / Duplicates screens can list duplicate
-            // groups instantly from the index instead of hashing on first open. Best-effort
-            // and cancellable — a failure here never fails the metadata survey.
-            if (!isStopped) {
-                runCatching { indexRepository.hashCollidingSizes(MIN_DUPLICATE_SIZE) }
-            }
-            Result.success(outputOf(indexed))
+            // PRIMARY path: bulk-build the index from MediaStore — Android's own
+            // pre-scanned index of the shared volume — in a single cursor with ZERO
+            // per-file syscalls and no FUSE walk. This turns a tens-of-minutes filesystem
+            // crawl into a seconds-long query and covers the vast majority of user files.
+            val indexed = indexFromMediaStore()
+
+            // SAFETY NET: if MediaStore returned nothing (provider hiccup, or a device
+            // whose volume genuinely is not media-scanned) but files exist, fall back to
+            // the classic filesystem walk so the index is never left empty.
+            val finalCount = if (indexed == 0) indexTree(PRIMARY_STORAGE_ROOT) else indexed
+
+            Result.success(outputOf(finalCount, finalCount))
         } catch (cancellation: CancellationException) {
             // Cooperative cancellation: let WorkManager handle stoppage, don't retry.
             throw cancellation
@@ -70,6 +74,25 @@ class IndexingWorker @AssistedInject constructor(
             // Transient/unexpected IO — allow WorkManager to retry with backoff.
             Result.retry()
         }
+    }
+
+    /**
+     * Bulk-indexes the shared volume from [MediaStoreIndexSource] in [BATCH_SIZE] chunks,
+     * publishing a real indexed/total progress after each batch (the total comes from an
+     * instant MediaStore count so the UI can show a percentage). Returns the number of
+     * files indexed. Cancellation propagates out of the source's row loop.
+     */
+    private suspend fun indexFromMediaStore(): Int {
+        val total = mediaStoreIndexSource.count()
+        setProgress(outputOf(0, total))
+        var indexed = 0
+        mediaStoreIndexSource.forEachBatch(BATCH_SIZE) { batch ->
+            indexRepository.upsert(batch)
+            indexed += batch.size
+            // total is a lower bound (count taken before the stream); never show >100%.
+            setProgress(outputOf(indexed, maxOf(total, indexed)))
+        }
+        return indexed
     }
 
     /**
@@ -104,7 +127,7 @@ class IndexingWorker @AssistedInject constructor(
                 indexRepository.upsert(batch.toList())
                 total += batch.size
                 batch.clear()
-                setProgress(outputOf(total))
+                setProgress(outputOf(total, total))
             }
         }
 
@@ -112,7 +135,7 @@ class IndexingWorker @AssistedInject constructor(
         if (batch.isNotEmpty() && !isStopped) {
             indexRepository.upsert(batch.toList())
             total += batch.size
-            setProgress(outputOf(total))
+            setProgress(outputOf(total, total))
         }
 
         return total
@@ -130,8 +153,11 @@ class IndexingWorker @AssistedInject constructor(
         }
     }
 
-    private fun outputOf(count: Int): Data =
-        Data.Builder().putInt(KEY_INDEXED_COUNT, count).build()
+    private fun outputOf(count: Int, total: Int): Data =
+        Data.Builder()
+            .putInt(KEY_INDEXED_COUNT, count)
+            .putInt(KEY_TOTAL_COUNT, total)
+            .build()
 
     companion object {
         /** Unique work name for a full index rebuild. */
@@ -140,18 +166,14 @@ class IndexingWorker @AssistedInject constructor(
         /** Output/progress-[Data] key carrying the number of indexed entries. */
         const val KEY_INDEXED_COUNT: String = "indexed_count"
 
+        /** Output/progress-[Data] key carrying the estimated total to index (for a %). */
+        const val KEY_TOTAL_COUNT: String = "total_count"
+
         /** Root of the primary emulated external storage on modern Android. */
         private const val PRIMARY_STORAGE_ROOT: String = "/storage/emulated/0"
 
         /** Number of entries buffered before a single batched upsert. */
         private const val BATCH_SIZE: Int = 500
-
-        /**
-         * Files smaller than this are never considered for duplicate detection, so the
-         * hashing phase skips them. Kept in sync with the analytics repository's own
-         * duplicate-size floor (4 KiB).
-         */
-        private const val MIN_DUPLICATE_SIZE: Long = 4 * 1024L
 
         /**
          * Path segments never worth indexing: sandboxed app data/obb (usually
