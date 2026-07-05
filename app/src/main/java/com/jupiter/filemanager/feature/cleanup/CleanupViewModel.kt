@@ -10,6 +10,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.StorageOverview
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import com.jupiter.filemanager.feature.ai.AiAssistant
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -78,6 +79,7 @@ class CleanupViewModel @Inject constructor(
     private val aiAssistant: AiAssistant,
     private val storageAccessManager: StorageAccessManager,
     private val indexRepository: FileIndexRepository,
+    private val indexStateRepository: IndexStateRepository,
     private val indexingScheduler: IndexingScheduler,
 ) : ViewModel() {
 
@@ -131,9 +133,11 @@ class CleanupViewModel @Inject constructor(
         }
 
         scanJob = viewModelScope.launch {
-            // Whether this pass is served from the index (instant) or a live walk.
+            // Whether this pass is served from the index (instant) or a live walk. The index
+            // is only authoritative when its metadata survey is COMPLETE — a partial index is
+            // never presented as the source, matching what StorageAnalyticsRepository serves.
             val usingIndex = preferIndex &&
-                runCatching { indexRepository.isPopulated() }.getOrDefault(false)
+                runCatching { indexStateRepository.isMetadataComplete() }.getOrDefault(false)
             val indexedCount = runCatching { indexRepository.stats().first().indexedCount }
                 .getOrDefault(0)
 

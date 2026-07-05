@@ -128,6 +128,19 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.26.0] - 2026-07-05
+### Added (index állapotgép alap — a 2. szakértői review P0 magja, VALÓDI Room-tesztekkel)
+- **Room `index_state` tábla + `IndexStateRepository`** (#2): a completeness mostantól **tranzakcionálisan a Roomban** él (EMPTY/RUNNING/COMPLETE/DIRTY/FAILED + generációk), nem egy DataStore boolean. A DataStore `indexComplete` flag **törölve** — így egy DB-wipe sosem hagyhat maga után egy „kész” flaget üres index fölött (a state a data-val együtt nullázódik → EMPTY → rebuild).
+- **Egyetlen, központi completeness-kapu MINDENHOL** (#1): a Cleanup, Storage Analytics, Large Files, Duplicate, Home és a kereső mostantól **`metadataStatus == COMPLETE`**-re kapuz, nem `isPopulated()`-re (rekordszám). Egy 500-soros részleges index többé nem számít késznek egyetlen képernyőn sem.
+- **Generáció-alapú scan + globális stale-sweep** (#3): minden teljes felmérés új `scanGeneration`-t kap, minden írt sort ezzel bélyegez; a sikeres scan végén egy tranzakcióban törli az elavult (korábbi generációjú) sorokat → a más app által törölt „szellemfájlok” eltűnnek. A delta/böngészés-sorok (generáció 0) sosem esnek áldozatul.
+- **Könyvtár-átnevezés/mozgatás ATOMI** (#7 rész): a részfa-átírás mostantól **egyetlen Room `@Transaction`**-ben (delete+insert) — process-death a kettő között nem tüntetheti el a részfát.
+- **Index kikapcsolás mostantól tényleg leállít** (#8 rész): letiltáskor a futó worker **cancel**-elve, az adatbázis törölve, a state **EMPTY**-re állítva; a `JupiterApp` induláskor az `indexingEnabled`-t IS ellenőrzi, így letiltás után nem indítja újra magától.
+- **Robolectric + Room JVM-tesztek** (`IndexStateMachineTest`) a CI `testDebugUnitTest`-ben — VALÓDI in-memory Room ellen bizonyítják: megszakított scan ≠ COMPLETE; sikeres scan → COMPLETE + stale-sweep törli a törölt fájlt; delta-sorok túlélik a sweepet; változatlan fájl hash-e megmarad rescan után; átnevezés a teljes részfát átírja a hash megőrzésével; testvér-prefix mappát nem érint.
+### Changed
+- `gradle/libs.versions.toml` + `app/build.gradle.kts`: Robolectric 4.14.1 + androidx-test-core + room-testing testImplementation; `testOptions.unitTests` engedélyezve; `FileIndexDatabase` version → 2 (destructive fallback — cache; a state Roomban van); `versionName` → 0.26.0.
+### Known issues / továbbra is hátralévő (a review többi pontja, ŐSZINTÉN):
+- #4 kiegészítő fájlrendszer-reconciliation (MediaStore csak fájlokat lát, mappákat/`.nomedia`-t nem — a COMPLETE jelenleg „a survey lefutott”, nem „minden bájt indexelve”); #5 letöltés-duplikáció null-hash meglévő fájl esetén; #6 MediaStore generation delta-sync + version check + DeltaSyncWorker; #7 teljes IndexMutationCoordinator (copy/restore subtree, extract/import); #9 egyetlen rescan pipeline; #10 foreground + checkpoint + resumable worker; #11 timestamp-normalizálás (mp vs ms); #12 több kötet (SD/OTG) volumeId-vel; #13 perceptuális kép-near-duplicate; #14 FTS + Paging + DB-indexek méret/hash-re + explicit migrációk; a maradék end-to-end instrumentációs teszt-mátrix.
+
 ## [jupiter:0.25.0] - 2026-07-05
 ### Fixed (index life-cycle — P0 a szakértői architektúra-review alapján)
 - **#1 Töredékes index többé nem számít késznek**: a rendszer eddig `indexedCount == 0`/`isPopulated()` alapján döntötte el, hogy van-e kész index — így egy 500 rekord után megszakadt scan „késznek” látszott és a maradék 44 500 fájl sosem került be. Új **completeness-jelző** (`SettingsDataStore.indexComplete`, DataStore): a worker indításkor `false`-ra, sikeres befejezéskor `true`-ra állítja; a `JupiterApp` mostantól **NEM a rekordszám, hanem a completeness** alapján indít (re)build-et. Megszakított/kill-elt scan után a következő indítás újraépít.

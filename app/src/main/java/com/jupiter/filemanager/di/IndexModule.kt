@@ -5,7 +5,10 @@ import androidx.room.Room
 import com.jupiter.filemanager.data.index.FileIndexDao
 import com.jupiter.filemanager.data.index.FileIndexDatabase
 import com.jupiter.filemanager.data.index.FileIndexRepositoryImpl
+import com.jupiter.filemanager.data.index.IndexStateDao
+import com.jupiter.filemanager.data.index.IndexStateRepositoryImpl
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -37,6 +40,10 @@ object IndexModule {
     @Provides
     fun provideFileIndexDao(database: FileIndexDatabase): FileIndexDao =
         database.fileIndexDao()
+
+    @Provides
+    fun provideIndexStateDao(database: FileIndexDatabase): IndexStateDao =
+        database.indexStateDao()
 }
 
 /**
@@ -51,4 +58,9 @@ abstract class IndexBindingsModule {
     abstract fun bindFileIndexRepository(
         impl: FileIndexRepositoryImpl,
     ): FileIndexRepository
+
+    @Binds
+    abstract fun bindIndexStateRepository(
+        impl: IndexStateRepositoryImpl,
+    ): IndexStateRepository
 }

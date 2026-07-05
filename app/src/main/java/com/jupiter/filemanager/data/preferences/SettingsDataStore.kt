@@ -77,7 +77,6 @@ class SettingsDataStore @Inject constructor(
         val ANALYTICS_OPT_IN = booleanPreferencesKey("analytics_opt_in")
         val PRO_UNLOCKED = booleanPreferencesKey("pro_unlocked")
         val INDEXING_ENABLED = booleanPreferencesKey("indexing_enabled")
-        val INDEX_COMPLETE = booleanPreferencesKey("index_complete")
     }
 
     /** Current theme mode; defaults to [ThemeMode.SYSTEM]. */
@@ -204,15 +203,9 @@ class SettingsDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.INDEXING_ENABLED] ?: true }
 
-    /**
-     * Whether the last full index survey COMPLETED successfully. This is the authority
-     * for "is the index trustworthy", NOT the row count — a partial/interrupted scan
-     * leaves rows behind but must not be treated as a finished index. Defaults to false
-     * so a fresh install (or an interrupted build) triggers a (re)build on next launch.
-     */
-    val indexComplete: Flow<Boolean> = dataStore.data
-        .safe()
-        .map { prefs -> prefs[Keys.INDEX_COMPLETE] ?: false }
+    // Index COMPLETENESS is no longer a DataStore flag: it now lives transactionally in the
+    // Room index_state table (IndexStateRepository) so a database wipe can never leave an
+    // external "complete" flag pointing at an empty index. See IndexState / IndexStatus.
 
     suspend fun setThemeMode(mode: ThemeMode) {
         dataStore.edit { prefs -> prefs[Keys.THEME_MODE] = mode.name }
@@ -234,10 +227,6 @@ class SettingsDataStore @Inject constructor(
         dataStore.edit { prefs -> prefs[Keys.DUAL_PANE_ENABLED] = value }
     }
 
-    /** Records whether the full index survey completed (see [indexComplete]). */
-    suspend fun setIndexComplete(value: Boolean) {
-        dataStore.edit { prefs -> prefs[Keys.INDEX_COMPLETE] = value }
-    }
 
     suspend fun setAiEnabled(value: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.AI_ENABLED] = value }

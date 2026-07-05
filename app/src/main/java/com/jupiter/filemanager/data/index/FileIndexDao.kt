@@ -2,6 +2,7 @@ package com.jupiter.filemanager.data.index
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -102,6 +103,28 @@ interface FileIndexDao {
     /** Removes all rows. */
     @Query("DELETE FROM file_index")
     suspend fun clear()
+
+    /**
+     * Global stale sweep: after a full survey stamps every row it saw with the current
+     * [generation], this deletes rows that a PREVIOUS survey saw ([lastSeenGeneration] > 0)
+     * but this one did not (< [generation]) — i.e. files that no longer exist. Rows written
+     * outside a survey (deltas, browse self-heal; generation 0) are never swept here.
+     */
+    @Query(
+        "DELETE FROM file_index WHERE lastSeenGeneration != 0 AND lastSeenGeneration < :generation",
+    )
+    suspend fun deleteStaleGenerations(generation: Long)
+
+    /**
+     * Atomically replaces a directory's whole indexed subtree on a move/rename: deletes the
+     * old-path rows and inserts the rewritten ones in ONE transaction, so a process death
+     * between the two can never leave the subtree missing from the index.
+     */
+    @Transaction
+    suspend fun replaceSubtree(oldPaths: List<String>, newEntries: List<FileIndexEntry>) {
+        oldPaths.forEach { deleteByPath(it) }
+        upsertAll(newEntries)
+    }
 
     /** Observes the total number of indexed rows. */
     @Query("SELECT COUNT(*) FROM file_index")

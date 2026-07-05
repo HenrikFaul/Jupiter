@@ -72,12 +72,28 @@ class FileIndexRepositoryImpl @Inject constructor(
         }
 
     override suspend fun upsert(items: List<FileItem>) = withContext(ioDispatcher) {
-        if (items.isEmpty()) return@withContext
+        writePreservingHashes(items, generation = null)
+    }
+
+    override suspend fun upsertScanned(items: List<FileItem>, generation: Long) =
+        withContext(ioDispatcher) {
+            writePreservingHashes(items, generation = generation)
+        }
+
+    override suspend fun sweepStaleGenerations(generation: Long) = withContext(ioDispatcher) {
+        dao.deleteStaleGenerations(generation)
+    }
+
+    /**
+     * Upserts [items], preserving an already-computed content hash for any file whose
+     * identity (size + mtime) is unchanged — so a re-index never discards hashes computed
+     * lazily for duplicate detection. When [generation] is non-null each row is stamped with
+     * it (a full survey), so a later sweep can remove rows this survey did not see; delta
+     * writes pass null and keep the row's prior generation (0 for new rows).
+     */
+    private suspend fun writePreservingHashes(items: List<FileItem>, generation: Long?) {
+        if (items.isEmpty()) return
         val now = System.currentTimeMillis()
-        // Preserve an already-computed content hash for any file whose identity (size +
-        // mtime) is unchanged, so a re-index (e.g. the periodic full survey) never discards
-        // the hashes computed lazily for duplicate detection. One batched lookup keeps this
-        // cheap. toEntry() alone would null every hash.
         val existing = dao.entriesForPaths(items.map { it.path }).associateBy { it.path }
         val entries = items.map { item ->
             val prior = existing[item.path]
@@ -90,7 +106,10 @@ class FileIndexRepositoryImpl @Inject constructor(
             } else {
                 null
             }
-            toEntry(item, now).copy(contentHash = keepHash)
+            toEntry(item, now).copy(
+                contentHash = keepHash,
+                lastSeenGeneration = generation ?: prior?.lastSeenGeneration ?: 0L,
+            )
         }
         dao.upsertAll(entries)
     }
@@ -166,9 +185,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                     )
                 }
             }
-            // Drop the old rows, then insert the rewritten ones. (Room can't UPDATE a PK.)
-            affected.forEach { dao.deleteByPath(it.path) }
-            dao.upsertAll(rewritten)
+            // Drop the old rows and insert the rewritten ones ATOMICALLY (Room can't UPDATE a
+            // PK). A single transaction means a process death mid-op can't lose the subtree.
+            dao.replaceSubtree(affected.map { it.path }, rewritten)
         }
 
     override suspend fun findContentDuplicates(item: FileItem): List<FileItem> =

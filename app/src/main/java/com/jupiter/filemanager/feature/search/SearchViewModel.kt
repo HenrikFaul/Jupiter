@@ -8,6 +8,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FilterOption
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import com.jupiter.filemanager.feature.ai.AiAssistant
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +63,7 @@ data class SearchUiState(
 class SearchViewModel @Inject constructor(
     private val fileRepository: FileRepository,
     private val indexRepository: FileIndexRepository,
+    private val indexStateRepository: IndexStateRepository,
     private val settings: SettingsDataStore,
     private val aiAssistant: AiAssistant,
 ) : ViewModel() {
@@ -122,7 +124,10 @@ class SearchViewModel @Inject constructor(
 
             val (indexEnabled, indexComplete) = withContext(Dispatchers.IO) {
                 val enabled = runCatching { settings.indexingEnabled.first() }.getOrDefault(true)
-                val complete = runCatching { settings.indexComplete.first() }.getOrDefault(false)
+                // Authoritative completeness comes from the Room index_state (not a row
+                // count or a DataStore flag), so a partial index never suppresses the walk.
+                val complete = runCatching { indexStateRepository.isMetadataComplete() }
+                    .getOrDefault(false)
                 enabled to complete
             }
 

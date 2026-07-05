@@ -31,4 +31,10 @@ data class FileIndexEntry(
     val extension: String,
     val contentHash: String? = null,
     val indexedAt: Long,
+    /**
+     * The scan generation that last saw this row. A full survey stamps every row it writes
+     * with its generation; after the survey succeeds, rows carrying an older generation are
+     * globally swept (they no longer exist). 0 = written outside a full survey (e.g. a delta).
+     */
+    val lastSeenGeneration: Long = 0L,
 )

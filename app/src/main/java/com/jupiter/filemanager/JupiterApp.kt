@@ -9,6 +9,7 @@ import coil.decode.VideoFrameDecoder
 import com.jupiter.filemanager.data.index.DownloadIndexObserver
 import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,9 +55,13 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
     @Inject
     lateinit var indexingScheduler: IndexingScheduler
 
-    /** Source of truth for whether the last index survey COMPLETED. */
+    /** User preference for whether indexing is enabled at all. */
     @Inject
     lateinit var settings: SettingsDataStore
+
+    /** Authoritative index life-cycle state (completeness lives in Room, not a flag). */
+    @Inject
+    lateinit var indexStateRepository: IndexStateRepository
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -65,15 +70,15 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
         // Best-effort: a failure to register the observer must never crash startup.
         runCatching { downloadIndexObserver.start() }
 
-        // Desktop-app-style indexing: build the survey in the background whenever the last
-        // one did NOT complete — a partial/interrupted index (rows present but scan killed)
-        // is not trustworthy, so gate on completion, NOT on a non-empty row count. KEEP
-        // policy means a build already in progress is never restarted. After a successful
-        // build the real-time delta hooks + the download observer keep it live, so opening
-        // the app never triggers a deep scan.
+        // Desktop-app-style indexing: build the survey in the background only when indexing
+        // is ENABLED and the last survey did NOT reach COMPLETE. Completeness is a Room state
+        // (EMPTY/RUNNING/COMPLETE/DIRTY/FAILED), NOT a row count — a partial/interrupted index
+        // is never treated as finished. If the user disabled indexing we never auto-start it.
+        // KEEP policy means a build already in progress is never restarted.
         appScope.launch {
             runCatching {
-                if (!settings.indexComplete.first()) {
+                val enabled = settings.indexingEnabled.first()
+                if (enabled && !indexStateRepository.isMetadataComplete()) {
                     indexingScheduler.ensureIndexed()
                 }
             }

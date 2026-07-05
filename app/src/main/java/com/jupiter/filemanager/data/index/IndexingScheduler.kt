@@ -66,6 +66,18 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
+     * Cancels any pending/running index survey (e.g. when the user disables indexing), so a
+     * long build does not keep running after the feature is turned off. Best-effort.
+     */
+    fun cancel() {
+        try {
+            workManager.cancelUniqueWork(IndexingWorker.UNIQUE_WORK_NAME)
+        } catch (_: Exception) {
+            // Best-effort.
+        }
+    }
+
+    /**
      * Observes the current state of the rebuild job, emitting the single most recent
      * [WorkInfo] for the unique work (or null when it has never run). Backed by
      * WorkManager's Flow API so it stays in sync as the worker progresses.

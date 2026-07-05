@@ -31,6 +31,19 @@ interface FileIndexRepository {
     suspend fun upsert(items: List<FileItem>)
 
     /**
+     * Upserts [items] as part of a full survey, stamping each with [generation] (so a later
+     * [sweepStaleGenerations] can remove rows this survey did not see). Preserves an existing
+     * content hash when a file's identity is unchanged.
+     */
+    suspend fun upsertScanned(items: List<FileItem>, generation: Long)
+
+    /**
+     * Global stale sweep run after a survey completes: removes rows a previous survey saw
+     * but [generation] did not (deleted files). Never touches delta/browse rows.
+     */
+    suspend fun sweepStaleGenerations(generation: Long)
+
+    /**
      * Upserts a single [item] with fresh metadata. Any previously-known content
      * hash is preserved when the file's size and mtime are unchanged; otherwise
      * the hash is cleared so it will be recomputed on demand.

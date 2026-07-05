@@ -7,9 +7,9 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import com.jupiter.filemanager.data.file.FileSystemDataSource
 import com.jupiter.filemanager.data.permission.StorageAccessManager
-import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
@@ -46,7 +46,7 @@ class IndexingWorker @AssistedInject constructor(
     private val mediaStoreIndexSource: MediaStoreIndexSource,
     private val indexRepository: FileIndexRepository,
     private val storageAccess: StorageAccessManager,
-    private val settings: SettingsDataStore,
+    private val indexStateRepository: IndexStateRepository,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -56,33 +56,36 @@ class IndexingWorker @AssistedInject constructor(
             return Result.success(outputOf(0, 0))
         }
 
-        // Mark the index INCOMPLETE for the duration of the build. Completeness — not the
-        // row count — is the authority for "the index is trustworthy": if this worker is
-        // killed mid-build, the flag stays false and the next launch rebuilds, instead of
-        // treating a partial index as finished.
-        runCatching { settings.setIndexComplete(false) }
+        // Open a new scan GENERATION and mark the index RUNNING. Completeness is a STATE
+        // (in Room), not a row count: if this worker is killed mid-build the state stays
+        // RUNNING and the previous COMPLETE generation remains usable, so a partial index is
+        // never treated as finished. Every row this survey writes is stamped with `gen`.
+        val gen = indexStateRepository.beginScan()
 
         return try {
             // PRIMARY path: bulk-build the index from MediaStore — Android's own
             // pre-scanned index of the shared volume — in a single cursor with ZERO
             // per-file syscalls and no FUSE walk. This turns a tens-of-minutes filesystem
             // crawl into a seconds-long query and covers the vast majority of user files.
-            val indexed = indexFromMediaStore()
+            val indexed = indexFromMediaStore(gen)
 
             // SAFETY NET: if MediaStore returned nothing (provider hiccup, or a device
             // whose volume genuinely is not media-scanned) but files exist, fall back to
             // the classic filesystem walk so the index is never left empty.
-            val finalCount = if (indexed == 0) indexTree(PRIMARY_STORAGE_ROOT) else indexed
+            val finalCount = if (indexed == 0) indexTree(PRIMARY_STORAGE_ROOT, gen) else indexed
 
-            // The full survey finished cleanly — mark the index authoritative.
-            runCatching { settings.setIndexComplete(true) }
+            // The full survey finished cleanly. Sweep rows a PREVIOUS survey saw but this one
+            // did not (deleted files), then mark the index COMPLETE for this generation.
+            indexRepository.sweepStaleGenerations(gen)
+            indexStateRepository.completeScan(gen, finalCount.toLong())
             Result.success(outputOf(finalCount, finalCount))
         } catch (cancellation: CancellationException) {
-            // Cooperative cancellation: leave the index marked incomplete so it rebuilds.
+            // Cooperative cancellation: leave the index NOT complete (state stays RUNNING) so
+            // it rebuilds; the previous complete generation is untouched (no sweep ran).
             throw cancellation
-        } catch (_: Exception) {
-            // Transient/unexpected IO — allow WorkManager to retry with backoff; the index
-            // stays marked incomplete until a run succeeds.
+        } catch (e: Exception) {
+            // Transient/unexpected IO — record FAILED and let WorkManager retry with backoff.
+            runCatching { indexStateRepository.failScan(e.message) }
             Result.retry()
         }
     }
@@ -93,12 +96,12 @@ class IndexingWorker @AssistedInject constructor(
      * instant MediaStore count so the UI can show a percentage). Returns the number of
      * files indexed. Cancellation propagates out of the source's row loop.
      */
-    private suspend fun indexFromMediaStore(): Int {
+    private suspend fun indexFromMediaStore(generation: Long): Int {
         val total = mediaStoreIndexSource.count()
         setProgress(outputOf(0, total))
         var indexed = 0
         mediaStoreIndexSource.forEachBatch(BATCH_SIZE) { batch ->
-            indexRepository.upsert(batch)
+            indexRepository.upsertScanned(batch, generation)
             indexed += batch.size
             // The count() denominator is only APPROXIMATE (directories/excluded/null-path
             // rows are skipped while streaming), so clamp to avoid >100% during the run.
@@ -116,7 +119,7 @@ class IndexingWorker @AssistedInject constructor(
      * segments (see [EXCLUDED_SEGMENTS]) are skipped. Returns the number of entries
      * upserted. Honours cancellation between batches and publishes progress.
      */
-    private suspend fun indexTree(rootPath: String): Int {
+    private suspend fun indexTree(rootPath: String, generation: Long): Int {
         val batch = ArrayList<FileItem>(BATCH_SIZE)
         var total = 0
 
@@ -139,7 +142,7 @@ class IndexingWorker @AssistedInject constructor(
             batch.add(item)
 
             if (batch.size >= BATCH_SIZE) {
-                indexRepository.upsert(batch.toList())
+                indexRepository.upsertScanned(batch.toList(), generation)
                 total += batch.size
                 batch.clear()
                 setProgress(outputOf(total, 0))
@@ -148,7 +151,7 @@ class IndexingWorker @AssistedInject constructor(
 
         // Flush the trailing partial batch (unless we were stopped mid-walk).
         if (batch.isNotEmpty() && !isStopped) {
-            indexRepository.upsert(batch.toList())
+            indexRepository.upsertScanned(batch.toList(), generation)
             total += batch.size
             setProgress(outputOf(total, 0))
         }

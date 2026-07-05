@@ -12,6 +12,7 @@ import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageOverview
 import com.jupiter.filemanager.domain.model.StorageVolumeInfo
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import java.io.File
 import java.security.MessageDigest
@@ -39,6 +40,7 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
     private val dataSource: FileSystemDataSource,
     private val volumeProvider: StorageVolumeProvider,
     private val indexRepository: FileIndexRepository,
+    private val indexStateRepository: IndexStateRepository,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : StorageAnalyticsRepository {
 
@@ -303,9 +305,14 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
 
     // region Internals -----------------------------------------------------------
 
-    /** True when the persistent index has files to serve; false on any probe failure. */
+    /**
+     * True only when the metadata index is COMPLETE — the single authority for serving
+     * analytics from the index. A partial/interrupted survey (rows present but not COMPLETE)
+     * must NOT be trusted, so this deliberately checks state, not a row count; on failure it
+     * returns false and the caller falls back to a live walk.
+     */
     private suspend fun indexIsPopulated(): Boolean =
-        runCatching { indexRepository.isPopulated() }.getOrDefault(false)
+        runCatching { indexStateRepository.isMetadataComplete() }.getOrDefault(false)
 
     /**
      * Aggregates a [StorageOverview] from the persistent index instead of walking

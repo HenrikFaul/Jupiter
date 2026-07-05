@@ -15,7 +15,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.25.0"
+        versionName = "0.26.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -82,6 +82,15 @@ android {
         // Lint still runs and reports, but a finding won't abort assembleRelease,
         // so the release APK artifact is always produced. Run lint as its own gate.
         abortOnError = false
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs Android resources + real framework return values so Room
+            // and Context-backed code run under the JVM unit-test task.
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
     }
 
     packaging {
@@ -173,6 +182,12 @@ dependencies {
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Robolectric lets Room (in-memory) and Android-framework code run under the JVM
+    // `testDebugUnitTest` task, so the index state-machine / generation / stale-sweep
+    // behavior is actually EXERCISED in CI (this project's CI has no emulator).
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -9,6 +9,7 @@ import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.IndexStats
 import com.jupiter.filemanager.domain.model.ThemeMode
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsDataStore,
     private val indexRepository: FileIndexRepository,
+    private val indexStateRepository: IndexStateRepository,
     private val indexingScheduler: IndexingScheduler,
 ) : ViewModel() {
 
@@ -161,7 +163,12 @@ class SettingsViewModel @Inject constructor(
             if (value) {
                 indexingScheduler.rebuildNow()
             } else {
+                // Disabling means STOP: cancel any running survey, clear the cached rows, and
+                // reset the life-cycle state to EMPTY so the index is not considered complete
+                // and startup does not silently re-enable it (JupiterApp also checks enabled).
+                indexingScheduler.cancel()
                 runCatching { indexRepository.clear() }
+                runCatching { indexStateRepository.reset() }
             }
         }
     }
