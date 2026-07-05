@@ -128,6 +128,20 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.23.0] - 2026-07-05
+### Added
+- **Böngésző ↔ index bekötés**: minden könyvtárlistázás mostantól **öngyógyítja az indexet** (`FileRepositoryImpl.listFiles` → `replaceChildren` a nyers, szűretlen lemez-listával, a már nem létező gyerekeket pruneolva), így böngészés közben az index folyamatosan teljes és naprakész marad (nemcsak a háttér-felmérésből). Új `FileRepository.listFromIndex(path, sort, filter)` — az indexből szolgál ki (ugyanazzal a rendezéssel/szűréssel). Ha egy lemez-olvasás hibázik (átmeneti IO / pillanatnyi engedély-galiba), a böngésző **visszaesik az indexre**, és a korábban meglátogatott mappa utolsó ismert tartalmát mutatja üres hiba helyett.
+- **Storage Analytics "Instant from index" chip**: ha a bontás azonnal az indexből jött (nem élő séta), egy kis chip jelzi ("Instant from index · N") — a Cleanup bannerrel egységesen, hogy látszódjon: az indexált felmérés dolgozik.
+### Fixed
+- **Duplikátum-törlés biztonság megerősítése** (adatvédelem a törlési úton): az index-alapú duplikátum-csoportosítás mostantól a tárolt tartalom-hash-t **CSAK akkor bízza meg, ha a fájl a lemezen még mindig ugyanaz** (méret ÉS mtime egyezik az indexelttel). Ha egy fájl delta nélkül megváltozott a lemezen, a rendszer **újrahash-eli a jelenlegi bájtokból** és frissíti az index sort — így két valójában különböző fájl SOHA nem kerülhet egy duplikátum-csoportba egy elavult hash miatt (ami rossz fájl törléséhez vezethetne). Az eltűnt/nem-fájl bejegyzések kimaradnak (`hashForEntry` null-t ad).
+### Changed
+- `FileRepository`: új `listFromIndex`; `StorageAnalyticsUiState`/`ViewModel`/`Screen`: `fromIndex`+`indexedCount`.
+- `app/build.gradle.kts`: `versionName` → 0.23.0.
+### Verification
+- 6-lencsés adverzariális review-workflow (deletion-safety, correctness, Room/SQL, coroutines, Compose/state, regression/DI) minden találatot skeptikus-szavazással megerősítve.
+### Planned next
+- Browser opcionális azonnali index-snapshot megjelenítés (jelenleg lemez-elsődleges, index a fallback); widget `onNewIntent`.
+
 ## [jupiter:0.22.0] - 2026-07-05
 ### Added
 - **Az indexált felmérés MOSTANTÓL tényleg meghajtja a képernyőket (nem kell minden megnyitáskor deep-scan)**: eddig az index fel volt építve és real-time frissült, DE a nehéz képernyők (Cleanup, Duplicate cleanup, Storage Analytics, Home) **minden megnyitáskor újra végigjárták a teljes `/storage/emulated/0` fát**. Mostantól, ha a háttér-felmérés már lefutott, ezek **azonnal az indexből** szolgálják ki az adatot, fájlrendszer-bejárás nélkül:

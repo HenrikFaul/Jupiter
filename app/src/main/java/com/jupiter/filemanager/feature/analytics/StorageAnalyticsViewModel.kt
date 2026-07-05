@@ -3,6 +3,7 @@ package com.jupiter.filemanager.feature.analytics
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.data.permission.StorageAccessManager
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
@@ -31,6 +33,7 @@ import javax.inject.Inject
 class StorageAnalyticsViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
     private val storageAccessManager: StorageAccessManager,
+    private val indexRepository: FileIndexRepository,
     @Suppress("unused") private val fileRepository: FileRepository,
 ) : ViewModel() {
 
@@ -71,6 +74,13 @@ class StorageAnalyticsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            // Reflect whether this pass will be served instantly from the index (populated)
+            // or a live walk, so the screen can show the same "indexed" affordance as Cleanup.
+            val usingIndex = runCatching { indexRepository.isPopulated() }.getOrDefault(false)
+            val indexedCount = runCatching { indexRepository.stats().first().indexedCount }
+                .getOrDefault(0)
+            _uiState.update { it.copy(fromIndex = usingIndex, indexedCount = indexedCount) }
+
             analyticsRepository.observeStorageOverview()
                 .onStart {
                     _uiState.update { it.copy(isScanning = true, error = null) }

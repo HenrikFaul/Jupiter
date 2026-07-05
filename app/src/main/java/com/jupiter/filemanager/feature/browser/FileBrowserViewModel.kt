@@ -451,16 +451,38 @@ class FileBrowserViewModel @Inject constructor(
                 )
             }
             is AppResult.Failure -> {
-                queryUnfilteredItems = emptyList()
-                queryUnfilteredSignature = null
-                _uiState.value = _uiState.value.copy(
-                    currentPath = path,
-                    breadcrumbs = buildBreadcrumbs(path),
-                    isLoading = false,
-                    error = result.error.displayMessage,
-                    canNavigateUp = parentOf(path) != null,
-                    tabs = syncActiveTab(_uiState.value, path),
-                )
+                // Disk read failed (transient IO, a momentary permission hiccup, …).
+                // Fall back to the persistent index so a previously-visited directory
+                // still renders its last-known contents instead of an empty error.
+                val cached = fileRepository.listFromIndex(path, state.sortOption, diskFilter)
+                if (cached.isNotEmpty()) {
+                    queryUnfilteredItems = cached
+                    queryUnfilteredSignature = ListingSignature(
+                        path = path,
+                        showHidden = state.filter.showHidden,
+                        typeFilter = state.filter.typeFilter,
+                    )
+                    _uiState.value = _uiState.value.copy(
+                        currentPath = path,
+                        breadcrumbs = buildBreadcrumbs(path),
+                        items = applyQuery(cached, state.filter.query),
+                        isLoading = false,
+                        error = null,
+                        canNavigateUp = parentOf(path) != null,
+                        tabs = syncActiveTab(_uiState.value, path),
+                    )
+                } else {
+                    queryUnfilteredItems = emptyList()
+                    queryUnfilteredSignature = null
+                    _uiState.value = _uiState.value.copy(
+                        currentPath = path,
+                        breadcrumbs = buildBreadcrumbs(path),
+                        isLoading = false,
+                        error = result.error.displayMessage,
+                        canNavigateUp = parentOf(path) != null,
+                        tabs = syncActiveTab(_uiState.value, path),
+                    )
+                }
             }
         }
     }

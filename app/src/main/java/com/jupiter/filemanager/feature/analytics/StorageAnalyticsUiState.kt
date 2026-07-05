@@ -18,6 +18,9 @@ import com.jupiter.filemanager.domain.model.StorageOverview
  * @param permissionRequired true when broad storage access is missing, so the screen
  *   should render an actionable CTA instead of spinning on an empty scan. Defaults to
  *   false to preserve existing behavior.
+ * @param fromIndex true when the overview was served instantly from the persistent file
+ *   index rather than a fresh filesystem walk.
+ * @param indexedCount number of files in the persistent index (0 when not yet built).
  */
 data class StorageAnalyticsUiState(
     val isLoading: Boolean = true,
@@ -25,4 +28,6 @@ data class StorageAnalyticsUiState(
     val overview: StorageOverview? = null,
     val error: String? = null,
     val permissionRequired: Boolean = false,
+    val fromIndex: Boolean = false,
+    val indexedCount: Int = 0,
 )

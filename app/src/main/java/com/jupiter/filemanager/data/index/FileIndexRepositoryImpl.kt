@@ -224,17 +224,43 @@ class FileIndexRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Returns the content hash for an indexed [entry], preferring the value already
-     * stored on the row, then the cached hash for the file's current identity, and
-     * finally a freshly computed streamed SHA-1 (which is written back to the index).
-     * Null when the file cannot be read.
+     * Returns the content hash for an indexed [entry], safe to use for
+     * duplicate-grouping that may drive a delete.
+     *
+     * The stored hash is trusted ONLY when the file on disk STILL matches the
+     * indexed identity (same size AND mtime) — this guards against a file that
+     * changed outside the app without a delta firing, which would otherwise let two
+     * genuinely-different files be grouped as duplicates from a stale hash. When the
+     * identity no longer matches (or no hash is stored yet) the file is re-hashed
+     * from its current bytes and the index row is refreshed with the current
+     * size/mtime/hash. Returns null when the file has vanished or cannot be read, so
+     * a stale entry is never grouped.
      */
     private suspend fun hashForEntry(entry: FileIndexEntry): String? {
-        entry.contentHash?.let { return it }
-        dao.hashIfUnchanged(entry.path, entry.sizeBytes, entry.lastModified)?.let { return it }
+        val file = File(entry.path)
+        val currentSize = runCatching { if (file.isFile) file.length() else -1L }
+            .getOrDefault(-1L)
+        if (currentSize < 0L) return null // vanished or not a regular file → never group
+        val currentMtime = runCatching { file.lastModified() }.getOrDefault(0L)
+
+        val identityUnchanged = currentSize == entry.sizeBytes &&
+            currentMtime == entry.lastModified
+        if (identityUnchanged) {
+            entry.contentHash?.let { return it }
+        }
+
+        // Stale identity or no cached hash: hash the CURRENT bytes and refresh the row
+        // (size/mtime/hash) so the confirmation always reflects what is on disk now.
         val computed = computeHash(entry.path) ?: return null
         dao.upsertAll(
-            listOf(entry.copy(contentHash = computed, indexedAt = System.currentTimeMillis())),
+            listOf(
+                entry.copy(
+                    sizeBytes = currentSize,
+                    lastModified = currentMtime,
+                    contentHash = computed,
+                    indexedAt = System.currentTimeMillis(),
+                ),
+            ),
         )
         return computed
     }

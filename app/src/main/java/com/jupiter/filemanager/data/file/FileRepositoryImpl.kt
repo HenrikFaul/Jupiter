@@ -21,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
@@ -76,6 +77,10 @@ class FileRepositoryImpl @Inject constructor(
             }
 
             val raw = dataSource.listDirectory(path)
+            // Self-heal the index for this directory: persist the full (unfiltered) disk
+            // listing and prune entries for children that no longer exist. Best-effort —
+            // an index write must never fail or slow the user-visible listing's result.
+            runCatching { indexRepository.replaceChildren(path, raw) }
             val processed = applySortAndFilter(raw, sort, filter)
             AppResult.Success(processed)
         } catch (ce: CancellationException) {
@@ -87,6 +92,18 @@ class FileRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             AppResult.Failure(AppError.Unknown(e.message ?: "Unknown error listing " + path, e))
         }
+    }
+
+    override suspend fun listFromIndex(
+        path: String,
+        sort: SortOption,
+        filter: FilterOption,
+    ): List<FileItem> = withContext(dispatcher) {
+        // Snapshot the indexed children (best-effort); apply the same sort/filter as a
+        // disk listing so the result is a drop-in fallback. Any failure yields empty.
+        val children = runCatching { indexRepository.observeChildren(path).first() }
+            .getOrDefault(emptyList())
+        if (children.isEmpty()) emptyList() else applySortAndFilter(children, sort, filter)
     }
 
     override suspend fun getFile(path: String): AppResult<FileItem> = withContext(dispatcher) {

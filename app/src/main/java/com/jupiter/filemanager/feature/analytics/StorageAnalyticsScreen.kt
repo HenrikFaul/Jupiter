@@ -146,6 +146,8 @@ fun StorageAnalyticsScreen(
                 AnalyticsContent(
                     overview = uiState.overview!!,
                     isScanning = uiState.isScanning,
+                    fromIndex = uiState.fromIndex,
+                    indexedCount = uiState.indexedCount,
                     onOpenLargeFiles = { onOpenRoute(Destination.Cleanup.route) },
                     modifier = Modifier
                         .fillMaxSize()
@@ -161,6 +163,8 @@ fun StorageAnalyticsScreen(
 private fun AnalyticsContent(
     overview: StorageOverview,
     isScanning: Boolean,
+    fromIndex: Boolean,
+    indexedCount: Int,
     onOpenLargeFiles: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -176,6 +180,12 @@ private fun AnalyticsContent(
         if (isScanning) {
             item(key = "scanning-chip") {
                 ScanningChip()
+            }
+        }
+
+        if (fromIndex && !isScanning) {
+            item(key = "index-chip") {
+                IndexedFromCard(indexedCount = indexedCount)
             }
         }
 
@@ -538,6 +548,39 @@ private fun ScanningChip() {
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "Still scanning…",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+/**
+ * Compact chip shown when the breakdown was served instantly from the persistent file
+ * index (no filesystem walk). Mirrors the Cleanup screen's index affordance so the user
+ * can see the indexed survey is doing the work.
+ */
+@Composable
+private fun IndexedFromCard(indexedCount: Int) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.FindInPage,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = if (indexedCount > 0) {
+                "Instant from index · " + formatItemCount(indexedCount)
+            } else {
+                "Instant from index"
+            },
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
