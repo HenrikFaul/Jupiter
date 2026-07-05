@@ -100,9 +100,13 @@ class IndexingWorker @AssistedInject constructor(
         mediaStoreIndexSource.forEachBatch(BATCH_SIZE) { batch ->
             indexRepository.upsert(batch)
             indexed += batch.size
-            // total is a lower bound (count taken before the stream); never show >100%.
+            // The count() denominator is only APPROXIMATE (directories/excluded/null-path
+            // rows are skipped while streaming), so clamp to avoid >100% during the run.
             setProgress(outputOf(indexed, maxOf(total, indexed)))
         }
+        // Snap to a true 100% on completion: the real total is exactly what was indexed,
+        // so the bar reaches full rather than stalling just short of it.
+        if (indexed > 0) setProgress(outputOf(indexed, indexed))
         return indexed
     }
 
@@ -138,7 +142,7 @@ class IndexingWorker @AssistedInject constructor(
                 indexRepository.upsert(batch.toList())
                 total += batch.size
                 batch.clear()
-                setProgress(outputOf(total, total))
+                setProgress(outputOf(total, 0))
             }
         }
 
@@ -146,7 +150,7 @@ class IndexingWorker @AssistedInject constructor(
         if (batch.isNotEmpty() && !isStopped) {
             indexRepository.upsert(batch.toList())
             total += batch.size
-            setProgress(outputOf(total, total))
+            setProgress(outputOf(total, 0))
         }
 
         return total
