@@ -171,6 +171,11 @@ interface FileIndexDao {
     @Query("SELECT * FROM file_index WHERE isDirectory = 0 AND sizeBytes = :size")
     suspend fun filesOfSize(size: Long): List<FileIndexEntry>
 
+    /** Every indexed path (files and directories) — used to skip already-indexed entries
+     * during the reconciliation walk so it only stats/writes what MediaStore missed. */
+    @Query("SELECT path FROM file_index")
+    suspend fun allPaths(): List<String>
+
     /** Returns the most recent [FileIndexEntry.indexedAt], or null when empty. */
     @Query("SELECT MAX(indexedAt) FROM file_index")
     suspend fun maxIndexedAt(): Long?

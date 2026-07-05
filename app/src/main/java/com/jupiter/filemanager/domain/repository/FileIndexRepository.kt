@@ -103,6 +103,10 @@ interface FileIndexRepository {
     /** Every indexed non-directory file, used to aggregate a storage overview. */
     suspend fun allFiles(): List<FileItem>
 
+    /** Every indexed path (files + directories), used by the reconciliation walk to skip
+     * entries already indexed (e.g. by the MediaStore seed) and only add what it missed. */
+    suspend fun indexedPaths(): Set<String>
+
     /**
      * Duplicate groups computed entirely from the index: candidate buckets are the
      * size-collisions pulled from the DB (no filesystem walk), each confirmed by

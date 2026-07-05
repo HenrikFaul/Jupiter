@@ -63,22 +63,25 @@ class IndexingWorker @AssistedInject constructor(
         val gen = indexStateRepository.beginScan()
 
         return try {
-            // PRIMARY path: bulk-build the index from MediaStore — Android's own
-            // pre-scanned index of the shared volume — in a single cursor with ZERO
-            // per-file syscalls and no FUSE walk. This turns a tens-of-minutes filesystem
-            // crawl into a seconds-long query and covers the vast majority of user files.
-            val indexed = indexFromMediaStore(gen)
+            // PHASE 1 — fast SEED from MediaStore (Android's own pre-scanned index): a single
+            // cursor with zero per-file syscalls, covering the media/downloads/documents the
+            // system already catalogued. This makes partial results appear in seconds.
+            val seeded = indexFromMediaStore(gen)
 
-            // SAFETY NET: if MediaStore returned nothing (provider hiccup, or a device
-            // whose volume genuinely is not media-scanned) but files exist, fall back to
-            // the classic filesystem walk so the index is never left empty.
-            val finalCount = if (indexed == 0) indexTree(PRIMARY_STORAGE_ROOT, gen) else indexed
+            // PHASE 2 — RECONCILIATION walk: MediaStore is a media CATALOG, not a full-storage
+            // mirror — it omits directories, .nomedia content, and other non-scanned files. So
+            // walk the accessible tree and add everything the seed missed (files AND folders),
+            // skipping paths already indexed (one cheap `stat` per new entry). Only after this
+            // does the index reflect the WHOLE volume, so COMPLETE means "fully surveyed", not
+            // just "media catalogued".
+            val added = reconcileFilesystem(PRIMARY_STORAGE_ROOT, gen)
 
-            // The full survey finished cleanly. Sweep rows a PREVIOUS survey saw but this one
-            // did not (deleted files), then mark the index COMPLETE for this generation.
+            // Sweep rows a PREVIOUS survey saw but this one did not (deleted files), then mark
+            // the index COMPLETE for this generation.
             indexRepository.sweepStaleGenerations(gen)
-            indexStateRepository.completeScan(gen, finalCount.toLong())
-            Result.success(outputOf(finalCount, finalCount))
+            val total = seeded + added
+            indexStateRepository.completeScan(gen, total.toLong())
+            Result.success(outputOf(total, total))
         } catch (cancellation: CancellationException) {
             // Cooperative cancellation: leave the index NOT complete (state stays RUNNING) so
             // it rebuilds; the previous complete generation is untouched (no sweep ran).
@@ -107,19 +110,20 @@ class IndexingWorker @AssistedInject constructor(
             // rows are skipped while streaming), so clamp to avoid >100% during the run.
             setProgress(outputOf(indexed, maxOf(total, indexed)))
         }
-        // Snap to a true 100% on completion: the real total is exactly what was indexed,
-        // so the bar reaches full rather than stalling just short of it.
-        if (indexed > 0) setProgress(outputOf(indexed, indexed))
         return indexed
     }
 
     /**
-     * Walks [rootPath] top-down, mapping each readable entry to a [FileItem] and
-     * upserting into the index in [BATCH_SIZE] chunks. Entries under excluded path
-     * segments (see [EXCLUDED_SEGMENTS]) are skipped. Returns the number of entries
-     * upserted. Honours cancellation between batches and publishes progress.
+     * Reconciliation walk over [rootPath]: adds every accessible entry the MediaStore seed
+     * did NOT already index — non-media files AND directories — stamping each with
+     * [generation]. Entries already in the index (the media majority) are skipped WITHOUT a
+     * stat, and each new entry costs a single `stat` via [FileSystemDataSource.toIndexItem],
+     * so this is far cheaper than the old full [toFileItem] crawl. Excluded path segments
+     * (see [EXCLUDED_SEGMENTS]) are skipped. Returns the number of entries added. Honours
+     * cancellation and publishes indeterminate progress (the tree total is unknown up-front).
      */
-    private suspend fun indexTree(rootPath: String, generation: Long): Int {
+    private suspend fun reconcileFilesystem(rootPath: String, generation: Long): Int {
+        val known = runCatching { indexRepository.indexedPaths() }.getOrDefault(emptySet())
         val batch = ArrayList<FileItem>(BATCH_SIZE)
         var total = 0
 
@@ -130,15 +134,10 @@ class IndexingWorker @AssistedInject constructor(
             currentCoroutineContext().ensureActive()
 
             if (isExcluded(file)) continue
+            // Already indexed (e.g. by the MediaStore seed) — skip without a stat.
+            if (file.absolutePath in known) continue
 
-            val item = try {
-                fileSystemDataSource.toFileItem(file)
-            } catch (_: SecurityException) {
-                continue
-            } catch (_: RuntimeException) {
-                continue
-            }
-
+            val item = fileSystemDataSource.toIndexItem(file) ?: continue
             batch.add(item)
 
             if (batch.size >= BATCH_SIZE) {

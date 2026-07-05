@@ -283,6 +283,10 @@ class FileIndexRepositoryImpl @Inject constructor(
         dao.allFiles().map(::toFileItem)
     }
 
+    override suspend fun indexedPaths(): Set<String> = withContext(ioDispatcher) {
+        dao.allPaths().toHashSet()
+    }
+
     override suspend fun duplicateGroups(minSizeBytes: Long): List<DuplicateGroup> =
         withContext(ioDispatcher) {
             val groups = mutableListOf<DuplicateGroup>()

@@ -128,6 +128,20 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.27.0] - 2026-07-05
+### Fixed (#4 — az index mostantól a TELJES tárhelyet fedi, nem csak a média-katalógust)
+- **Coverage-regresszió javítva**: a v0.24–0.26 csak MediaStore-ból épített (a média/letöltés/dokumentum katalógus), ezért a Storage Analytics csak ~6,6 GB-t mutatott a ~215 GB-ból — a MediaStore nem lát mappákat, `.nomedia`-t, és sok nem-média fájlt. Mostantól a felmérés **kétfázisú**:
+  1. **Gyors MediaStore SEED** (azonnali részleges eredmény, nulla per-fájl syscall);
+  2. **Fájlrendszer RECONCILIATION séta**, ami hozzáadja mindazt, amit a seed kihagyott — **nem-média fájlok ÉS mappák** —, a már indexelt (média) útvonalakat stat NÉLKÜL átugorva, minden új bejegyzést **egyetlen `stat`-tal** (`FileSystemDataSource.toIndexItem`, `Files.readAttributes`) leképezve (a régi ~6-syscall/fájl helyett).
+  Az index csak a reconciliation után lesz **COMPLETE**, tehát a COMPLETE mostantól azt jelenti: „teljesen felmérve", nem „média-katalógus". Amíg a reconciliation fut (RUNNING), a képernyők az élő felmérésből szolgálnak ki (nem egy hiányos indexből).
+- A két fázis **azonos generációval** ír, így a stale-sweep egyiket sem törli; a mappák is bekerülnek az indexbe (a böngésző index-fallbackje így valódi mappákat lát).
+### Added
+- `FileSystemDataSource.toIndexItem` (minimál-syscall metadata `Files.readAttributes`-szel); `FileIndexRepository.indexedPaths()` + `FileIndexDao.allPaths()`; új Robolectric teszt (`seedPlusReconcileShareGenerationAndSurviveSweep`) bizonyítja, hogy a seed+reconciliation sorok azonos generációval túlélik a sweepet és a mappák is indexelődnek.
+### Changed
+- `IndexingWorker`: a régi „csak ha 0 sor" fallback-walk helyett MINDIG lefut a reconciliation a seed után; `versionName` → 0.27.0.
+### Known issues / hátralévő
+- A reconciliation séta a háttérben fut, foreground/checkpoint (#10) nélkül — nagy fánál lassabb lehet, de a seed azonnali részeredményt ad és a séta folytatás nélkül újraindul megszakadáskor. Továbbra is hátra: #5 letöltés-dup null-hash, #6 MediaStore generation delta-sync, #7 teljes mutation coordinator (copy/restore subtree), #9 egy rescan pipeline, #10 foreground+checkpoint+resumable, #11 timestamp-normalizálás, #12 több kötet, #13 perceptuális, #14 FTS/migrációk.
+
 ## [jupiter:0.26.0] - 2026-07-05
 ### Added (index állapotgép alap — a 2. szakértői review P0 magja, VALÓDI Room-tesztekkel)
 - **Room `index_state` tábla + `IndexStateRepository`** (#2): a completeness mostantól **tranzakcionálisan a Roomban** él (EMPTY/RUNNING/COMPLETE/DIRTY/FAILED + generációk), nem egy DataStore boolean. A DataStore `indexComplete` flag **törölve** — így egy DB-wipe sosem hagyhat maga után egy „kész” flaget üres index fölött (a state a data-val együtt nullázódik → EMPTY → rebuild).

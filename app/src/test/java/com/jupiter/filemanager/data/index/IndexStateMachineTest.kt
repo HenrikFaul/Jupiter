@@ -152,6 +152,34 @@ class IndexStateMachineTest {
         assertEquals("CHILDHASH", moved!!.contentHash) // hash preserved through the move
     }
 
+    /**
+     * #4: the two-phase survey (fast MediaStore SEED + filesystem RECONCILIATION) stamps both
+     * phases with the SAME generation, so a directory and a non-media file added by the
+     * reconciliation walk survive the sweep alongside the seed's media rows — and directories
+     * are indexed (MediaStore has none). Rows from a prior generation are still swept.
+     */
+    @Test
+    fun seedPlusReconcileShareGenerationAndSurviveSweep() = runTest(dispatcher) {
+        // A leftover row from an OLD survey that no longer exists on disk.
+        val gOld = state.beginScan()
+        repo.upsertScanned(listOf(file("/s/gone.old")), gOld)
+        state.completeScan(gOld, 1)
+
+        val g = state.beginScan()
+        // Phase 1 — MediaStore seed (media files only).
+        repo.upsertScanned(listOf(file("/s/media.jpg")), g)
+        // Phase 2 — reconciliation adds a non-media file AND a directory, same generation.
+        repo.upsertScanned(listOf(file("/s/dir", dir = true), file("/s/notes.txt")), g)
+        repo.sweepStaleGenerations(g)
+        state.completeScan(g, 3)
+
+        val paths = repo.indexedPaths()
+        assertTrue("seed media survives", "/s/media.jpg" in paths)
+        assertTrue("reconciled non-media survives", "/s/notes.txt" in paths)
+        assertTrue("reconciled directory is indexed", "/s/dir" in paths)
+        assertFalse("prior-generation ghost is swept", "/s/gone.old" in paths)
+    }
+
     /** A sibling that only shares a textual prefix must not be dragged by the rename. */
     @Test
     fun renameLeavesPrefixSiblingUntouched() = runTest(dispatcher) {

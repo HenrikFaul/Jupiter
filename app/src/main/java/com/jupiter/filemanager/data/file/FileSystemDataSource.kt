@@ -8,6 +8,9 @@ import com.jupiter.filemanager.core.util.fileTypeFor as classifyFileType
 import com.jupiter.filemanager.domain.model.FileItem
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -89,6 +92,43 @@ class FileSystemDataSource @Inject constructor(
             childCount = childCount,
             canRead = safeBoolean { file.canRead() },
             canWrite = safeBoolean { file.canWrite() },
+        )
+    }
+
+    /**
+     * Minimal-cost mapping used by the background index reconciliation walk.
+     *
+     * Unlike [toFileItem] — which costs ~6 syscalls per entry (isDirectory, length,
+     * lastModified, isHidden, canRead, canWrite) plus a `list()` for the child count — this
+     * reads all the metadata the index stores in a SINGLE `stat` via
+     * [Files.readAttributes], and drops the fields the index does not persist. On FUSE/
+     * sdcardfs shared storage (where every syscall is a userspace round-trip) that is the
+     * difference between a fast survey and a multi-minute crawl. Returns null when the entry
+     * cannot be stat'd (vanished, permission denied).
+     */
+    fun toIndexItem(file: File): FileItem? {
+        val attrs = try {
+            Files.readAttributes(
+                file.toPath(),
+                BasicFileAttributes::class.java,
+                LinkOption.NOFOLLOW_LINKS,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+        val name = file.name.ifEmpty { file.path }
+        val isDirectory = attrs.isDirectory
+        return FileItem(
+            path = file.absolutePath,
+            name = name,
+            isDirectory = isDirectory,
+            sizeBytes = if (isDirectory) 0L else attrs.size(),
+            lastModified = attrs.lastModifiedTime().toMillis(),
+            type = classifyFileType(name, isDirectory),
+            extension = if (isDirectory) "" else extensionOf(name),
+            mimeType = null,
+            isHidden = name.startsWith('.'),
+            childCount = null,
         )
     }
 
