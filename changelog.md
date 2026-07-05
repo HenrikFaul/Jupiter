@@ -128,6 +128,26 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.22.0] - 2026-07-05
+### Added
+- **Az indexált felmérés MOSTANTÓL tényleg meghajtja a képernyőket (nem kell minden megnyitáskor deep-scan)**: eddig az index fel volt építve és real-time frissült, DE a nehéz képernyők (Cleanup, Duplicate cleanup, Storage Analytics, Home) **minden megnyitáskor újra végigjárták a teljes `/storage/emulated/0` fát**. Mostantól, ha a háttér-felmérés már lefutott, ezek **azonnal az indexből** szolgálják ki az adatot, fájlrendszer-bejárás nélkül:
+  - `StorageAnalyticsRepositoryImpl.storageOverview` / `observeStorageOverview` → a kategória-bontást az index sorokból aggregálja (ugyanazzal a `categoryForPath`/kizárás-logikával, mint a séta).
+  - `findLargeFiles` → az index `largeFiles(minSize, limit)` lekérdezéséből (méret szerint csökkenő).
+  - `findDuplicates` → a duplikátum-jelölteket az index méret-ütközéseiből (`collidingSizes`+`filesOfSize`) veszi (nincs séta), tartalom-hash-sel megerősítve.
+  - Ha az index üres (első indítás előtt), automatikusan visszaesik az élő sétára — nincs regresszió.
+- **A felmérés MOST már hash-eli a méret-ütköző fájlokat** (`IndexingWorker` 2. fázisa → `FileIndexRepository.hashCollidingSizes`): a duplikátumok tartalom-hash-e előre kiszámolódik, így a Cleanup/Duplicate képernyőn a duplikátum-csoportok **azonnal** megjelennek a felmérés után (nem az első megnyitáskor kell hash-elni).
+- **Manuális teljes újrascan**: a Cleanup ⟳ gombja mostantól friss fájlrendszer-sétát futtat (ground-truth) ÉS elindít egy háttér-index-újraépítést (`IndexingScheduler.rebuildNow`), így a következő megnyitások megint azonnaliak és naprakészek.
+- **Látható index-státusz banner** a Cleanupon: "Instant results from your file index — N indexed — downloads and edits update it automatically", benne egy "Rescan" gombbal, hogy a felhasználó lássa, hogy az index dolgozik.
+### Fixed
+- **Hiányzó real-time delta hook-ok** (`FileRepositoryImpl`): az **átnevezés** (`rename`) és a **mappalétrehozás** (`createFolder`) eddig NEM frissítette az indexet, így egy átnevezett fájl régi útvonala bennmaradt az indexben a következő teljes újraépítésig. Most `onMovedOrRenamed` / `indexFile` hívás (best-effort, sosem bukik el a művelet).
+### Changed
+- `FileIndexDao`: új lekérdezések (`fileCount`, `largeFiles`, `allFiles`, `collidingSizes`, `filesOfSize`); `FileIndexRepository`: `isPopulated`, `largeFiles`, `allFiles`, `duplicateGroups`, `hashCollidingSizes`; `StorageAnalyticsRepository` metódusai `preferIndex` (alapból true) kapcsolóval — a manuális rescan false-szal kényszerít friss sétát.
+- `app/build.gradle.kts`: `versionName` → 0.22.0.
+### Known issues
+- Az index-alapú duplikátum a tárolt hash-t bízza meg (a real-time delták + a manuális Rescan tartják naprakészen); egy app-on-kívül, delta nélkül megváltozott fájl a következő felmérésig/rescan-ig elavult lehet.
+### Planned next
+- Browser könyvtárlista opcionális index-forrásból (jelenleg lemezről, ami egy könyvtárnál gyors); Home/Analytics további finomítás; widget `onNewIntent`.
+
 ## [jupiter:0.21.0] - 2026-07-04
 ### Changed
 - **Smart Cleanup összecsukható szekciók — sokkal egyértelműbb tap-affordancia**: a "Large files" és "Duplicate files" fejlécek mostantól **kitöltött, kattintható Card**-ként jelennek meg (tonális háttér + **"Show"/"Hide"** felirat + forgó chevron), így vizuálisan is nyilvánvaló, hogy a szekció NEVÉRE koppintva nyílik/csukódik. Nyitott állapotban a kártya `secondaryContainer` színt kap. A viselkedés változatlanul helyes: alapból **összecsukva** (`mutableStateOf(false)`), a fájl-sorok CSAK `if (largeExpanded)` / `if (duplicatesExpanded)` mögött generálódnak — koppintásra jelennek meg. (A 0.20.0-ban már bekerült a logika; ez a kör a felismerhetőséget javítja, hogy a felhasználó biztosan lássa a kattintható kontrollt.)

@@ -55,6 +55,13 @@ class IndexingWorker @AssistedInject constructor(
 
         return try {
             val indexed = indexTree(PRIMARY_STORAGE_ROOT)
+            // Second phase: precompute content hashes for size-colliding files (the only
+            // duplicate candidates) so the Cleanup / Duplicates screens can list duplicate
+            // groups instantly from the index instead of hashing on first open. Best-effort
+            // and cancellable — a failure here never fails the metadata survey.
+            if (!isStopped) {
+                runCatching { indexRepository.hashCollidingSizes(MIN_DUPLICATE_SIZE) }
+            }
             Result.success(outputOf(indexed))
         } catch (cancellation: CancellationException) {
             // Cooperative cancellation: let WorkManager handle stoppage, don't retry.
@@ -138,6 +145,13 @@ class IndexingWorker @AssistedInject constructor(
 
         /** Number of entries buffered before a single batched upsert. */
         private const val BATCH_SIZE: Int = 500
+
+        /**
+         * Files smaller than this are never considered for duplicate detection, so the
+         * hashing phase skips them. Kept in sync with the analytics repository's own
+         * duplicate-size floor (4 KiB).
+         */
+        private const val MIN_DUPLICATE_SIZE: Long = 4 * 1024L
 
         /**
          * Path segments never worth indexing: sandboxed app data/obb (usually

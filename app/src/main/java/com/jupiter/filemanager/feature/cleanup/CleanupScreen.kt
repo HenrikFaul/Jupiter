@@ -121,12 +121,12 @@ fun CleanupScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = viewModel::scan,
+                        onClick = viewModel::rescan,
                         enabled = !uiState.isScanning,
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Rescan",
+                            contentDescription = "Rescan storage",
                         )
                     }
                 },
@@ -169,9 +169,12 @@ fun CleanupScreen(
                 selectedForDeletion = uiState.selectedForDeletion,
                 aiExplanation = uiState.aiExplanation,
                 inlineError = uiState.error,
+                fromIndex = uiState.fromIndex,
+                indexedCount = uiState.indexedCount,
                 onToggleSelection = viewModel::toggleSelection,
                 onOpenFile = onOpenFile,
                 onScan = viewModel::scan,
+                onRescan = viewModel::rescan,
                 onExplainWithAi = viewModel::explainWithAi,
             )
         }
@@ -204,9 +207,12 @@ private fun CleanupContent(
     selectedForDeletion: Set<String>,
     aiExplanation: String?,
     inlineError: String?,
+    fromIndex: Boolean,
+    indexedCount: Int,
     onToggleSelection: (String) -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onScan: () -> Unit,
+    onRescan: () -> Unit,
     onExplainWithAi: () -> Unit,
 ) {
     val hasScanned = overview != null || isScanning ||
@@ -229,6 +235,12 @@ private fun CleanupContent(
         if (isScanning) {
             item(key = "scanning") {
                 ScanningCard()
+            }
+        }
+
+        if (fromIndex) {
+            item(key = "index-status") {
+                IndexStatusCard(indexedCount = indexedCount, onRescan = onRescan)
             }
         }
 
@@ -356,6 +368,58 @@ private fun ScanningCard() {
                 text = "Scanning storage...",
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+    }
+}
+
+/**
+ * Banner shown when the results were served instantly from the persistent file index
+ * (no deep scan). Explains that the index self-updates on downloads/edits and offers a
+ * one-tap full rescan for ground-truth results.
+ */
+@Composable
+private fun IndexStatusCard(indexedCount: Int, onRescan: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Instant results from your file index",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Text(
+                    text = if (indexedCount > 0) {
+                        formatItemCount(indexedCount) +
+                            " indexed - downloads and edits update it automatically."
+                    } else {
+                        "Downloads and edits update it automatically."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            TextButton(onClick = onRescan) {
+                Text(text = "Rescan")
+            }
         }
     }
 }

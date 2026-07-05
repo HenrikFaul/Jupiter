@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.domain.repository
 
+import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.IndexStats
 import kotlinx.coroutines.flow.Flow
@@ -70,4 +71,39 @@ interface FileIndexRepository {
 
     /** Observes summary statistics about the index. */
     fun stats(): Flow<IndexStats>
+
+    // --- Index-backed analytics (avoids re-walking storage on every open) --------
+
+    /**
+     * True once the background survey has indexed at least one file. Read paths use
+     * this to decide whether they can serve instant results from the index instead of
+     * performing a fresh deep scan.
+     */
+    suspend fun isPopulated(): Boolean
+
+    /**
+     * The largest indexed files (>= [minSizeBytes]), biggest first, capped at [limit].
+     * Served directly from the persistent index — no filesystem walk.
+     */
+    suspend fun largeFiles(minSizeBytes: Long, limit: Int = 500): List<FileItem>
+
+    /** Every indexed non-directory file, used to aggregate a storage overview. */
+    suspend fun allFiles(): List<FileItem>
+
+    /**
+     * Duplicate groups computed entirely from the index: candidate buckets are the
+     * size-collisions pulled from the DB (no filesystem walk), each confirmed by
+     * content hash — reusing the cached hash when the file is unchanged, otherwise
+     * hashing once and caching it. Only groups of two or more identical files are
+     * returned. Files below [minSizeBytes] are ignored.
+     */
+    suspend fun duplicateGroups(minSizeBytes: Long): List<DuplicateGroup>
+
+    /**
+     * Precomputes content hashes for every file whose size collides with another
+     * (the only files that could be duplicates), so a later [duplicateGroups] call is
+     * instant. Intended to run as the second phase of the background survey. Skips
+     * files that already carry a hash; best-effort and cancellable.
+     */
+    suspend fun hashCollidingSizes(minSizeBytes: Long)
 }

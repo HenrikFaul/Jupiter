@@ -15,8 +15,13 @@ interface StorageAnalyticsRepository {
     /**
      * Produces a categorized overview of the primary storage volume, grouping
      * usage by file type into [com.jupiter.filemanager.domain.model.CategoryUsage] entries.
+     *
+     * When [preferIndex] is true (the default) and the persistent file index has been
+     * populated by the background survey, the overview is aggregated instantly from the
+     * index instead of re-walking storage. Pass false to force a fresh filesystem walk
+     * (e.g. a user-initiated rescan).
      */
-    suspend fun storageOverview(): AppResult<StorageOverview>
+    suspend fun storageOverview(preferIndex: Boolean = true): AppResult<StorageOverview>
 
     /**
      * Streams a [StorageOverview] incrementally: emits a partial overview early
@@ -25,20 +30,32 @@ interface StorageAnalyticsRepository {
      *
      * Unlike [storageOverview] this never front-loads the entire walk before the
      * first value, so consumers can render a meaningful breakdown within
-     * milliseconds and refine it as more of the tree is analyzed.
+     * milliseconds and refine it as more of the tree is analyzed. When the index is
+     * already populated a single instant overview is emitted from it (no walk).
      */
     fun observeStorageOverview(): Flow<StorageOverview>
 
     /**
      * Streams files under [rootPath] whose size is at least [minSizeBytes],
      * emitting each match as it is found.
+     *
+     * When [preferIndex] is true (the default) and the index is populated, matches are
+     * served from the index with no filesystem walk. Pass false to force a fresh walk.
      */
-    fun findLargeFiles(rootPath: String, minSizeBytes: Long): Flow<FileItem>
+    fun findLargeFiles(
+        rootPath: String,
+        minSizeBytes: Long,
+        preferIndex: Boolean = true,
+    ): Flow<FileItem>
 
     /**
      * Streams groups of duplicate files discovered under [rootPath]. Files are
      * grouped first by size and then by content hash; each emitted
      * [DuplicateGroup] contains two or more identical files.
+     *
+     * When [preferIndex] is true (the default) and the index is populated, candidate
+     * size-buckets come from the index (no filesystem walk) and are confirmed by hash.
+     * Pass false to force a fresh walk.
      */
-    fun findDuplicates(rootPath: String): Flow<DuplicateGroup>
+    fun findDuplicates(rootPath: String, preferIndex: Boolean = true): Flow<DuplicateGroup>
 }

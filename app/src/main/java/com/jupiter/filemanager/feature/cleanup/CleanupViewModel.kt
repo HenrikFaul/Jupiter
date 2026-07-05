@@ -3,10 +3,12 @@ package com.jupiter.filemanager.feature.cleanup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.StorageOverview
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import com.jupiter.filemanager.feature.ai.AiAssistant
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -33,6 +36,9 @@ import kotlinx.coroutines.launch
  * @property error a human-readable error message, or null when there is none.
  * @property permissionRequired true when the scan was skipped because the app lacks
  *   All-Files-Access; the screen shows an actionable CTA instead of spinning.
+ * @property fromIndex true when the current results were served instantly from the
+ *   persistent file index rather than a fresh filesystem walk.
+ * @property indexedCount number of files in the persistent index (0 when not yet built).
  */
 data class CleanupUiState(
     val isScanning: Boolean = false,
@@ -44,6 +50,8 @@ data class CleanupUiState(
     val aiExplanation: String? = null,
     val error: String? = null,
     val permissionRequired: Boolean = false,
+    val fromIndex: Boolean = false,
+    val indexedCount: Int = 0,
 )
 
 /**
@@ -69,6 +77,8 @@ class CleanupViewModel @Inject constructor(
     private val fileRepository: FileRepository,
     private val aiAssistant: AiAssistant,
     private val storageAccessManager: StorageAccessManager,
+    private val indexRepository: FileIndexRepository,
+    private val indexingScheduler: IndexingScheduler,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CleanupUiState())
@@ -78,12 +88,26 @@ class CleanupViewModel @Inject constructor(
     private var scanJob: Job? = null
 
     /**
-     * Starts a fresh storage scan.
+     * Loads the cleanup results, preferring the persistent index.
      *
-     * Resets prior results, loads the storage overview, then collects large files
-     * and duplicate groups concurrently. Any running scan is cancelled first.
+     * When the background survey has already indexed storage, the overview, large
+     * files and duplicate groups are served instantly from the index — no deep scan
+     * on open. Otherwise this falls back to a fresh filesystem walk (which also seeds
+     * the index for next time). Any running scan is cancelled first.
      */
-    fun scan() {
+    fun scan() = runScan(preferIndex = true)
+
+    /**
+     * User-initiated full rescan: forces a fresh filesystem walk (bypassing the index
+     * for ground-truth results) and kicks off a background index rebuild so subsequent
+     * opens are instant and up to date.
+     */
+    fun rescan() {
+        indexingScheduler.rebuildNow()
+        runScan(preferIndex = false)
+    }
+
+    private fun runScan(preferIndex: Boolean) {
         scanJob?.cancel()
 
         // Permission gate: without All-Files-Access the walk silently returns 0 results,
@@ -100,12 +124,19 @@ class CleanupViewModel @Inject constructor(
                     selectedForDeletion = emptySet(),
                     reclaimableBytes = 0L,
                     aiExplanation = null,
+                    fromIndex = false,
                 )
             }
             return
         }
 
         scanJob = viewModelScope.launch {
+            // Whether this pass is served from the index (instant) or a live walk.
+            val usingIndex = preferIndex &&
+                runCatching { indexRepository.isPopulated() }.getOrDefault(false)
+            val indexedCount = runCatching { indexRepository.stats().first().indexedCount }
+                .getOrDefault(0)
+
             _uiState.update {
                 it.copy(
                     isScanning = true,
@@ -117,18 +148,20 @@ class CleanupViewModel @Inject constructor(
                     selectedForDeletion = emptySet(),
                     reclaimableBytes = 0L,
                     aiExplanation = null,
+                    fromIndex = usingIndex,
+                    indexedCount = indexedCount,
                 )
             }
 
-            loadOverview()
+            loadOverview(preferIndex)
 
             val rootPath = fileRepository.rootDirectory()
             // Duplicate scanning is the slowest pass; let its groups stream in as a
             // secondary indicator rather than gating isScanning on its completion.
-            launch { collectDuplicates(rootPath) }
+            launch { collectDuplicates(rootPath, preferIndex) }
             // The primary scan (overview + large files) determines when the
             // full-screen spinner clears; duplicates continue in the background.
-            collectLargeFiles(rootPath)
+            collectLargeFiles(rootPath, preferIndex)
             _uiState.update { it.copy(isScanning = false) }
         }
     }
@@ -218,8 +251,8 @@ class CleanupViewModel @Inject constructor(
     }
 
     /** Loads the categorized storage overview into the UI state. */
-    private suspend fun loadOverview() {
-        when (val result = analyticsRepository.storageOverview()) {
+    private suspend fun loadOverview(preferIndex: Boolean) {
+        when (val result = analyticsRepository.storageOverview(preferIndex)) {
             is AppResult.Success -> _uiState.update { it.copy(overview = result.data) }
             is AppResult.Failure -> _uiState.update {
                 it.copy(error = result.error.displayMessage)
@@ -230,9 +263,9 @@ class CleanupViewModel @Inject constructor(
     /**
      * Streams large files under [rootPath] into the UI state as they are found.
      */
-    private suspend fun collectLargeFiles(rootPath: String) {
+    private suspend fun collectLargeFiles(rootPath: String, preferIndex: Boolean) {
         val collected = mutableListOf<FileItem>()
-        analyticsRepository.findLargeFiles(rootPath, LARGE_FILE_THRESHOLD_BYTES)
+        analyticsRepository.findLargeFiles(rootPath, LARGE_FILE_THRESHOLD_BYTES, preferIndex)
             .catch { throwable ->
                 _uiState.update {
                     it.copy(error = throwable.message ?: "Failed to scan large files.")
@@ -247,9 +280,9 @@ class CleanupViewModel @Inject constructor(
     /**
      * Streams duplicate groups under [rootPath] into the UI state as they are found.
      */
-    private suspend fun collectDuplicates(rootPath: String) {
+    private suspend fun collectDuplicates(rootPath: String, preferIndex: Boolean) {
         val collected = mutableListOf<DuplicateGroup>()
-        analyticsRepository.findDuplicates(rootPath)
+        analyticsRepository.findDuplicates(rootPath, preferIndex)
             .catch { throwable ->
                 _uiState.update {
                     it.copy(error = throwable.message ?: "Failed to scan duplicates.")

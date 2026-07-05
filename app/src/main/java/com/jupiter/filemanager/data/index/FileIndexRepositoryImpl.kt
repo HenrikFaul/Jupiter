@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.data.index
 
 import com.jupiter.filemanager.di.IoDispatcher
+import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.IndexStats
@@ -171,6 +172,72 @@ class FileIndexRepositoryImpl @Inject constructor(
                 IndexStats(indexedCount = count, lastIndexedAt = dao.maxIndexedAt() ?: 0L)
             }
             .flowOn(ioDispatcher)
+
+    // --- Index-backed analytics ----------------------------------------------
+
+    override suspend fun isPopulated(): Boolean = withContext(ioDispatcher) {
+        dao.fileCount() > 0
+    }
+
+    override suspend fun largeFiles(minSizeBytes: Long, limit: Int): List<FileItem> =
+        withContext(ioDispatcher) {
+            dao.largeFiles(minSizeBytes, limit).map(::toFileItem)
+        }
+
+    override suspend fun allFiles(): List<FileItem> = withContext(ioDispatcher) {
+        dao.allFiles().map(::toFileItem)
+    }
+
+    override suspend fun duplicateGroups(minSizeBytes: Long): List<DuplicateGroup> =
+        withContext(ioDispatcher) {
+            val groups = mutableListOf<DuplicateGroup>()
+            for (size in dao.collidingSizes(minSizeBytes)) {
+                currentCoroutineContext().ensureActive()
+                val candidates = dao.filesOfSize(size)
+                if (candidates.size < 2) continue
+
+                val byHash = LinkedHashMap<String, MutableList<FileIndexEntry>>()
+                for (entry in candidates) {
+                    currentCoroutineContext().ensureActive()
+                    val hash = hashForEntry(entry) ?: continue
+                    byHash.getOrPut(hash) { mutableListOf() }.add(entry)
+                }
+                for ((hash, group) in byHash) {
+                    if (group.size < 2) continue
+                    groups += DuplicateGroup(hash = hash, files = group.map(::toFileItem))
+                }
+            }
+            groups
+        }
+
+    override suspend fun hashCollidingSizes(minSizeBytes: Long) = withContext(ioDispatcher) {
+        for (size in dao.collidingSizes(minSizeBytes)) {
+            currentCoroutineContext().ensureActive()
+            val candidates = dao.filesOfSize(size)
+            if (candidates.size < 2) continue
+            for (entry in candidates) {
+                currentCoroutineContext().ensureActive()
+                if (entry.contentHash != null) continue
+                hashForEntry(entry) // computes and caches as a side effect
+            }
+        }
+    }
+
+    /**
+     * Returns the content hash for an indexed [entry], preferring the value already
+     * stored on the row, then the cached hash for the file's current identity, and
+     * finally a freshly computed streamed SHA-1 (which is written back to the index).
+     * Null when the file cannot be read.
+     */
+    private suspend fun hashForEntry(entry: FileIndexEntry): String? {
+        entry.contentHash?.let { return it }
+        dao.hashIfUnchanged(entry.path, entry.sizeBytes, entry.lastModified)?.let { return it }
+        val computed = computeHash(entry.path) ?: return null
+        dao.upsertAll(
+            listOf(entry.copy(contentHash = computed, indexedAt = System.currentTimeMillis())),
+        )
+        return computed
+    }
 
     // --- Mapping -------------------------------------------------------------
 

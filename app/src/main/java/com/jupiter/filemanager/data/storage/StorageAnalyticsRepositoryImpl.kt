@@ -47,12 +47,21 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
      * mapping each regular file's [FileType] (and a Downloads-path heuristic)
      * into a category bucket.
      */
-    override suspend fun storageOverview(): AppResult<StorageOverview> = withContext(dispatcher) {
+    override suspend fun storageOverview(preferIndex: Boolean): AppResult<StorageOverview> =
+        withContext(dispatcher) {
         val volume: StorageVolumeInfo = volumeProvider.volumes().firstOrNull { it.isPrimary }
             ?: volumeProvider.volumes().firstOrNull()
             ?: return@withContext AppResult.Failure(
                 AppError.Io("No storage volume is available to analyze."),
             )
+
+        // Fast path: aggregate the overview straight from the persistent index once the
+        // background survey has populated it, so opening the screen never re-walks storage.
+        if (preferIndex && indexIsPopulated()) {
+            val fromIndex = runCatching { overviewFromIndex(volume) }.getOrNull()
+            if (fromIndex != null) return@withContext AppResult.Success(fromIndex)
+            // On any index failure, fall through to the authoritative live walk below.
+        }
 
         try {
             val accumulator = OverviewAccumulator()
@@ -100,6 +109,16 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
             ?: volumeProvider.volumes().firstOrNull()
             ?: return@flow
 
+        // Fast path: once the index is populated, emit a single instant overview from it
+        // and stop — no progressive walk needed. Falls through to the walk on any failure.
+        if (indexIsPopulated()) {
+            val fromIndex = runCatching { overviewFromIndex(volume) }.getOrNull()
+            if (fromIndex != null) {
+                emit(fromIndex)
+                return@flow
+            }
+        }
+
         val accumulator = OverviewAccumulator()
         var sinceLastEmit = 0
         var lastEmitAt = System.currentTimeMillis()
@@ -135,7 +154,25 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
      * Streams every regular file under [rootPath] whose length is at least
      * [minSizeBytes], emitting matches lazily as the tree is walked.
      */
-    override fun findLargeFiles(rootPath: String, minSizeBytes: Long): Flow<FileItem> = flow {
+    override fun findLargeFiles(
+        rootPath: String,
+        minSizeBytes: Long,
+        preferIndex: Boolean,
+    ): Flow<FileItem> = flow {
+        // Fast path: serve the large-file list from the index (no walk) once populated.
+        if (preferIndex && indexIsPopulated()) {
+            val indexed = runCatching {
+                indexRepository.largeFiles(minSizeBytes, LARGE_FILES_LIMIT)
+            }.getOrNull()
+            if (indexed != null) {
+                for (item in indexed) {
+                    currentCoroutineContext().ensureActive()
+                    emit(item)
+                }
+                return@flow
+            }
+        }
+
         for (file in dataSource.walkTopDown(rootPath)) {
             currentCoroutineContext().ensureActive()
 
@@ -153,7 +190,23 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
      * then within each size bucket are hashed with streamed SHA-1 to confirm
      * identical content. Only groups containing two or more files are emitted.
      */
-    override fun findDuplicates(rootPath: String): Flow<DuplicateGroup> = flow {
+    override fun findDuplicates(rootPath: String, preferIndex: Boolean): Flow<DuplicateGroup> = flow {
+        // Fast path: build duplicate groups from the index. Candidate size-buckets come
+        // from the DB (no filesystem walk) and are confirmed by content hash, reusing the
+        // hashes precomputed by the survey. Falls through to the live walk on any failure.
+        if (preferIndex && indexIsPopulated()) {
+            val indexed = runCatching {
+                indexRepository.duplicateGroups(MIN_DUPLICATE_SIZE)
+            }.getOrNull()
+            if (indexed != null) {
+                for (group in indexed) {
+                    currentCoroutineContext().ensureActive()
+                    emit(group)
+                }
+                return@flow
+            }
+        }
+
         // First pass: group candidate files by size. Files with a unique size cannot
         // be duplicates and are discarded immediately to bound hashing work. Tiny
         // files and heavy/noise directories are excluded to keep the work focused
@@ -249,6 +302,31 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
     }
 
     // region Internals -----------------------------------------------------------
+
+    /** True when the persistent index has files to serve; false on any probe failure. */
+    private suspend fun indexIsPopulated(): Boolean =
+        runCatching { indexRepository.isPopulated() }.getOrDefault(false)
+
+    /**
+     * Aggregates a [StorageOverview] from the persistent index instead of walking
+     * storage: every indexed non-directory file is bucketed with the SAME
+     * [categoryForPath] classification and [isExcludedPath] filter used by the live
+     * walk, so the result is equivalent to a fresh scan (modulo index freshness).
+     */
+    private suspend fun overviewFromIndex(volume: StorageVolumeInfo): StorageOverview {
+        val accumulator = OverviewAccumulator()
+        for (item in indexRepository.allFiles()) {
+            currentCoroutineContext().ensureActive()
+            if (item.isDirectory) continue
+            val path = item.path
+            if (isExcludedPath(path)) continue
+            accumulator.add(
+                category = categoryForPath(path, item.name),
+                size = item.sizeBytes,
+            )
+        }
+        return accumulator.toOverview(volume)
+    }
 
     /**
      * Mutable, order-preserving accumulator of per-[StorageCategory] usage. Shared
@@ -421,6 +499,9 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
 
         /** Files smaller than this are never considered for duplicate detection. */
         const val MIN_DUPLICATE_SIZE = 4 * 1024L
+
+        /** Upper bound on index-served large-file rows (matches the DAO query cap). */
+        const val LARGE_FILES_LIMIT = 500
 
         /** Emit a partial overview at least every this many newly-counted files. */
         const val OVERVIEW_EMIT_FILES = 400

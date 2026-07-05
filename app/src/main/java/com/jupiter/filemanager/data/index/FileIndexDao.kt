@@ -82,6 +82,47 @@ interface FileIndexDao {
     @Query("SELECT COUNT(*) FROM file_index")
     fun count(): Flow<Int>
 
+    /**
+     * Number of indexed **files** (directories excluded). Used as a fast, one-shot
+     * "has the survey run yet?" probe so read paths can serve instant results from
+     * the index instead of re-walking storage on every open.
+     */
+    @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0")
+    suspend fun fileCount(): Int
+
+    /**
+     * The largest indexed files (never a directory) of at least [minSize] bytes,
+     * biggest first, capped at [limit]. Backs the Cleanup "Large files" list without
+     * a filesystem walk once the survey has run.
+     */
+    @Query(
+        "SELECT * FROM file_index WHERE isDirectory = 0 AND sizeBytes >= :minSize " +
+            "ORDER BY sizeBytes DESC LIMIT :limit",
+    )
+    suspend fun largeFiles(minSize: Long, limit: Int): List<FileIndexEntry>
+
+    /**
+     * Every indexed non-directory file. Used to aggregate the storage overview
+     * (per-category totals) directly from the index rather than walking storage.
+     */
+    @Query("SELECT * FROM file_index WHERE isDirectory = 0")
+    suspend fun allFiles(): List<FileIndexEntry>
+
+    /**
+     * File sizes (>= [minSize]) shared by two or more non-directory files. Identical
+     * size is a cheap necessary condition for byte-equality, so these are the only
+     * duplicate candidates worth hashing — computed in SQL with no filesystem walk.
+     */
+    @Query(
+        "SELECT sizeBytes FROM file_index WHERE isDirectory = 0 AND sizeBytes >= :minSize " +
+            "GROUP BY sizeBytes HAVING COUNT(*) > 1",
+    )
+    suspend fun collidingSizes(minSize: Long): List<Long>
+
+    /** All non-directory files whose size is exactly [size] (a duplicate candidate bucket). */
+    @Query("SELECT * FROM file_index WHERE isDirectory = 0 AND sizeBytes = :size")
+    suspend fun filesOfSize(size: Long): List<FileIndexEntry>
+
     /** Returns the most recent [FileIndexEntry.indexedAt], or null when empty. */
     @Query("SELECT MAX(indexedAt) FROM file_index")
     suspend fun maxIndexedAt(): Long?

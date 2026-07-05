@@ -11,6 +11,7 @@ import com.jupiter.filemanager.domain.model.SortDirection
 import com.jupiter.filemanager.domain.model.SortField
 import com.jupiter.filemanager.domain.model.SortOption
 import com.jupiter.filemanager.domain.model.StorageVolumeInfo
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
 import java.io.File
 import java.io.IOException
@@ -43,6 +44,7 @@ class FileRepositoryImpl @Inject constructor(
     private val dataSource: FileSystemDataSource,
     private val operationsManager: FileOperationsManager,
     private val volumeProvider: StorageVolumeProvider,
+    private val indexRepository: FileIndexRepository,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : FileRepository {
 
@@ -127,7 +129,11 @@ class FileRepositoryImpl @Inject constructor(
                     AppError.Io("Failed to create folder: " + target.absolutePath),
                 )
             }
-            AppResult.Success(dataSource.toFileItem(target))
+            val created = dataSource.toFileItem(target)
+            // Keep the live index in step so the new folder is browsable/searchable
+            // without waiting for the next full rebuild. Best-effort; never fails the op.
+            runCatching { indexRepository.indexFile(created) }
+            AppResult.Success(created)
         } catch (ce: CancellationException) {
             throw ce
         } catch (e: SecurityException) {
@@ -157,7 +163,11 @@ class FileRepositoryImpl @Inject constructor(
                     AppError.Io("Failed to rename: " + item.path),
                 )
             }
-            AppResult.Success(dataSource.toFileItem(target))
+            val renamed = dataSource.toFileItem(target)
+            // Reflect the rename in the index (drop the old path/subtree, index the new
+            // location) so stale entries don't linger until the next rebuild. Best-effort.
+            runCatching { indexRepository.onMovedOrRenamed(item.path, renamed) }
+            AppResult.Success(renamed)
         } catch (ce: CancellationException) {
             throw ce
         } catch (e: SecurityException) {
