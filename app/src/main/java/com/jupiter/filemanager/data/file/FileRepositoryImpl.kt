@@ -91,8 +91,11 @@ class FileRepositoryImpl @Inject constructor(
             // Self-heal the index for this directory in the BACKGROUND so the returned
             // listing is never delayed by a DB write. Only persist a NON-EMPTY listing: an
             // empty result can be a transient read failure, and pruning the index on it
-            // would wipe good cached rows. Best-effort — a failure here is swallowed.
-            if (raw.isNotEmpty()) {
+            // would wipe good cached rows. Skip survey-excluded directories (app-private
+            // sandboxes, thumbnail/trash caches) so browsing them never sneaks their files
+            // into the index — that would let index-served duplicate/large-file lists
+            // surface entries the live scan deliberately excludes. Best-effort.
+            if (raw.isNotEmpty() && isIndexableDir(path)) {
                 indexScope.launch { runCatching { indexRepository.replaceChildren(path, raw) } }
             }
             val processed = applySortAndFilter(raw, sort, filter)
@@ -252,6 +255,19 @@ class FileRepositoryImpl @Inject constructor(
 
     override fun storageVolumes(): List<StorageVolumeInfo> = volumeProvider.volumes()
 
+    /**
+     * True unless [path] is (or lies under) a directory the background survey also
+     * excludes — app-private `Android/data`/`Android/obb` sandboxes and thumbnail/trash
+     * caches. Keeps the browse-time self-heal consistent with the survey so index-served
+     * duplicate/large-file lists never surface files a live scan would skip.
+     */
+    private fun isIndexableDir(path: String): Boolean {
+        val lower = path.lowercase()
+        return INDEX_EXCLUDED_SEGMENTS.none { segment ->
+            lower.contains("/$segment/") || lower.endsWith("/$segment")
+        }
+    }
+
     // region Sorting & filtering ----------------------------------------------
 
     /**
@@ -323,4 +339,17 @@ class FileRepositoryImpl @Inject constructor(
     }
 
     // endregion
+
+    private companion object {
+        /**
+         * Lowercased path segments the browse-time index self-heal skips, mirroring
+         * [com.jupiter.filemanager.data.index.IndexingWorker]'s survey exclusions.
+         */
+        val INDEX_EXCLUDED_SEGMENTS = listOf(
+            "android/data",
+            "android/obb",
+            ".thumbnails",
+            ".trashed",
+        )
+    }
 }
