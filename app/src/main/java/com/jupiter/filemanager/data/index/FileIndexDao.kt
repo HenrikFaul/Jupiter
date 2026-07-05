@@ -37,6 +37,14 @@ interface FileIndexDao {
     suspend fun getByPath(path: String): FileIndexEntry?
 
     /**
+     * Returns the direct children of [parentPath] as a one-shot list (the suspend
+     * counterpart of [childrenOf]). Used to preserve already-computed content hashes
+     * when re-indexing a directory's listing.
+     */
+    @Query("SELECT * FROM file_index WHERE parentPath = :parentPath")
+    suspend fun childEntries(parentPath: String): List<FileIndexEntry>
+
+    /**
      * Returns every indexed **file** (never a directory) whose content hash
      * equals [hash]. Used to surface content-duplicates regardless of name.
      */

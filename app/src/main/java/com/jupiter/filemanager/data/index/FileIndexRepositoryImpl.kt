@@ -44,8 +44,30 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun replaceChildren(parentPath: String, items: List<FileItem>) =
         withContext(ioDispatcher) {
+            if (items.isEmpty()) {
+                // The directory is now empty: drop all its indexed children. (deleteStale
+                // with an empty keep-list would generate an invalid SQL `NOT IN ()`.)
+                dao.deleteByParent(parentPath)
+                return@withContext
+            }
             val now = System.currentTimeMillis()
-            dao.upsertAll(items.map { toEntry(it, now) })
+            // Preserve a previously-computed content hash for any child whose identity
+            // (size + mtime) is unchanged, so re-indexing a directory's listing (e.g. every
+            // time it is browsed) never discards the hashes the survey precomputed — which
+            // the downloads-dedup check and the index-backed duplicate scan both rely on.
+            val existing = dao.childEntries(parentPath).associateBy { it.path }
+            val entries = items.map { item ->
+                val prior = existing[item.path]
+                val keepHash = if (!item.isDirectory && prior != null &&
+                    prior.sizeBytes == item.sizeBytes && prior.lastModified == item.lastModified
+                ) {
+                    prior.contentHash
+                } else {
+                    null
+                }
+                toEntry(item, now).copy(contentHash = keepHash)
+            }
+            dao.upsertAll(entries)
             dao.deleteStale(parentPath, items.map { it.path })
         }
 

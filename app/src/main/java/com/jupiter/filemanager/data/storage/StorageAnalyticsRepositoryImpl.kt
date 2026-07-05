@@ -315,10 +315,16 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
      */
     private suspend fun overviewFromIndex(volume: StorageVolumeInfo): StorageOverview {
         val accumulator = OverviewAccumulator()
+        // The index may also hold entries for OTHER volumes (e.g. an SD card the user
+        // browsed, which self-heals into the index). The overview is volume-specific, so
+        // attribute only files that actually live under this volume's root — matching the
+        // live walk, which only traverses volume.rootPath.
+        val rootPrefix = volume.rootPath.trimEnd('/') + "/"
         for (item in indexRepository.allFiles()) {
             currentCoroutineContext().ensureActive()
             if (item.isDirectory) continue
             val path = item.path
+            if (path != volume.rootPath && !path.startsWith(rootPrefix)) continue
             if (isExcludedPath(path)) continue
             accumulator.add(
                 category = categoryForPath(path, item.name),

@@ -19,12 +19,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -48,6 +51,14 @@ class FileRepositoryImpl @Inject constructor(
     private val indexRepository: FileIndexRepository,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : FileRepository {
+
+    /**
+     * Long-lived scope for best-effort, fire-and-forget index self-heal writes so a
+     * directory listing is never delayed by a DB write. Survives individual calls (the
+     * repository is a [Singleton]); a SupervisorJob keeps one failed write from
+     * cancelling others.
+     */
+    private val indexScope = CoroutineScope(SupervisorJob() + dispatcher)
 
     override fun observeDirectory(
         path: String,
@@ -77,10 +88,13 @@ class FileRepositoryImpl @Inject constructor(
             }
 
             val raw = dataSource.listDirectory(path)
-            // Self-heal the index for this directory: persist the full (unfiltered) disk
-            // listing and prune entries for children that no longer exist. Best-effort —
-            // an index write must never fail or slow the user-visible listing's result.
-            runCatching { indexRepository.replaceChildren(path, raw) }
+            // Self-heal the index for this directory in the BACKGROUND so the returned
+            // listing is never delayed by a DB write. Only persist a NON-EMPTY listing: an
+            // empty result can be a transient read failure, and pruning the index on it
+            // would wipe good cached rows. Best-effort — a failure here is swallowed.
+            if (raw.isNotEmpty()) {
+                indexScope.launch { runCatching { indexRepository.replaceChildren(path, raw) } }
+            }
             val processed = applySortAndFilter(raw, sort, filter)
             AppResult.Success(processed)
         } catch (ce: CancellationException) {
