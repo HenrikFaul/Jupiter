@@ -55,6 +55,9 @@ sealed class Destination(val route: String) {
 
     data object StorageAnalytics : Destination("storage_analytics")
 
+    /** Per-app storage breakdown (StorageStatsManager) — accounts for app-private space. */
+    data object AppStorage : Destination("app_storage")
+
     data object Duplicates : Destination("duplicates")
 
     data object Downloads : Destination("downloads")

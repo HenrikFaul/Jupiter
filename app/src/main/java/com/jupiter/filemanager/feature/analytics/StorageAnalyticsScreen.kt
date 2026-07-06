@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.DonutLarge
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.FolderOff
@@ -149,6 +150,7 @@ fun StorageAnalyticsScreen(
                     fromIndex = uiState.fromIndex,
                     indexedCount = uiState.indexedCount,
                     onOpenLargeFiles = { onOpenRoute(Destination.Cleanup.route) },
+                    onOpenAppStorage = { onOpenRoute(Destination.AppStorage.route) },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
@@ -166,6 +168,7 @@ private fun AnalyticsContent(
     fromIndex: Boolean,
     indexedCount: Int,
     onOpenLargeFiles: () -> Unit,
+    onOpenAppStorage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sortedCategories = overview.categories
@@ -219,6 +222,14 @@ private fun AnalyticsContent(
                     )
                 }
             }
+        }
+
+        item(key = "app-storage-entry") {
+            AppStorageEntry(
+                usedBytes = overview.volume.usedBytes,
+                analyzedBytes = overview.totalAnalyzedBytes,
+                onClick = onOpenAppStorage,
+            )
         }
 
         item(key = "categories-header") {
@@ -517,6 +528,67 @@ private fun LargeFilesEntry(onClick: () -> Unit) {
                 )
                 Text(
                     text = "Scan for big files and duplicates to reclaim space",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Entry to the per-app storage breakdown. Files on the volume ([analyzedBytes]) are usually
+ * far less than the total [usedBytes] because most of a full phone is app-private storage
+ * (games, app data, caches) the filesystem can't list — this card surfaces that gap and
+ * links to the StorageStatsManager-backed breakdown.
+ */
+@Composable
+private fun AppStorageEntry(usedBytes: Long, analyzedBytes: Long, onClick: () -> Unit) {
+    val appish = (usedBytes - analyzedBytes).coerceAtLeast(0L)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Apps,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "App storage",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = if (appish > 0) {
+                        "~" + formatBytes(appish) + " is app data & caches the filesystem can't show"
+                    } else {
+                        "See per-app storage usage"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,

@@ -63,6 +63,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!--
+        Usage access — read per-app storage (StorageStatsManager) so the App-storage screen
+        can account for the large app-private slice (Android/data, APKs, caches) the
+        filesystem cannot enumerate. This is a special-access permission the USER grants in
+        system settings (Usage access); declaring it is required to even request it.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:name=".JupiterApp"
         android:allowBackup="true"

@@ -128,6 +128,16 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.29.0] - 2026-07-06
+### Added — Per-app tárhely-bontás (a „hova tűnt a 190 GB" válasza)
+- **Új „App storage" képernyő** (`feature/apps/*`, `data/apps/AppStorageSource`): a `StorageStatsManager`-rel kiolvassa MINDEN telepített app tárhelyét (APK + adat + cache), méret szerint csökkenő listában, app-ikonnal, összesítő fejléccel („X GB, N app, Y GB törölhető cache"). Ez számol el a ~190 GB app-privát tárhellyel (`Android/data`, `Android/obb`, cache), amit a fájlrendszeren keresztül SEMMILYEN fájlkezelő nem lát Android 11+ alatt.
+- **Usage-access engedélykezelés**: mivel a `StorageStatsManager` a különleges „Usage access" (PACKAGE_USAGE_STATS app-op) engedélyt igényli, hiánya esetén a képernyő egy magyarázó CTA-t mutat, ami a rendszerbeállításokba visz; visszatéréskor automatikusan újralekérdez.
+- **Belépési pont a Storage Analytics-ból**: új „App storage" kártya, ami kiírja a becsült app-adat/cache méretet (a „used" és az indexelt fájlok különbségét) és a részletes bontásra navigál.
+### Changed
+- `AndroidManifest.xml`: `PACKAGE_USAGE_STATS` engedély; `Destinations`/`JupiterNavHost`: `AppStorage` útvonal; `versionName` → 0.29.0.
+### Known issues / megjegyzés
+- A per-app méret csak a Usage-access megadása után látszik (platform-követelmény). A `StorageStatsManager` réteg on-device igényel validálást (a CI-ben JVM unit-teszt csak a modell-matematikát fedi: `AppStorageInfoTest`). Változatlanul hátra az index oldalon: #5 letöltés-dup null-hash, #6 delta-sync, #7 mutation coordinator, #9 rescan pipeline, #11 timestamp, #12 több kötet, #13 perceptuális, #14 FTS.
+
 ## [jupiter:0.28.0] - 2026-07-05
 ### Fixed (#10 — a teljes tárhely-felmérés VÉGRE lefut a végéig)
 - **A felmérés mostantól FOREGROUND + EXPEDITED worker**: eddig sima háttér-`OneTimeWorkRequest` volt, amit a Doze / háttér-végrehajtási korlátok fojtottak és megöltek → egy nagy (200 GB-os) készüléken SOHA nem futott végig. Mostantól:

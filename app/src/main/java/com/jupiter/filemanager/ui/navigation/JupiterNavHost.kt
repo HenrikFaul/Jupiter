@@ -11,6 +11,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.feature.ai.AiAssistantScreen
 import com.jupiter.filemanager.feature.analytics.StorageAnalyticsScreen
+import com.jupiter.filemanager.feature.apps.AppStorageScreen
 import com.jupiter.filemanager.feature.archive.ArchiveManagerScreen
 import com.jupiter.filemanager.feature.automation.AutomationScreen
 import com.jupiter.filemanager.feature.automation.RuleBuilderScreen
@@ -266,6 +267,12 @@ fun JupiterNavHost(
         composable(route = Destination.StorageAnalytics.route) {
             StorageAnalyticsScreen(
                 onOpenRoute = { route -> navController.navigate(route) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(route = Destination.AppStorage.route) {
+            AppStorageScreen(
                 onBack = { navController.popBackStack() },
             )
         }
