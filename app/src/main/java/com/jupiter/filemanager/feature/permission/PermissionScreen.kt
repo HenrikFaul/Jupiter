@@ -197,6 +197,23 @@ fun PermissionScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Honest expectation-setting: All files access unlocks the full shared volume, but
+        // Android seals other apps' Android/data & Android/obb off from all file managers since
+        // Android 11 (installed APKs and caches were never browsable without root). That slice is
+        // often most of "used" space; Jupiter accounts for it per app on the App-storage screen
+        // rather than pretending to browse it.
+        Text(
+            text = "Note: since Android 11, other apps' Android/data folders are off-limits to " +
+                "every file manager, and installed apps and caches aren't browsable without " +
+                "root. Jupiter still measures that hidden space per app under Storage Analytics " +
+                "→ App storage.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

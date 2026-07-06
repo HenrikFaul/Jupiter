@@ -140,6 +140,9 @@ private fun AppStorageContent(
                 }
             }
         }
+        item(key = "explainer") {
+            AppPrivacyExplainer()
+        }
         val max = overview.apps.firstOrNull()?.totalBytes?.coerceAtLeast(1L) ?: 1L
         items(overview.apps, key = { it.packageName }) { app ->
             AppRow(app = app, fractionOfMax = app.totalBytes.toFloat() / max.toFloat())
@@ -209,6 +212,45 @@ private fun AppRow(app: AppStorageInfo, fractionOfMax: Float) {
                 text = formatBytes(app.totalBytes),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+/**
+ * Honest explanation of the Android storage model. Full "All files access" lets Jupiter browse
+ * everything in shared storage, but two kinds of app-private space stay off-limits to every file
+ * manager: since Android 11, other apps' `Android/data` and `Android/obb` folders are walled off
+ * even with All files access; and installed APKs (in `/data/app`) plus app caches were never
+ * reachable by a non-root file manager on any Android version. On a typical phone that hidden
+ * space is the *largest* part of "used" storage. Only a rooted device can open those files, so
+ * Jupiter accounts for their size per app here instead.
+ */
+@Composable
+private fun AppPrivacyExplainer() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Why files here can't be browsed",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Since Android 11, other apps' Android/data and Android/obb folders are " +
+                    "sealed off from every file manager — even with All files access. Installed " +
+                    "APKs and app caches aren't browsable by any non-root file manager either. On " +
+                    "most phones that hidden space is the biggest part of what's used. No app can " +
+                    "open those files (only a rooted device can), so Jupiter measures their size " +
+                    "per app here instead of listing them as files.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

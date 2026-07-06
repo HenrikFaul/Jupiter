@@ -128,6 +128,20 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.30.0] - 2026-07-06
+### Fixed — „adok hozzáférést → INDULJON a teljes felmérés" (a hozzáférés-megadás mostantól tényleg scannel)
+- **Gyökér-ok**: az első felmérés a folyamat indulásakor ütemeződik (`JupiterApp.onCreate` → `ensureIndexed`), ez viszont MÉG az All-Files-Access megadása ELŐTT fut le, így a worker `!hasAllFilesAccess()` ágon **no-opol** (`Result.success(0,0)`, `beginScan` nélkül) és az index `EMPTY` marad. A megadás után **semmi nem indított újra** felmérést — csak a következő hidegindításkor futott —, ezért látszott úgy, hogy „megadtam a hozzáférést, mégsem scannel".
+- **Javítás**: a permission-képernyő ViewModelje (`PermissionViewModel.refresh`) mostantól — amint a hozzáférés megvan — elindítja a teljes tárhely-felmérést. A döntés egy tiszta, unit-tesztelt policy (`GrantSurveyPolicy.shouldStartSurvey`): CSAK akkor indít, ha van hozzáférés, az indexelés engedélyezett, és az index se nem `RUNNING`, se nem `COMPLETE` (EMPTY/DIRTY/FAILED-ből igen). Így a megadás azonnal (hidegindítás nélkül) elindítja az előtér-workert, futó felmérést pedig nem indít újra és kész indexet nem scannel feleslegesen.
+- **Race-keményítés (adversarial review nyomán)**: a felmérés-ütemezés **process-élettartamú `@ApplicationScope` CoroutineScope**-on fut, NEM `viewModelScope`-on — mert a megadás `popUpTo(Permission, inclusive=true)`-tal navigál el, ami törli a ViewModelt és félbe vágná a `viewModelScope` jobot (a DataStore/Room olvasás + enqueue előtt), különösen kikapcsolt rendszer-animációknál. Az `appScope`-on az `enqueue` garantáltan lefut. `rebuildNow()` (REPLACE) törli a hozzáférés előtti no-op munkát és friss, immár a kötetet látó felmérést indít.
+### Added
+- **`data/index/GrantSurveyPolicy.kt`** (tiszta policy) + **`GrantSurveyPolicyTest.kt`** (JVM igazságtábla-teszt: minden ág — access ki/be, indexelés ki/be, mind az 5 `IndexStatus` — bizonyítva).
+- **`di/CoroutineModule`**: `@ApplicationScope` minősítő + `@Singleton` provider (`SupervisorJob + Dispatchers.IO`) — fire-and-forget munkához, ami túléli az őt indító komponenst.
+- **Őszinte in-app magyarázat a platform-korlátról**: az „App storage" képernyőn magyarázó kártya („Miért nem böngészhetők ezek a fájlok"), a permission-képernyőn pedig rövid megjegyzés — pontosítva, hogy Android 11 óta az `Android/data`/`Android/obb` MINDEN fájlkezelő elől tiltott (All-Files-Access-szel is), a telepített APK-k (`/data/app`) és app-cache pedig root nélkül SEMMILYEN Android-verzión nem böngészhetők (nem scoped-storage kérdés — ez a review egy megerősített pontossági javítása volt).
+### Changed
+- `PermissionViewModel` (+ `SettingsDataStore`/`IndexStateRepository`/`IndexingScheduler`/`@ApplicationScope` injektálás); `PermissionScreen.kt` + `AppStorageScreen.kt` (magyarázó szövegek); `versionName` → 0.30.0.
+### Known issues / megjegyzés
+- A ~190 GB app-privát tárhely (`Android/data`/`Android/obb`) továbbra sem böngészhető SEMMILYEN fájlkezelővel Android 11+ alatt (csak root) — ez platform-korlát, nem Jupiter-hiba; a méretét a v0.29 App-storage képernyő `StorageStatsManager`-rel számolja el. A megadás→felmérés trigger on-device viselkedése (a policy-döntés JVM-tesztelt) készüléken validálandó. Index oldal hátraléka változatlan: #5 letöltés-dup null-hash, #6 delta-sync, #7 mutation coordinator, #9 rescan pipeline, #11 timestamp, #12 több kötet, #13 perceptuális, #14 FTS.
+
 ## [jupiter:0.29.0] - 2026-07-06
 ### Added — Per-app tárhely-bontás (a „hova tűnt a 190 GB" válasza)
 - **Új „App storage" képernyő** (`feature/apps/*`, `data/apps/AppStorageSource`): a `StorageStatsManager`-rel kiolvassa MINDEN telepített app tárhelyét (APK + adat + cache), méret szerint csökkenő listában, app-ikonnal, összesítő fejléccel („X GB, N app, Y GB törölhető cache"). Ez számol el a ~190 GB app-privát tárhellyel (`Android/data`, `Android/obb`, cache), amit a fájlrendszeren keresztül SEMMILYEN fájlkezelő nem lát Android 11+ alatt.
