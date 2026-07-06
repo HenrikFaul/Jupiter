@@ -128,6 +128,20 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.28.0] - 2026-07-05
+### Fixed (#10 — a teljes tárhely-felmérés VÉGRE lefut a végéig)
+- **A felmérés mostantól FOREGROUND + EXPEDITED worker**: eddig sima háttér-`OneTimeWorkRequest` volt, amit a Doze / háttér-végrehajtási korlátok fojtottak és megöltek → egy nagy (200 GB-os) készüléken SOHA nem futott végig. Mostantól:
+  - `IndexingWorker.getForegroundInfo()` + `setForeground(...)` a `doWork` elején → **előtérszolgáltatásként** fut folyamatos értesítéssel (a felhasználó LÁTJA is, hogy „Indexing storage — N files"), így a rendszer nem öli meg és végigfut.
+  - `IndexingScheduler` `setExpedited(RUN_AS_NON_EXPEDITED_WORK_REQUEST)` → azonnal indul, nem vár háttérablakra (quota kimerülésekor is lefut).
+  - Manifest: `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC` engedély + `foregroundServiceType="dataSync"` a WorkManager előtérszolgáltatására (API 34+).
+- **Folytathatóság (resumability) helyesen**: a reconciliation séta mostantól csak az AKTUÁLIS generáció (a jelenlegi seed) útvonalait ugorja át (`pathsAtGeneration(gen)`), nem az összeset — így egy megszakadt korábbi generáció sorai újra-bélyegződnek az új generációval és a záró stale-sweep NEM törli a saját részleges haladását. Robolectric teszt (`resumedSurveyRestampsPriorProgressInsteadOfSweepingIt`) bizonyítja.
+### Fontos, őszinte platform-korlát (nem Jupiter-hiba)
+- A 215 GB „használt"-ból a fájlrendszeren keresztül csak ~a hozzáférhető rész (a régi séta ~23,5 GB-ot látott) indexelhető. A maradék ~190 GB az **`Android/data` / `Android/obb`** — app-privát tárhely (játékok, app-cache, letöltött asset-ek), amit az **Android 11+ MINDEN fájlkezelő elől letilt**, All-Files-Access-szel is. Ez platform-korlát; a Jupiter mostantól a teljes HOZZÁFÉRHETŐ tárhelyet megbízhatóan végigindexeli. (Az app-ok által foglalt hely megjelenítése `StorageStatsManager`-rel külön, opcionális jövőbeli fejlesztés.)
+### Changed
+- `IndexingWorker`/`IndexingScheduler`/`AndroidManifest.xml`; `FileIndexDao.pathsAtGeneration` + repo; `versionName` → 0.28.0.
+### Known issues / hátralévő
+- Checkpoint/mid-walk resume (jelenleg megszakadáskor a séta újraindul, de a már indexelt sorokat megtartja és újra-bélyegzi); #5 letöltés-dup null-hash; #6 MediaStore generation delta-sync; #7 teljes mutation coordinator; #9 egy rescan pipeline; #11 timestamp-normalizálás; #12 több kötet; #13 perceptuális; #14 FTS/migrációk.
+
 ## [jupiter:0.27.0] - 2026-07-05
 ### Fixed (#4 — az index mostantól a TELJES tárhelyet fedi, nem csak a média-katalógust)
 - **Coverage-regresszió javítva**: a v0.24–0.26 csak MediaStore-ból épített (a média/letöltés/dokumentum katalógus), ezért a Storage Analytics csak ~6,6 GB-t mutatott a ~215 GB-ból — a MediaStore nem lát mappákat, `.nomedia`-t, és sok nem-média fájlt. Mostantól a felmérés **kétfázisú**:

@@ -3,6 +3,7 @@ package com.jupiter.filemanager.data.index
 import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -34,16 +35,27 @@ class IndexingScheduler @Inject constructor(
      */
     fun rebuildNow() {
         try {
-            val request = OneTimeWorkRequestBuilder<IndexingWorker>().build()
             workManager.enqueueUniqueWork(
                 IndexingWorker.UNIQUE_WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
-                request,
+                buildRequest(),
             )
         } catch (_: Exception) {
             // Best-effort: indexing is an optimization, never critical-path.
         }
     }
+
+    /**
+     * Builds the survey request as EXPEDITED so it starts promptly instead of waiting for a
+     * background window; the worker itself then promotes to a foreground service
+     * ([IndexingWorker.getForegroundInfo]) so a long full-volume walk runs to completion.
+     * [OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST] means that if the expedited quota
+     * is exhausted it still runs (as a normal request) rather than being dropped.
+     */
+    private fun buildRequest() =
+        OneTimeWorkRequestBuilder<IndexingWorker>()
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
 
     /**
      * Ensures a background index survey runs, WITHOUT restarting one that is already
@@ -54,11 +66,10 @@ class IndexingScheduler @Inject constructor(
      */
     fun ensureIndexed() {
         try {
-            val request = OneTimeWorkRequestBuilder<IndexingWorker>().build()
             workManager.enqueueUniqueWork(
                 IndexingWorker.UNIQUE_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
-                request,
+                buildRequest(),
             )
         } catch (_: Exception) {
             // Best-effort.

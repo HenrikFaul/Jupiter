@@ -176,6 +176,12 @@ interface FileIndexDao {
     @Query("SELECT path FROM file_index")
     suspend fun allPaths(): List<String>
 
+    /** Paths already written by the CURRENT survey generation (its MediaStore seed). The
+     * reconciliation walk skips only these — rows from an interrupted prior generation are
+     * re-stamped (re-seen) so a resumed survey doesn't sweep away its own earlier progress. */
+    @Query("SELECT path FROM file_index WHERE lastSeenGeneration = :generation")
+    suspend fun pathsAtGeneration(generation: Long): List<String>
+
     /** Returns the most recent [FileIndexEntry.indexedAt], or null when empty. */
     @Query("SELECT MAX(indexedAt) FROM file_index")
     suspend fun maxIndexedAt(): Long?

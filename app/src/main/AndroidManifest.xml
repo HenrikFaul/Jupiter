@@ -53,6 +53,16 @@
     <!-- Required to post foreground/operation progress notifications on API 33+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+        Foreground service for the full-storage index survey. A 200 GB volume takes real
+        time to walk; a plain background WorkManager job is throttled/killed by Doze and the
+        background-execution limits and never completes. Running the survey as a foreground
+        service (WorkManager setForeground) with an ongoing notification lets it run to
+        completion. FOREGROUND_SERVICE_DATA_SYNC is the API 34+ typed variant.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <application
         android:name=".JupiterApp"
         android:allowBackup="true"
@@ -76,6 +86,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Give WorkManager's foreground service the "dataSync" type so the index survey can
+            run as a typed foreground service on API 34+ (required there). tools:node="merge"
+            adds the attribute onto WorkManager's own <service> declaration.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <!--
             FileProvider used to share files (open-with / share intents) without

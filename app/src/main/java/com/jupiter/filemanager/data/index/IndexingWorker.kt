@@ -1,9 +1,15 @@
 package com.jupiter.filemanager.data.index
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.jupiter.filemanager.data.file.FileSystemDataSource
 import com.jupiter.filemanager.data.permission.StorageAccessManager
@@ -56,6 +62,13 @@ class IndexingWorker @AssistedInject constructor(
             return Result.success(outputOf(0, 0))
         }
 
+        // Promote to a FOREGROUND service with an ongoing notification. A full-volume survey
+        // takes real time; as a plain background job Doze / background-execution limits throttle
+        // and kill it so it never completes. As a foreground service it runs to completion (and
+        // the notification shows the user it is working). Best-effort: if the OS refuses (e.g.
+        // notifications blocked) the survey still runs, just background-throttled.
+        runCatching { setForeground(foregroundInfo(0)) }
+
         // Open a new scan GENERATION and mark the index RUNNING. Completeness is a STATE
         // (in Room), not a row count: if this worker is killed mid-build the state stays
         // RUNNING and the previous COMPLETE generation remains usable, so a partial index is
@@ -94,6 +107,55 @@ class IndexingWorker @AssistedInject constructor(
     }
 
     /**
+     * Supplies the notification WorkManager shows while this worker runs as a foreground /
+     * expedited service (also called by WorkManager for expedited requests on API < 31).
+     */
+    override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(0)
+
+    /** Builds the ongoing foreground notification, showing the running file count. */
+    private fun foregroundInfo(scannedSoFar: Int): ForegroundInfo {
+        ensureNotificationChannel()
+        val text = if (scannedSoFar > 0) {
+            "Indexing storage — $scannedSoFar files"
+        } else {
+            "Indexing storage…"
+        }
+        val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("Jupiter")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setOngoing(true)
+            .setProgress(0, 0, true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
+    }
+
+    /** Best-effort refresh of the foreground notification with the current file count. */
+    private suspend fun updateNotification(scannedSoFar: Int) {
+        runCatching { setForeground(foregroundInfo(scannedSoFar)) }
+    }
+
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = applicationContext.getSystemService(NotificationManager::class.java)
+            if (manager != null && manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        NOTIFICATION_CHANNEL_ID,
+                        "Storage indexing",
+                        NotificationManager.IMPORTANCE_LOW,
+                    ).apply { setShowBadge(false) },
+                )
+            }
+        }
+    }
+
+    /**
      * Bulk-indexes the shared volume from [MediaStoreIndexSource] in [BATCH_SIZE] chunks,
      * publishing a real indexed/total progress after each batch (the total comes from an
      * instant MediaStore count so the UI can show a percentage). Returns the number of
@@ -123,7 +185,12 @@ class IndexingWorker @AssistedInject constructor(
      * cancellation and publishes indeterminate progress (the tree total is unknown up-front).
      */
     private suspend fun reconcileFilesystem(rootPath: String, generation: Long): Int {
-        val known = runCatching { indexRepository.indexedPaths() }.getOrDefault(emptySet())
+        // Skip only what THIS generation already wrote (the MediaStore seed). Rows from an
+        // interrupted earlier generation are intentionally NOT skipped — they get re-stamped
+        // to `generation` so a resumed survey re-sees (and keeps) them instead of the final
+        // sweep deleting its own partial progress.
+        val known = runCatching { indexRepository.pathsAtGeneration(generation) }
+            .getOrDefault(emptySet())
         val batch = ArrayList<FileItem>(BATCH_SIZE)
         var total = 0
 
@@ -134,7 +201,7 @@ class IndexingWorker @AssistedInject constructor(
             currentCoroutineContext().ensureActive()
 
             if (isExcluded(file)) continue
-            // Already indexed (e.g. by the MediaStore seed) — skip without a stat.
+            // Already written this generation (e.g. the MediaStore seed) — skip without a stat.
             if (file.absolutePath in known) continue
 
             val item = fileSystemDataSource.toIndexItem(file) ?: continue
@@ -145,6 +212,9 @@ class IndexingWorker @AssistedInject constructor(
                 total += batch.size
                 batch.clear()
                 setProgress(outputOf(total, 0))
+                // Keep the foreground notification alive + informative so the OS doesn't drop
+                // the service and the user sees the survey progressing.
+                updateNotification(total)
             }
         }
 
@@ -185,6 +255,10 @@ class IndexingWorker @AssistedInject constructor(
 
         /** Output/progress-[Data] key carrying the estimated total to index (for a %). */
         const val KEY_TOTAL_COUNT: String = "total_count"
+
+        /** Notification channel + id for the foreground survey notification. */
+        private const val NOTIFICATION_CHANNEL_ID: String = "storage-indexing"
+        private const val NOTIFICATION_ID: Int = 4242
 
         /** Root of the primary emulated external storage on modern Android. */
         private const val PRIMARY_STORAGE_ROOT: String = "/storage/emulated/0"

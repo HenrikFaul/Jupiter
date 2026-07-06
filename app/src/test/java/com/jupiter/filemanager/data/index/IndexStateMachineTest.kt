@@ -180,6 +180,32 @@ class IndexStateMachineTest {
         assertFalse("prior-generation ghost is swept", "/s/gone.old" in paths)
     }
 
+    /**
+     * #10 (resumability correctness): an interrupted survey's partial rows must NOT be swept
+     * by the resumed survey. `pathsAtGeneration` scopes the walk's skip-set to the CURRENT
+     * generation, so the resumed run re-stamps the old rows instead of skipping-then-sweeping
+     * them.
+     */
+    @Test
+    fun resumedSurveyRestampsPriorProgressInsteadOfSweepingIt() = runTest(dispatcher) {
+        // A prior survey wrote some rows, then was killed before completing.
+        val g1 = state.beginScan()
+        repo.upsertScanned(listOf(file("/s/partial1"), file("/s/partial2")), g1)
+        // (no completeScan — the worker was killed)
+
+        val g2 = state.beginScan()
+        // At the start of the resumed run nothing is written for this generation yet, so the
+        // reconciliation walk would NOT skip the old rows — it re-sees and re-stamps them.
+        assertTrue(repo.pathsAtGeneration(g2).isEmpty())
+        repo.upsertScanned(listOf(file("/s/partial1"), file("/s/partial2")), g2)
+        repo.sweepStaleGenerations(g2)
+        state.completeScan(g2, 2)
+
+        val paths = repo.indexedPaths()
+        assertTrue("/s/partial1" in paths)
+        assertTrue("/s/partial2" in paths)
+    }
+
     /** A sibling that only shares a textual prefix must not be dragged by the rename. */
     @Test
     fun renameLeavesPrefixSiblingUntouched() = runTest(dispatcher) {

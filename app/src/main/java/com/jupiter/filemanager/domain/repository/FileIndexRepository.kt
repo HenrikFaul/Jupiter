@@ -107,6 +107,10 @@ interface FileIndexRepository {
      * entries already indexed (e.g. by the MediaStore seed) and only add what it missed. */
     suspend fun indexedPaths(): Set<String>
 
+    /** Paths already written by survey [generation] (its seed), so the reconciliation walk
+     * skips exactly those and re-stamps everything else — resumable without losing progress. */
+    suspend fun pathsAtGeneration(generation: Long): Set<String>
+
     /**
      * Duplicate groups computed entirely from the index: candidate buckets are the
      * size-collisions pulled from the DB (no filesystem walk), each confirmed by
