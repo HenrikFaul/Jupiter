@@ -13,6 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 /**
@@ -20,8 +21,13 @@ import java.io.File
  * different format AND resolution (PNG 240×180 vs JPEG 120×90 q70) produces near-identical
  * dHashes, while a structurally different picture does not. Runs under `testDebugUnitTest`
  * via Robolectric's native graphics runtime (real BitmapFactory decoding, no emulator).
+ *
+ * NATIVE graphics is forced explicitly: under the default legacy shadows BitmapFactory
+ * fabricates stub bitmaps (any path "decodes" to a fake 100×100 with zeroed pixels), which
+ * both breaks these assertions and proves nothing about real decoding.
  */
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [33], application = Application::class)
 class PerceptualHashSourceTest {
 
