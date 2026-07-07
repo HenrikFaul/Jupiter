@@ -1,14 +1,18 @@
 package com.jupiter.filemanager.data.index
 
 import android.content.Context
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -77,12 +81,37 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
-     * Cancels any pending/running index survey (e.g. when the user disables indexing), so a
-     * long build does not keep running after the feature is turned off. Best-effort.
+     * Keeps the index fresh long-term: a periodic (12 h) [IndexRefreshKickWorker] that
+     * re-enqueues the one-time survey via [ensureIndexed], so changes made while the app is
+     * closed (deletes/moves by other apps) are re-surveyed without any user action. KEEP
+     * policy: already scheduled → untouched. Battery-not-low so it never drains a dying
+     * phone. Best-effort.
+     */
+    fun schedulePeriodicRefresh() {
+        try {
+            workManager.enqueueUniquePeriodicWork(
+                PERIODIC_REFRESH_WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                PeriodicWorkRequestBuilder<IndexRefreshKickWorker>(12, TimeUnit.HOURS)
+                    .setConstraints(
+                        Constraints.Builder().setRequiresBatteryNotLow(true).build(),
+                    )
+                    .build(),
+            )
+        } catch (_: Exception) {
+            // Best-effort.
+        }
+    }
+
+    /**
+     * Cancels any pending/running index survey AND the periodic refresh (e.g. when the user
+     * disables indexing), so nothing keeps running after the feature is turned off.
+     * Best-effort.
      */
     fun cancel() {
         try {
             workManager.cancelUniqueWork(IndexingWorker.UNIQUE_WORK_NAME)
+            workManager.cancelUniqueWork(PERIODIC_REFRESH_WORK_NAME)
         } catch (_: Exception) {
             // Best-effort.
         }
@@ -97,4 +126,8 @@ class IndexingScheduler @Inject constructor(
         workManager
             .getWorkInfosForUniqueWorkFlow(IndexingWorker.UNIQUE_WORK_NAME)
             .map { infos -> infos.maxByOrNull { it.state.ordinal } }
+
+    private companion object {
+        const val PERIODIC_REFRESH_WORK_NAME = "file-index-periodic-refresh"
+    }
 }

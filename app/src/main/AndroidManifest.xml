@@ -86,6 +86,14 @@
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
+    <!--
+        Required since Android 9 (API 28) for ACTION_DELETE / ACTION_UNINSTALL_PACKAGE to
+        show the system uninstall dialog. Without it the request is silently rejected —
+        which made the App-storage "Uninstall" action appear to do nothing. Normal
+        install-time permission, no user prompt.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
     <application
         android:name=".JupiterApp"
         android:allowBackup="true"

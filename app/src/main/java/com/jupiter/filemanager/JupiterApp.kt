@@ -81,6 +81,12 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
                 if (enabled && !indexStateRepository.isMetadataComplete()) {
                     indexingScheduler.ensureIndexed()
                 }
+                // Long-term freshness: a periodic (12 h) kicker re-runs the survey in the
+                // background so the index keeps itself up to date even when the app stays
+                // closed for days. KEEP: never duplicates, never restarts an in-flight one.
+                if (enabled) {
+                    indexingScheduler.schedulePeriodicRefresh()
+                }
             }
         }
     }

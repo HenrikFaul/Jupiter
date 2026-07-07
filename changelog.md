@@ -128,6 +128,21 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.33.0] - 2026-07-07
+### Fixed — Uninstall gomb: eddig NÉMÁN semmit se csinált
+- **Gyökér-ok**: Android 9 (API 28) óta az `ACTION_DELETE` rendszer-uninstall dialógushoz **`REQUEST_DELETE_PACKAGES`** engedély kell a manifestben — e nélkül a rendszer csendben elutasítja (a `runCatching` elnyelte). Hozzáadva (normál, install-time engedély, nincs user-prompt) → az App storage → app → Uninstall mostantól megnyitja a rendszer törlés-dialógusát.
+### Fixed — Duplikátum-értesítés: 2 valódi blokkoló, ezért nem jelzett SOSEM
+- **1. blokkoló — a POST_NOTIFICATIONS engedélyt SOHA senki nem kérte el**: Android 13+ alatt futásidejű engedély kell BÁRMILYEN értesítéshez; e nélkül a `notificationsAllowed()` false → minden „Duplicate detected" (és az „Indexing storage" előtér-értesítés is!) némán eldobódott. A `MainActivity` mostantól induláskor elkéri (egyszeri rendszer-dialógus; elutasítás esetén az app ugyanúgy működik, csak értesítés nincs).
+- **2. blokkoló — csúszó debounce lenyelte a letöltés BEFEJEZŐ eseményét**: a MediaStore letöltés közben többször jelez (<1,5 mp-enként), és a csak-útvonal-alapú csúszóablak minden következő eseményt eldobott — a VÉGLEGES tartalom sosem lett hash-elve. Mostantól a debounce (útvonal+méret+mtime) IDENTITÁSRA kulcsol (`ChangeDebounce`, tiszta + JVM-tesztelt): az azonos állapotról szóló zaj összevonódik, de a kész fájl (más méret) mindig feldolgozódik. + `IS_PENDING` sorok kihagyása (félig írt fájl hash-elése kárba veszett IO).
+- Fontos, őszinte megjegyzés: a mostani felismerés **bájtra azonos** másolatra jelez (újra letöltött ugyanaz a fájl). Ha a teszt-képpárjaid a megosztó app (pl. Facebook/Instagram) újra-tömörítésén estek át, a bájtok eltérnek — arra a perceptuális hash (#13, tervezett következő kör) kell.
+### Added — Folyamatos háttér-frissesség (visszatérő fő kérés)
+- **Periodikus háttér-frissítő** (`IndexRefreshKickWorker`, 12 óránként, battery-not-low): az `ensureIndexed`-en (KEEP) keresztül újra-felméri a tárhelyet, így az app zárva tartása alatt történt változásokat (más appok törlései/mozgatásai) is bedolgozza — az index magát tartja frissen. Szándékosan „kicker" worker: minden munka EGY unique néven fut át, két felmérés sosem versenyezhet (generáció-korrupció kizárva). Kikapcsolt indexelésnél a `cancel()` ezt is leállítja; visszakapcsolás újraütemezi.
+- **Frissesség-ellenőrzés MINDEN előtérbe kerüléskor** (`MainActivity.onStart`): ha a felmérés még sosem ért COMPLETE-ig (menet közben megölték, engedély később jött), újra-biztosítja — nem csak process-induláskor. KEEP: futó felmérést sosem indít újra.
+### Changed
+- `AndroidManifest.xml` (`REQUEST_DELETE_PACKAGES`); `MainActivity` (POST_NOTIFICATIONS kérés + onStart ensure); `DownloadIndexObserver` (identitás-debounce, IS_PENDING) + `ChangeDebounce(+Test)`; `IndexingScheduler.schedulePeriodicRefresh` + `IndexRefreshKickWorker`; `JupiterApp`/`SettingsViewModel` (periodikus ütemezés); `versionName` → 0.33.0.
+### Known issues / megjegyzés
+- Az értesítés-teszthez: az új APK ELSŐ indításakor engedélyezd az értesítéseket a felugró rendszer-dialógusban, majd tölts le újra egy már meglévő fájlt (bájtra azonosat). Perceptuális (átméretezett/újratömörített) egyezés: #13, következő kör.
+
 ## [jupiter:0.32.0] - 2026-07-07
 ### Fixed — Újra-scan alatt NEM esik vissza az Analytics 3 GB-os részleges nézetre
 - **Gyökér-ok (a felhasználó képernyőképéről)**: manuális újra-scan (⟳ / rebuild) alatt az index státusza RUNNING → a képernyők „nem kész index" gátja élő, részleges sétára váltott (3,0 GB analyzed a 120 GB helyett), a „App storage" becslés pedig used−analyzed alapon ~212 GB képtelenséget mutatott.

@@ -162,6 +162,7 @@ class SettingsViewModel @Inject constructor(
             settings.setIndexingEnabled(value)
             if (value) {
                 indexingScheduler.rebuildNow()
+                indexingScheduler.schedulePeriodicRefresh()
             } else {
                 // Disabling means STOP: cancel any running survey, clear the cached rows, and
                 // reset the life-cycle state to EMPTY so the index is not considered complete

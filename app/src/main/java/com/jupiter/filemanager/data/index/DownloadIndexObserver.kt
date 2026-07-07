@@ -118,10 +118,16 @@ class DownloadIndexObserver @Inject constructor(
         scope.launch {
             runCatching {
                 val path = resolvePath(uri) ?: return@launch
-                if (isDebounced(path)) return@launch
 
                 val file = File(path)
                 if (!file.exists() || file.isDirectory) return@launch
+
+                // Debounce AFTER stat, keyed by (path,size,mtime) IDENTITY: MediaStore fires
+                // repeatedly while a file is being written, and a path-only sliding window
+                // swallowed the FINAL event too — the completed bytes were never hashed and
+                // the duplicate alert never fired. Identity-keying coalesces chatter about
+                // unchanged bytes but always lets the completion (new size/mtime) through.
+                if (isDebounced(path, file.length(), file.lastModified())) return@launch
 
                 val item = fileSystemDataSource.toFileItem(file)
                 indexRepository.indexFile(item)
@@ -135,11 +141,14 @@ class DownloadIndexObserver @Inject constructor(
         }
     }
 
-    /** True if [path] was handled within the debounce window (and records this attempt). */
-    private fun isDebounced(path: String): Boolean {
+    /** True if this exact file identity was handled within the debounce window. */
+    private fun isDebounced(path: String, sizeBytes: Long, lastModified: Long): Boolean {
         val now = System.currentTimeMillis()
-        val last = recentlyHandled.put(path, now)
-        return last != null && now - last < DEBOUNCE_MS
+        // Bounded memory: the map only coalesces bursts, so dropping it is harmless.
+        if (recentlyHandled.size > MAX_DEBOUNCE_ENTRIES) recentlyHandled.clear()
+        val key = ChangeDebounce.key(path, sizeBytes, lastModified)
+        val last = recentlyHandled.put(key, now)
+        return !ChangeDebounce.shouldProcess(last, now, DEBOUNCE_MS)
     }
 
     /**
@@ -150,14 +159,19 @@ class DownloadIndexObserver @Inject constructor(
     private fun resolvePath(uri: Uri?): String? {
         if (uri == null) return null
         return try {
-            context.contentResolver.query(
-                uri,
-                arrayOf(MediaStore.MediaColumns.DATA),
-                null,
-                null,
-                null,
-            )?.use { cursor ->
+            val projection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                arrayOf(MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.IS_PENDING)
+            } else {
+                arrayOf(MediaStore.MediaColumns.DATA)
+            }
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return null
+                // Skip rows still being written (a later change event fires when the row is
+                // published); hashing half-written bytes is wasted IO.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val pending = cursor.getColumnIndex(MediaStore.MediaColumns.IS_PENDING)
+                    if (pending >= 0 && cursor.getInt(pending) == 1) return null
+                }
                 val column = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                 if (column < 0) return null
                 cursor.getString(column)?.takeIf { it.isNotBlank() }
@@ -215,5 +229,8 @@ class DownloadIndexObserver @Inject constructor(
     private companion object {
         const val CHANNEL_ID = "jupiter_duplicate_alerts"
         const val DEBOUNCE_MS = 1_500L
+
+        /** Cap on the coalescing map; clearing it merely re-allows an early re-check. */
+        const val MAX_DEBOUNCE_ENTRIES = 512
     }
 }

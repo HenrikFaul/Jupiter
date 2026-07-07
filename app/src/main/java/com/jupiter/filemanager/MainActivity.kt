@@ -1,8 +1,12 @@
 package com.jupiter.filemanager
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -10,15 +14,23 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import com.jupiter.filemanager.data.index.IndexingScheduler
+import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.ThemeMode
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import com.jupiter.filemanager.ui.navigation.Destination
 import com.jupiter.filemanager.ui.navigation.JupiterNavHost
 import com.jupiter.filemanager.ui.theme.JupiterTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 /**
  * Single-activity host for Jupiter.
@@ -37,9 +49,39 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
 
+    /** Schedules/keeps the background index survey alive. */
+    @Inject
+    lateinit var indexingScheduler: IndexingScheduler
+
+    @Inject
+    lateinit var settings: SettingsDataStore
+
+    @Inject
+    lateinit var indexStateRepository: IndexStateRepository
+
+    /**
+     * Android 13+ requires the runtime POST_NOTIFICATIONS grant for ANY notification to be
+     * visible — including the indexing foreground-progress notification and the
+     * "duplicate detected" alert. Nothing ever requested it, so on modern devices every
+     * notification was silently dropped. Result intentionally unused: notifications are an
+     * enhancement, never a gate.
+     */
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
         setContent {
             val mainViewModel: MainViewModel = hiltViewModel()
             val themeMode: ThemeMode by mainViewModel.themeMode.collectAsStateWithLifecycle()
@@ -83,6 +125,22 @@ class MainActivity : FragmentActivity() {
                         navController = navController,
                         startDestination = Destination.Splash.route,
                     )
+                }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Freshness on EVERY foreground, not only process creation: if the survey has never
+        // reached COMPLETE (killed mid-build, access granted after startup, etc.), re-ensure
+        // it now. KEEP policy makes this idempotent — an in-flight survey is never restarted.
+        lifecycleScope.launch {
+            runCatching {
+                if (settings.indexingEnabled.first() &&
+                    !indexStateRepository.isMetadataComplete()
+                ) {
+                    indexingScheduler.ensureIndexed()
                 }
             }
         }
