@@ -104,14 +104,37 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
-     * Cancels any pending/running index survey AND the periodic refresh (e.g. when the user
-     * disables indexing), so nothing keeps running after the feature is turned off.
-     * Best-effort.
+     * Ensures the perceptual-fingerprint backfill ([PerceptualHashBackfillWorker]) runs so
+     * near-duplicate detection covers the EXISTING photo library. KEEP: an in-flight pass is
+     * never restarted; a finished one is re-enqueued (it exits immediately when there is
+     * nothing left to fingerprint). Battery-not-low keeps the decode loop off a dying phone.
+     */
+    fun ensurePerceptualBackfill() {
+        try {
+            workManager.enqueueUniqueWork(
+                PerceptualHashBackfillWorker.UNIQUE_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                androidx.work.OneTimeWorkRequestBuilder<PerceptualHashBackfillWorker>()
+                    .setConstraints(
+                        Constraints.Builder().setRequiresBatteryNotLow(true).build(),
+                    )
+                    .build(),
+            )
+        } catch (_: Exception) {
+            // Best-effort.
+        }
+    }
+
+    /**
+     * Cancels any pending/running index survey AND the periodic refresh AND the perceptual
+     * backfill (e.g. when the user disables indexing), so nothing keeps running after the
+     * feature is turned off. Best-effort.
      */
     fun cancel() {
         try {
             workManager.cancelUniqueWork(IndexingWorker.UNIQUE_WORK_NAME)
             workManager.cancelUniqueWork(PERIODIC_REFRESH_WORK_NAME)
+            workManager.cancelUniqueWork(PerceptualHashBackfillWorker.UNIQUE_WORK_NAME)
         } catch (_: Exception) {
             // Best-effort.
         }

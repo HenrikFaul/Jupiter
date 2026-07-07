@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase
  * completeness row lives in THIS database, so a destructive wipe resets the state to
  * EMPTY together with the data — an empty index can never appear "complete".
  */
-@Database(entities = [FileIndexEntry::class, IndexState::class], version = 2, exportSchema = false)
+@Database(entities = [FileIndexEntry::class, IndexState::class], version = 3, exportSchema = false)
 abstract class FileIndexDatabase : RoomDatabase() {
     abstract fun fileIndexDao(): FileIndexDao
     abstract fun indexStateDao(): IndexStateDao

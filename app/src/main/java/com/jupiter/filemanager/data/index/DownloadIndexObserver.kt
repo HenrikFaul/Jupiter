@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.jupiter.filemanager.data.file.FileSystemDataSource
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -61,6 +62,7 @@ class DownloadIndexObserver @Inject constructor(
     @ApplicationContext private val context: Context,
     private val indexRepository: FileIndexRepository,
     private val fileSystemDataSource: FileSystemDataSource,
+    private val perceptualHashSource: PerceptualHashSource,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) {
 
@@ -136,6 +138,26 @@ class DownloadIndexObserver @Inject constructor(
                 if (duplicates.isNotEmpty()) {
                     _duplicateAlerts.tryEmit(DuplicateAlert(item, duplicates))
                     notifyDuplicate(item, duplicates.size)
+                    return@runCatching
+                }
+
+                // No byte-identical copy — for images, also check PERCEPTUALLY: the same
+                // picture re-encoded/resized (screenshot re-share, messenger recompression)
+                // has different bytes but a near-identical dHash. Fingerprint the arrival
+                // (stored for future comparisons either way) and alert on a near match.
+                if (item.type == FileType.IMAGE) {
+                    val hash = perceptualHashSource.compute(item.path) ?: return@runCatching
+                    indexRepository.putPerceptualHash(item.path, hash)
+                    if (hash == PerceptualHash.UNHASHABLE) return@runCatching
+                    val near = indexRepository.findNearDuplicateImages(
+                        path = item.path,
+                        hash = hash,
+                        threshold = PerceptualHash.DEFAULT_NEAR_THRESHOLD,
+                    )
+                    if (near.isNotEmpty()) {
+                        _duplicateAlerts.tryEmit(DuplicateAlert(item, near))
+                        notifySimilar(item, near.size)
+                    }
                 }
             }
         }
@@ -182,21 +204,37 @@ class DownloadIndexObserver @Inject constructor(
     }
 
     private fun notifyDuplicate(item: FileItem, count: Int) {
+        val copies = if (count == 1) "1 copy" else "$count copies"
+        postNotification(
+            id = item.path.hashCode(),
+            title = "Duplicate detected",
+            text = "Duplicate detected: ${item.name} — you already have $copies",
+        )
+    }
+
+    private fun notifySimilar(item: FileItem, count: Int) {
+        val others = if (count == 1) "an image" else "$count images"
+        postNotification(
+            id = item.path.hashCode() xor SIMILAR_ID_SALT,
+            title = "Similar image detected",
+            text = "${item.name} looks like $others you already have " +
+                "(same picture, different size or format)",
+        )
+    }
+
+    private fun postNotification(id: Int, title: String, text: String) {
         if (!notificationsAllowed()) return
         runCatching {
             ensureChannel()
-            val copies = if (count == 1) "1 copy" else "$count copies"
-            val text = "Duplicate detected: ${item.name} — you already have $copies"
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Duplicate detected")
+                .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
-            NotificationManagerCompat.from(context)
-                .notify(item.path.hashCode(), notification)
+            NotificationManagerCompat.from(context).notify(id, notification)
         }
     }
 
@@ -232,5 +270,8 @@ class DownloadIndexObserver @Inject constructor(
 
         /** Cap on the coalescing map; clearing it merely re-allows an early re-check. */
         const val MAX_DEBOUNCE_ENTRIES = 512
+
+        /** Keeps exact-duplicate and similar-image notification ids from colliding. */
+        const val SIMILAR_ID_SALT = 0x5A5A5A5A
     }
 }

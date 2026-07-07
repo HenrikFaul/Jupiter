@@ -53,6 +53,7 @@ class IndexingWorker @AssistedInject constructor(
     private val indexRepository: FileIndexRepository,
     private val storageAccess: StorageAccessManager,
     private val indexStateRepository: IndexStateRepository,
+    private val indexingScheduler: IndexingScheduler,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -94,6 +95,9 @@ class IndexingWorker @AssistedInject constructor(
             indexRepository.sweepStaleGenerations(gen)
             val total = seeded + added
             indexStateRepository.completeScan(gen, total.toLong())
+            // The survey just (re)indexed images whose perceptual fingerprint is still
+            // missing — chain the backfill so near-duplicate detection covers them.
+            indexingScheduler.ensurePerceptualBackfill()
             Result.success(outputOf(total, total))
         } catch (cancellation: CancellationException) {
             // Cooperative cancellation: leave the index NOT complete (state stays RUNNING) so

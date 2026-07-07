@@ -86,6 +86,9 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
                 // closed for days. KEEP: never duplicates, never restarts an in-flight one.
                 if (enabled) {
                     indexingScheduler.schedulePeriodicRefresh()
+                    // Fingerprint any images still missing a perceptual hash (first run
+                    // after this feature ships covers the whole existing library).
+                    indexingScheduler.ensurePerceptualBackfill()
                 }
             }
         }

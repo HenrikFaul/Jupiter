@@ -37,4 +37,11 @@ data class FileIndexEntry(
      * globally swept (they no longer exist). 0 = written outside a full survey (e.g. a delta).
      */
     val lastSeenGeneration: Long = 0L,
+    /**
+     * 64-bit dHash of the image's luminance structure ([PerceptualHash]), for NEAR-duplicate
+     * detection across formats/resolutions. Null = not computed yet (backfilled in the
+     * background); [PerceptualHash.UNHASHABLE] = tried but undecodable (never retried).
+     * Only meaningful for image files.
+     */
+    val perceptualHash: Long? = null,
 )

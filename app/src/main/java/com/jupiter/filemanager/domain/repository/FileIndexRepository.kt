@@ -79,6 +79,24 @@ interface FileIndexRepository {
     /** Stores [hash] as the content hash of [item]. */
     suspend fun putHash(item: FileItem, hash: String)
 
+    /** Stores an image's perceptual (dHash) fingerprint for [path]. */
+    suspend fun putPerceptualHash(path: String, hash: Long)
+
+    /**
+     * Returns indexed images that are perceptually NEAR-duplicates of the image at [path]
+     * whose dHash is [hash] — the same picture in a different format/resolution/compression
+     * (Hamming distance ≤ [threshold] of 64). Excludes [path] itself and anything marked
+     * unhashable. Complements [findContentDuplicates], which only sees identical bytes.
+     */
+    suspend fun findNearDuplicateImages(path: String, hash: Long, threshold: Int): List<FileItem>
+
+    /**
+     * Next batch of indexed images that still lack a perceptual fingerprint, for the
+     * background backfill. Every returned row is guaranteed to be marked (hash or an
+     * unhashable sentinel) by the caller, so repeated calls always make progress.
+     */
+    suspend fun imagesNeedingPerceptualHash(limit: Int): List<FileItem>
+
     /** Clears the entire index. */
     suspend fun clear()
 

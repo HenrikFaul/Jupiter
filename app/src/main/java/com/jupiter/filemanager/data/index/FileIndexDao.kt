@@ -115,6 +115,28 @@ interface FileIndexDao {
         indexedAt: Long,
     )
 
+    /**
+     * Stores an image's perceptual (dHash) fingerprint. Targeted UPDATE for the same reason
+     * as [updateHash]: it must never disturb a concurrent survey's generation stamp.
+     */
+    @Query("UPDATE file_index SET perceptualHash = :hash WHERE path = :path")
+    suspend fun updatePerceptualHash(path: String, hash: Long)
+
+    /** Path + perceptual hash of every fingerprinted file (comparison set for near-dups). */
+    @Query(
+        "SELECT path, perceptualHash FROM file_index " +
+            "WHERE perceptualHash IS NOT NULL AND perceptualHash != :unhashable " +
+            "AND isDirectory = 0",
+    )
+    suspend fun allPerceptualHashes(unhashable: Long): List<PathPerceptualHash>
+
+    /** Image rows that still need a perceptual fingerprint (backfill work list). */
+    @Query(
+        "SELECT * FROM file_index WHERE perceptualHash IS NULL AND isDirectory = 0 " +
+            "AND typeName = :imageTypeName LIMIT :limit",
+    )
+    suspend fun imagesMissingPerceptualHash(imageTypeName: String, limit: Int): List<FileIndexEntry>
+
     /** Deletes every row directly under [parentPath]. */
     @Query("DELETE FROM file_index WHERE parentPath = :parentPath")
     suspend fun deleteByParent(parentPath: String)
@@ -212,3 +234,13 @@ interface FileIndexDao {
     @Query("DELETE FROM file_index WHERE parentPath = :parentPath AND path NOT IN (:keepPaths)")
     suspend fun deleteStale(parentPath: String, keepPaths: List<String>)
 }
+
+/**
+ * Lean projection for the near-duplicate comparison set: comparing a new image against tens
+ * of thousands of fingerprints only needs (path, hash) — full rows are fetched afterwards
+ * for the few matches only.
+ */
+data class PathPerceptualHash(
+    val path: String,
+    val perceptualHash: Long,
+)

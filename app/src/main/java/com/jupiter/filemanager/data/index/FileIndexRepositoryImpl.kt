@@ -58,14 +58,14 @@ class FileIndexRepositoryImpl @Inject constructor(
             val existing = dao.childEntries(parentPath).associateBy { it.path }
             val entries = items.map { item ->
                 val prior = existing[item.path]
-                val keepHash = if (!item.isDirectory && prior != null &&
+                val identityKept = !item.isDirectory && prior != null &&
                     prior.sizeBytes == item.sizeBytes && prior.lastModified == item.lastModified
-                ) {
-                    prior.contentHash
-                } else {
-                    null
-                }
-                toEntry(item, now).copy(contentHash = keepHash)
+                toEntry(item, now).copy(
+                    contentHash = if (identityKept) prior?.contentHash else null,
+                    // Same-content rule as the content hash: the perceptual fingerprint
+                    // survives while identity is unchanged, else it is recomputed.
+                    perceptualHash = if (identityKept) prior?.perceptualHash else null,
+                )
             }
             dao.upsertAll(entries)
             dao.deleteStale(parentPath, items.map { it.path })
@@ -97,17 +97,16 @@ class FileIndexRepositoryImpl @Inject constructor(
         val existing = dao.entriesForPaths(items.map { it.path }).associateBy { it.path }
         val entries = items.map { item ->
             val prior = existing[item.path]
-            val keepHash = if (prior != null && IndexPathRewrite.identityUnchanged(
-                    item.isDirectory, prior.sizeBytes, prior.lastModified,
-                    item.sizeBytes, item.lastModified,
-                )
-            ) {
-                prior.contentHash
-            } else {
-                null
-            }
+            val identityKept = prior != null && IndexPathRewrite.identityUnchanged(
+                item.isDirectory, prior.sizeBytes, prior.lastModified,
+                item.sizeBytes, item.lastModified,
+            )
             toEntry(item, now).copy(
-                contentHash = keepHash,
+                contentHash = if (identityKept) prior?.contentHash else null,
+                // Preserved on unchanged identity for the same reason as contentHash —
+                // otherwise every 12 h survey would wipe all fingerprints and force the
+                // backfill to re-decode the whole photo library.
+                perceptualHash = if (identityKept) prior?.perceptualHash else null,
                 lastSeenGeneration = generation ?: prior?.lastSeenGeneration ?: 0L,
             )
         }
@@ -116,16 +115,23 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun indexFile(item: FileItem) = withContext(ioDispatcher) {
         val now = System.currentTimeMillis()
-        // Preserve a known hash only when the file's identity (size + mtime) is
-        // unchanged; otherwise clear it so it will be recomputed lazily.
-        val preservedHash = if (item.isDirectory) {
+        // Preserve known hashes only when the file's identity (size + mtime) is
+        // unchanged; otherwise clear them so they will be recomputed lazily.
+        val unchanged = if (item.isDirectory) {
             null
         } else {
             dao.getByPath(item.path)?.takeIf {
                 it.sizeBytes == item.sizeBytes && it.lastModified == item.lastModified
-            }?.contentHash
+            }
         }
-        dao.upsertAll(listOf(toEntry(item, now).copy(contentHash = preservedHash)))
+        dao.upsertAll(
+            listOf(
+                toEntry(item, now).copy(
+                    contentHash = unchanged?.contentHash,
+                    perceptualHash = unchanged?.perceptualHash,
+                ),
+            ),
+        )
     }
 
     override suspend fun removeByPath(path: String) = withContext(ioDispatcher) {
@@ -170,13 +176,15 @@ class FileIndexRepositoryImpl @Inject constructor(
                     ?: return@mapNotNull null
                 if (entry.path == oldRoot) {
                     // The moved/renamed root: adopt the authoritative new item's metadata,
-                    // keeping the hash only if its identity is unchanged.
-                    val keepHash = if (IndexPathRewrite.identityUnchanged(
-                            toItem.isDirectory, entry.sizeBytes, entry.lastModified,
-                            toItem.sizeBytes, toItem.lastModified,
-                        )
-                    ) entry.contentHash else null
-                    toEntry(toItem, now).copy(contentHash = keepHash)
+                    // keeping the hashes only if its identity is unchanged.
+                    val identityKept = IndexPathRewrite.identityUnchanged(
+                        toItem.isDirectory, entry.sizeBytes, entry.lastModified,
+                        toItem.sizeBytes, toItem.lastModified,
+                    )
+                    toEntry(toItem, now).copy(
+                        contentHash = if (identityKept) entry.contentHash else null,
+                        perceptualHash = if (identityKept) entry.perceptualHash else null,
+                    )
                 } else {
                     entry.copy(
                         path = newPath,
@@ -281,6 +289,34 @@ class FileIndexRepositoryImpl @Inject constructor(
             dao.upsertAll(listOf(toEntry(item, now).copy(contentHash = hash)))
         }
     }
+
+    override suspend fun putPerceptualHash(path: String, hash: Long) = withContext(ioDispatcher) {
+        dao.updatePerceptualHash(path, hash)
+    }
+
+    override suspend fun findNearDuplicateImages(
+        path: String,
+        hash: Long,
+        threshold: Int,
+    ): List<FileItem> = withContext(ioDispatcher) {
+        if (hash == PerceptualHash.UNHASHABLE) return@withContext emptyList()
+        // Two-step: compare against the lean (path, hash) projection in memory — tens of
+        // thousands of 64-bit fingerprints are trivial to scan — then materialize full rows
+        // for the few matches only.
+        val nearPaths = dao.allPerceptualHashes(PerceptualHash.UNHASHABLE)
+            .asSequence()
+            .filter { it.path != path }
+            .filter { PerceptualHash.isNear(hash, it.perceptualHash, threshold) }
+            .map { it.path }
+            .toList()
+        if (nearPaths.isEmpty()) return@withContext emptyList()
+        dao.entriesForPaths(nearPaths).map(::toFileItem)
+    }
+
+    override suspend fun imagesNeedingPerceptualHash(limit: Int): List<FileItem> =
+        withContext(ioDispatcher) {
+            dao.imagesMissingPerceptualHash(FileType.IMAGE.name, limit).map(::toFileItem)
+        }
 
     override suspend fun clear() = withContext(ioDispatcher) {
         dao.clear()

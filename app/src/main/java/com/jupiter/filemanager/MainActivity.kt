@@ -137,10 +137,14 @@ class MainActivity : FragmentActivity() {
         // it now. KEEP policy makes this idempotent — an in-flight survey is never restarted.
         lifecycleScope.launch {
             runCatching {
-                if (settings.indexingEnabled.first() &&
-                    !indexStateRepository.isMetadataComplete()
-                ) {
+                val enabled = settings.indexingEnabled.first()
+                if (enabled && !indexStateRepository.isMetadataComplete()) {
                     indexingScheduler.ensureIndexed()
+                }
+                if (enabled) {
+                    // Keep the perceptual-fingerprint backfill converging (KEEP: no-op when
+                    // one is already queued/running or nothing is missing).
+                    indexingScheduler.ensurePerceptualBackfill()
                 }
             }
         }

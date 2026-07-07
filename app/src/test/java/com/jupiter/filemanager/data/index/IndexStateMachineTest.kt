@@ -289,6 +289,61 @@ class IndexStateMachineTest {
     }
 
     /**
+     * The perceptual fingerprint must survive a rescan of an UNCHANGED image (else every
+     * 12 h survey would wipe all fingerprints and force the backfill to re-decode the whole
+     * photo library), and must be cleared when the file's identity changed (new content →
+     * stale fingerprint would cause false "similar" alerts).
+     */
+    @Test
+    fun rescanPreservesPerceptualHashForUnchangedImageAndClearsItOnChange() = runTest(dispatcher) {
+        val img = file("/s/pic.jpg", size = 5_000L, mtime = 7L)
+        val g1 = state.beginScan()
+        repo.upsertScanned(listOf(img), g1)
+        state.completeScan(g1, 1)
+        repo.putPerceptualHash("/s/pic.jpg", 0x1234L)
+
+        // Rescan with identical identity → fingerprint kept (and re-stamped generation).
+        val g2 = state.beginScan()
+        repo.upsertScanned(listOf(img), g2)
+        state.completeScan(g2, 1)
+        assertEquals(0x1234L, db.fileIndexDao().getByPath("/s/pic.jpg")!!.perceptualHash)
+
+        // Rescan with CHANGED identity (edited file) → fingerprint cleared for recompute.
+        val g3 = state.beginScan()
+        repo.upsertScanned(listOf(file("/s/pic.jpg", size = 6_000L, mtime = 9L)), g3)
+        state.completeScan(g3, 1)
+        assertNull(db.fileIndexDao().getByPath("/s/pic.jpg")!!.perceptualHash)
+    }
+
+    /**
+     * Near-duplicate lookup: returns images within the Hamming threshold, excludes the
+     * queried path itself, far hashes, and UNHASHABLE-marked rows.
+     */
+    @Test
+    fun findNearDuplicateImagesMatchesWithinThresholdOnly() = runTest(dispatcher) {
+        repo.upsert(
+            listOf(
+                file("/s/a.jpg", size = 5_000L),
+                file("/s/b.png", size = 6_000L),
+                file("/s/c.jpg", size = 7_000L),
+                file("/s/broken.jpg", size = 8_000L),
+            ),
+        )
+        val base = 0b1111L
+        repo.putPerceptualHash("/s/a.jpg", base)
+        repo.putPerceptualHash("/s/b.png", base xor 0b11L) // distance 2 → near
+        repo.putPerceptualHash("/s/c.jpg", base.inv()) // distance 64 → far
+        repo.putPerceptualHash("/s/broken.jpg", PerceptualHash.UNHASHABLE)
+
+        val near = repo.findNearDuplicateImages(
+            path = "/s/a.jpg",
+            hash = base,
+            threshold = PerceptualHash.DEFAULT_NEAR_THRESHOLD,
+        )
+        assertEquals(listOf("/s/b.png"), near.map { it.path })
+    }
+
+    /**
      * Hash back-fill must not disturb the survey's generation stamp: a whole-row upsert from
      * a pre-hash snapshot would revert `lastSeenGeneration` and get a LIVE file's row swept
      * as stale. The targeted [FileIndexDao.updateHash] leaves the stamp intact.
