@@ -128,6 +128,21 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.31.0] - 2026-07-07
+### Fixed — App storage: 10,4 GB helyett a VALÓS app-tárhely (package visibility + cache-duplaszámolás)
+- **Gyökér-ok (a képernyőképről azonosítva)**: az App-storage lista CSAK rendszer-appokat mutatott (Google Play services, Samsung appok…) és 362 appra mindössze 10,4 GB-t — miközben az Analytics ~95 GB app-adatot becsült. Ez az **Android 11+ package-visibility szűrés**: `QUERY_ALL_PACKAGES` engedély nélkül a `getInstalledApplications()` csendben kihagyja a legtöbb FELHASZNÁLÓI appot — pont a legnagyobb fogyasztókat (játékok, üzenetküldők). A többi fájlkezelő is ezzel az engedéllyel oldja meg.
+- **Javítás 1 — `QUERY_ALL_PACKAGES`** (manifest, install-time normál engedély, nincs user-prompt): a lista mostantól tényleg teljes. Fájlkezelőnek — aminek fő funkciója az eszköz-szintű tárhely-elszámolás — ez a Play-szabályzat szerint kifejezetten engedélyezett használati eset.
+- **Javítás 2 — cache-duplaszámolás**: a platform `dataBytes`-a MÁR TARTALMAZZA a cache-t, a v0.29 mégis `app+data+cache`-ként összegzett → minden app cache-e kétszer számolódott. Mostantól `total = app + data`, a sor-felirat „data" része pedig cache nélkül értendő (`dataBytesExcludingCache`) — így a három rész pontosan kiadja az összeget, ahogy a rendszer-Beállításokban.
+- **Javítás 3 — kötet-helyes lekérdezés**: minden csomag a SAJÁT kötetén kérdeződik le (`ApplicationInfo.storageUuid`, adoptable-storage-biztos), nem vakon a default köteten.
+### Adversarial review — egy tervezett „védőháló" bizonyítottan HIBÁS volt és KIKERÜLT
+- Az első verzió a `StorageStatsManager.queryStatsForUser` aggregátummal egyeztette volna a per-app összeget („unattributed" maradék kijelzéssel). A 4-lencsés review (AOSP-forrás szintű ellenőrzéssel) 6 megerősített hibát talált benne, a legsúlyosabb: az aggregátum `dataBytes`-a a TELJES megosztott tárhelyet (fotók, letöltések!) tartalmazza, `appBytes`-a pedig az eszköz-szintű `/data/app`-ot (más profilok — pl. Secure Folder — kódját) + dalvik-cache-t. Az „aggregátum − per-app összeg" tehát főleg NEM appokat mért volna → gyakorlatilag minden valós eszközön fantom-GB-kat mutatott volna. A helyes és őszinte megoldás: a teljes csomaglistával a per-app összeg AZ eredmény; az aggregátum-egyeztetés törölve (`AppStorageReconciler` + tesztje + `unattributedBytes` mező + fejléc-sor eltávolítva még commit előtt).
+### Added
+- `AppStorageInfo.dataBytesExcludingCache`; `AppStorageInfoTest` frissítve az új total-szemantikára (+ „app + data-cache-nélkül + cache = total" invariáns, negatív-klumpolás).
+### Changed
+- `AndroidManifest.xml` (`QUERY_ALL_PACKAGES`); `AppStorageSource` (teljes lista, flags=0, per-app `storageUuid`); `AppStorageInfo/Overview` (total-szemantika, `dataBytesExcludingCache`); `AppStorageScreen` (pontos data-felirat); `versionName` → 0.31.0.
+### Known issues / megjegyzés
+- Work-profil / Secure Folder (másik UserHandle) appjai ezen a képernyőn kívül esnek (platform-korlát, privilegizált API kellene). Publikáláskor a `QUERY_ALL_PACKAGES`-hez Play Console-nyilatkozat szükséges (fájlkezelő = engedélyezett kategória). On-device validálás: a fejléc-összegnek az Analytics ~95 GB-os becslésével kell nagyságrendben egyeznie, és a nagy felhasználói appoknak (játékok, üzenetküldők) meg kell jelenniük a listában.
+
 ## [jupiter:0.30.0] - 2026-07-06
 ### Fixed — „adok hozzáférést → INDULJON a teljes felmérés" (a hozzáférés-megadás mostantól tényleg scannel)
 - **Gyökér-ok**: az első felmérés a folyamat indulásakor ütemeződik (`JupiterApp.onCreate` → `ensureIndexed`), ez viszont MÉG az All-Files-Access megadása ELŐTT fut le, így a worker `!hasAllFilesAccess()` ágon **no-opol** (`Result.success(0,0)`, `beginScan` nélkül) és az index `EMPTY` marad. A megadás után **semmi nem indított újra** felmérést — csak a következő hidegindításkor futott —, ezért látszott úgy, hogy „megadtam a hozzáférést, mégsem scannel".

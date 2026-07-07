@@ -4,7 +4,6 @@ import android.app.AppOpsManager
 import android.app.usage.StorageStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
 import android.os.storage.StorageManager
@@ -68,9 +67,23 @@ class AppStorageSource @Inject constructor(
     }
 
     /**
-     * Queries storage for every installed app on the primary (internal) volume, sorted by
-     * total size descending. Returns [AppStorageOverview.permissionRequired] = true (and no
-     * apps) when Usage-access is not granted. Never throws.
+     * Queries storage for every installed app, sorted by total size descending. Returns
+     * [AppStorageOverview.permissionRequired] = true (and no apps) when Usage-access is not
+     * granted. Never throws.
+     *
+     * Completeness (the v0.29 screen showed ~10 GB of ~95 GB) rests on two fixes:
+     * 1. the manifest holds QUERY_ALL_PACKAGES, so `getInstalledApplications` actually
+     *    returns user-installed apps — package-visibility filtering (Android 11+) otherwise
+     *    hides exactly the biggest consumers (games, messengers), leaving only system apps;
+     * 2. each package is queried on the volume it actually lives on
+     *    ([ApplicationInfo.storageUuid], adoptable-storage safe), not blindly on the default.
+     *
+     * Deliberately NOT used: `StorageStatsManager.queryStatsForUser` as a cross-check. Its
+     * numbers are incomparable with a per-package sum — its dataBytes includes the user's
+     * ENTIRE shared storage (photos, downloads…), and its appBytes walks the device-wide
+     * `/data/app` (other profiles' code) plus dalvik-cache — so "aggregate − per-app sum"
+     * measures mostly things that are not apps of this user. An adversarial review confirmed
+     * it would have inflated the header on essentially every real device.
      */
     suspend fun query(): AppStorageOverview = withContext(dispatcher) {
         if (!hasUsageAccess()) {
@@ -80,17 +93,20 @@ class AppStorageSource @Inject constructor(
             ?: return@withContext AppStorageOverview(permissionRequired = false)
         val packageManager = context.packageManager
 
+        // Flags 0: metadata bundles aren't needed, and QUERY_ALL_PACKAGES (manifest) makes
+        // this list actually complete on Android 11+.
         val installed = runCatching {
-            packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+            packageManager.getInstalledApplications(0)
         }.getOrDefault(emptyList())
 
-        // Internal storage is identified by the default UUID.
-        val uuid = StorageManager.UUID_DEFAULT
         val user = Process.myUserHandle()
 
         val apps = ArrayList<AppStorageInfo>(installed.size)
         for (info in installed) {
             currentCoroutineContext().ensureActive()
+            // Query the volume this app actually lives on; a null storageUuid falls back to
+            // the primary/internal volume.
+            val uuid = info.storageUuid ?: StorageManager.UUID_DEFAULT
             val stat = runCatching {
                 stats.queryStatsForPackage(uuid, info.packageName, user)
             }.getOrNull() ?: continue

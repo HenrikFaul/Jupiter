@@ -73,6 +73,19 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!--
+        Package visibility. Since Android 11 (API 30), getInstalledApplications() silently
+        filters out most user-installed packages unless the app holds QUERY_ALL_PACKAGES —
+        which made the App-storage screen list only system apps and account for a fraction
+        of real app storage (the biggest consumers — games, messengers — were invisible).
+        A file manager whose core feature is device-wide storage accounting is an explicitly
+        permitted use case for this permission under Play policy. Granted at install
+        (normal permission, no user prompt).
+    -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <application
         android:name=".JupiterApp"
         android:allowBackup="true"

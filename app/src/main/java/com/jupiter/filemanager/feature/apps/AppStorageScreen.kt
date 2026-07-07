@@ -198,8 +198,11 @@ private fun AppRow(app: AppStorageInfo, fractionOfMax: Float) {
                             .background(MaterialTheme.colorScheme.primary),
                     )
                 }
+                // "data" excludes the cache (platform dataBytes includes it), matching how
+                // system Settings splits the same numbers — the three parts sum to the total.
                 Text(
-                    text = "app ${formatBytes(app.appBytes)} · data ${formatBytes(app.dataBytes)} · " +
+                    text = "app ${formatBytes(app.appBytes)} · " +
+                        "data ${formatBytes(app.dataBytesExcludingCache)} · " +
                         "cache ${formatBytes(app.cacheBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
