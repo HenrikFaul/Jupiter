@@ -192,11 +192,31 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun findContentDuplicates(item: FileItem): List<FileItem> =
         withContext(ioDispatcher) {
-            if (item.isDirectory) return@withContext emptyList()
+            // Size floor: empty/near-empty files (pending downloads, .nomedia placeholders)
+            // are ubiquitous and byte-identical BY CONSTRUCTION — alerting on them would spam
+            // "you already have N copies" for every started download. Matches the 4 KiB floor
+            // the cleanup dedup paths use.
+            if (item.isDirectory || item.sizeBytes < MIN_ALERT_SIZE_BYTES) {
+                return@withContext emptyList()
+            }
 
             val hash = dao.hashIfUnchanged(item.path, item.sizeBytes, item.lastModified)
                 ?: computeHash(item.path)?.also { putHash(item, it) }
                 ?: return@withContext emptyList()
+
+            // The survey indexes METADATA only, so the pre-existing copy of a file usually
+            // has no stored hash yet — byHash() alone would silently miss it and the
+            // "you already have this" alert would never fire for exactly the common case
+            // (an original that was never hashed). Exact duplicates must have the same
+            // byte size, so hash-on-demand only the same-size candidates (cheap: size
+            // collisions are rare) before the hash lookup.
+            for (entry in dao.filesOfSize(item.sizeBytes)) {
+                currentCoroutineContext().ensureActive()
+                if (entry.path == item.path || entry.isDirectory || entry.contentHash != null) {
+                    continue
+                }
+                hashForEntry(entry) // computes and caches as a side effect
+            }
 
             dao.byHash(hash)
                 .asSequence()
@@ -252,9 +272,14 @@ class FileIndexRepositoryImpl @Inject constructor(
     }
 
     override suspend fun putHash(item: FileItem, hash: String) = withContext(ioDispatcher) {
-        val existing = dao.getByPath(item.path)
-        val base = existing ?: toEntry(item, System.currentTimeMillis())
-        dao.upsertAll(listOf(base.copy(contentHash = hash, indexedAt = System.currentTimeMillis())))
+        val now = System.currentTimeMillis()
+        if (dao.getByPath(item.path) != null) {
+            // Targeted UPDATE: never rewrite the whole row from a snapshot — a concurrent
+            // survey's generation stamp must survive (see updateHash).
+            dao.updateHash(item.path, item.sizeBytes, item.lastModified, hash, now)
+        } else {
+            dao.upsertAll(listOf(toEntry(item, now).copy(contentHash = hash)))
+        }
     }
 
     override suspend fun clear() = withContext(ioDispatcher) {
@@ -355,16 +380,17 @@ class FileIndexRepositoryImpl @Inject constructor(
 
         // Stale identity or no cached hash: hash the CURRENT bytes and refresh the row
         // (size/mtime/hash) so the confirmation always reflects what is on disk now.
+        // Targeted UPDATE, not a whole-row upsert: hashing takes real time, and a survey
+        // running concurrently may have re-stamped this row's lastSeenGeneration — writing
+        // back a pre-hash snapshot would revert that stamp and the sweep would wrongly
+        // delete a live file's row.
         val computed = computeHash(entry.path) ?: return null
-        dao.upsertAll(
-            listOf(
-                entry.copy(
-                    sizeBytes = currentSize,
-                    lastModified = currentMtime,
-                    contentHash = computed,
-                    indexedAt = System.currentTimeMillis(),
-                ),
-            ),
+        dao.updateHash(
+            path = entry.path,
+            sizeBytes = currentSize,
+            lastModified = currentMtime,
+            hash = computed,
+            indexedAt = System.currentTimeMillis(),
         )
         return computed
     }
@@ -400,6 +426,14 @@ class FileIndexRepositoryImpl @Inject constructor(
     private companion object {
         /** 64 KiB read window for streamed hashing. */
         const val DEFAULT_HASH_BUFFER = 64 * 1024
+
+        /**
+         * Files below this size never trigger a duplicate ALERT: empty/near-empty files
+         * (in-flight download placeholders, .nomedia markers) are byte-identical by
+         * construction and would spam false "you already have this" notifications.
+         * Matches the cleanup dedup floor (4 KiB).
+         */
+        const val MIN_ALERT_SIZE_BYTES = 4L * 1024
 
         /** Lowercase hex alphabet used by [toHexString]. */
         val HEX_DIGITS = "0123456789abcdef".toCharArray()

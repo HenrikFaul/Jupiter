@@ -134,10 +134,11 @@ class CleanupViewModel @Inject constructor(
 
         scanJob = viewModelScope.launch {
             // Whether this pass is served from the index (instant) or a live walk. The index
-            // is only authoritative when its metadata survey is COMPLETE — a partial index is
-            // never presented as the source, matching what StorageAnalyticsRepository serves.
+            // is usable when COMPLETE, or when a rescan runs over a prior complete generation
+            // (its rows are intact) — matching what StorageAnalyticsRepository serves. A
+            // first-ever partial index is never presented as the source.
             val usingIndex = preferIndex &&
-                runCatching { indexStateRepository.isMetadataComplete() }.getOrDefault(false)
+                runCatching { indexStateRepository.isUsable() }.getOrDefault(false)
             val indexedCount = runCatching { indexRepository.stats().first().indexedCount }
                 .getOrDefault(0)
 

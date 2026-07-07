@@ -34,6 +34,15 @@ class IndexStateRepositoryImpl @Inject constructor(
         dao.get(volume)?.status == IndexStatus.COMPLETE
     }
 
+    override suspend fun isUsable(): Boolean = withContext(ioDispatcher) {
+        val state = dao.get(volume) ?: return@withContext false
+        // COMPLETE is trivially usable. A RUNNING/FAILED rescan with a prior complete
+        // generation is too: the sweep only runs on success, so those rows are intact.
+        // reset() rewrites the row with lastCompleteGeneration = 0, so a cleared index
+        // is never considered usable.
+        state.status == IndexStatus.COMPLETE || state.lastCompleteGeneration > 0L
+    }
+
     override suspend fun beginScan(): Long = withContext(ioDispatcher) {
         val existing = dao.get(volume)
         val generation = (existing?.activeScanGeneration ?: 0L) + 1L

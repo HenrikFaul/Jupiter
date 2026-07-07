@@ -228,6 +228,10 @@ private fun AnalyticsContent(
             AppStorageEntry(
                 usedBytes = overview.volume.usedBytes,
                 analyzedBytes = overview.totalAnalyzedBytes,
+                // The "used − analyzed ≈ app data" estimate is meaningless while a LIVE walk
+                // is still accumulating (analyzed is partial → the difference balloons to
+                // nearly the whole disk). Index-served numbers are complete even mid-rescan.
+                estimateReliable = fromIndex || !isScanning,
                 onClick = onOpenAppStorage,
             )
         }
@@ -545,8 +549,13 @@ private fun LargeFilesEntry(onClick: () -> Unit) {
  * links to the StorageStatsManager-backed breakdown.
  */
 @Composable
-private fun AppStorageEntry(usedBytes: Long, analyzedBytes: Long, onClick: () -> Unit) {
-    val appish = (usedBytes - analyzedBytes).coerceAtLeast(0L)
+private fun AppStorageEntry(
+    usedBytes: Long,
+    analyzedBytes: Long,
+    estimateReliable: Boolean,
+    onClick: () -> Unit,
+) {
+    val appish = if (estimateReliable) (usedBytes - analyzedBytes).coerceAtLeast(0L) else 0L
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),

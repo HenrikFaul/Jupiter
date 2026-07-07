@@ -76,9 +76,10 @@ class StorageAnalyticsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            // Reflect whether this pass will be served instantly from the index (populated)
-            // or a live walk, so the screen can show the same "indexed" affordance as Cleanup.
-            val usingIndex = runCatching { indexStateRepository.isMetadataComplete() }
+            // Reflect whether this pass will be served instantly from the index (usable:
+            // COMPLETE, or rescan over a prior complete generation) or a live walk, so the
+            // screen can show the same "indexed" affordance as Cleanup.
+            val usingIndex = runCatching { indexStateRepository.isUsable() }
                 .getOrDefault(false)
             val indexedCount = runCatching { indexRepository.stats().first().indexedCount }
                 .getOrDefault(0)

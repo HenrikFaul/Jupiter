@@ -274,6 +274,9 @@ fun JupiterNavHost(
         composable(route = Destination.AppStorage.route) {
             AppStorageScreen(
                 onBack = { navController.popBackStack() },
+                onOpenPath = { path ->
+                    navController.navigate(Destination.Browser.create(path))
+                },
             )
         }
 

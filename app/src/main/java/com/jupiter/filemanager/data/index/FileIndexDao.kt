@@ -96,6 +96,25 @@ interface FileIndexDao {
     )
     suspend fun hashIfUnchanged(path: String, sizeBytes: Long, lastModified: Long): String?
 
+    /**
+     * Refreshes ONLY the hash-related columns of an existing row, deliberately leaving
+     * `lastSeenGeneration` untouched. Hash back-fill can run concurrently with a survey
+     * (hashing takes seconds); a whole-row upsert built from a pre-hash snapshot would
+     * REVERT the survey's fresh generation stamp and get the row wrongly swept as stale.
+     * A no-op when [path] is not indexed (0 rows updated).
+     */
+    @Query(
+        "UPDATE file_index SET contentHash = :hash, sizeBytes = :sizeBytes, " +
+            "lastModified = :lastModified, indexedAt = :indexedAt WHERE path = :path",
+    )
+    suspend fun updateHash(
+        path: String,
+        sizeBytes: Long,
+        lastModified: Long,
+        hash: String,
+        indexedAt: Long,
+    )
+
     /** Deletes every row directly under [parentPath]. */
     @Query("DELETE FROM file_index WHERE parentPath = :parentPath")
     suspend fun deleteByParent(parentPath: String)

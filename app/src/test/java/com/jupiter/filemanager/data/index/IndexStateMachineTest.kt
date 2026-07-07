@@ -215,4 +215,96 @@ class IndexStateMachineTest {
         assertNotNull(db.fileIndexDao().getByPath("/s/photos_2024/b.jpg"))
         assertNotNull(db.fileIndexDao().getByPath("/s/album/a.jpg"))
     }
+
+    /**
+     * Read-usability across a rescan: a RUNNING rebuild over a previously-completed
+     * generation must keep the index USABLE (its rows are intact — the sweep only runs on
+     * success), so screens keep serving the full index instead of collapsing to a partial
+     * live walk. A first-ever partial scan and a reset index are NOT usable.
+     */
+    @Test
+    fun indexStaysUsableDuringRescanOverPriorCompleteGeneration() = runTest(dispatcher) {
+        assertFalse("no state row yet", state.isUsable())
+
+        val g1 = state.beginScan()
+        assertFalse("first-ever partial scan is not usable", state.isUsable())
+        repo.upsertScanned(listOf(file("/s/a")), g1)
+        state.completeScan(g1, 1)
+        assertTrue(state.isUsable())
+
+        state.beginScan() // manual rebuild starts: status RUNNING again
+        assertFalse("a rescan in progress is NOT complete", state.isMetadataComplete())
+        assertTrue("but the prior complete generation keeps it usable", state.isUsable())
+
+        state.reset()
+        assertFalse("a cleared index is not usable", state.isUsable())
+    }
+
+    /**
+     * The "you already have this" alert precondition, end to end with REAL files: the
+     * pre-existing copy was indexed by the survey with METADATA ONLY (contentHash = null,
+     * the realistic state — surveys never hash). Detecting the newly-arrived duplicate must
+     * hash the same-size candidate on demand instead of silently missing it (defect #5).
+     */
+    @Test
+    fun newFileDuplicateIsFoundEvenWhenOriginalWasNeverHashed() = runTest(dispatcher) {
+        val dir = java.nio.file.Files.createTempDirectory("jupiter-dup").toFile()
+        try {
+            val payload = ByteArray(4096) { (it % 251).toByte() }
+            val original = java.io.File(dir, "original.jpg").apply { writeBytes(payload) }
+            val copy = java.io.File(dir, "downloaded-again.jpg").apply { writeBytes(payload) }
+            // Same size as the duplicates but different content — must NOT be reported.
+            val decoy = java.io.File(dir, "decoy.jpg")
+                .apply { writeBytes(ByteArray(4096) { (it % 7).toByte() }) }
+
+            fun itemFor(f: java.io.File) = FileItem(
+                path = f.absolutePath,
+                name = f.name,
+                isDirectory = false,
+                sizeBytes = f.length(),
+                lastModified = f.lastModified(),
+                type = FileType.IMAGE,
+                extension = "jpg",
+            )
+
+            // Survey pass: metadata only, no hashes anywhere.
+            val g = state.beginScan()
+            repo.upsertScanned(listOf(itemFor(original), itemFor(decoy)), g)
+            state.completeScan(g, 2)
+            assertNull(db.fileIndexDao().getByPath(original.absolutePath)!!.contentHash)
+
+            val duplicates = repo.findContentDuplicates(itemFor(copy))
+
+            assertEquals(listOf(original.absolutePath), duplicates.map { it.path })
+
+            // Size floor: empty files are byte-identical by construction (pending downloads,
+            // .nomedia markers) — they must NEVER alert, whatever matches exist.
+            val emptyIndexed = java.io.File(dir, "a.nomedia").apply { writeBytes(ByteArray(0)) }
+            val emptyArriving = java.io.File(dir, "b.nomedia").apply { writeBytes(ByteArray(0)) }
+            repo.upsert(listOf(itemFor(emptyIndexed)))
+            assertTrue(repo.findContentDuplicates(itemFor(emptyArriving)).isEmpty())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    /**
+     * Hash back-fill must not disturb the survey's generation stamp: a whole-row upsert from
+     * a pre-hash snapshot would revert `lastSeenGeneration` and get a LIVE file's row swept
+     * as stale. The targeted [FileIndexDao.updateHash] leaves the stamp intact.
+     */
+    @Test
+    fun hashBackfillPreservesGenerationStamp() = runTest(dispatcher) {
+        val g = state.beginScan()
+        repo.upsertScanned(listOf(file("/s/x", size = 9000L, mtime = 3L)), g)
+
+        db.fileIndexDao().updateHash("/s/x", 9000L, 3L, "HASH", 42L)
+
+        val row = db.fileIndexDao().getByPath("/s/x")!!
+        assertEquals("HASH", row.contentHash)
+        assertEquals("the survey's generation stamp must survive", g, row.lastSeenGeneration)
+
+        repo.sweepStaleGenerations(g)
+        assertNotNull("the row must not be swept", db.fileIndexDao().getByPath("/s/x"))
+    }
 }

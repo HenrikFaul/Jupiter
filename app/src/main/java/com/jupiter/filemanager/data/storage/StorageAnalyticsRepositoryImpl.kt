@@ -306,13 +306,14 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
     // region Internals -----------------------------------------------------------
 
     /**
-     * True only when the metadata index is COMPLETE — the single authority for serving
-     * analytics from the index. A partial/interrupted survey (rows present but not COMPLETE)
-     * must NOT be trusted, so this deliberately checks state, not a row count; on failure it
-     * returns false and the caller falls back to a live walk.
+     * True when the metadata index is USABLE for reads — COMPLETE, or a rescan in flight on
+     * top of a previously-completed generation (whose rows are intact; the sweep only runs on
+     * success). A first-ever partial survey (no complete generation yet) is NOT usable, so it
+     * still falls back to a live walk. This keeps analytics serving the full index during a
+     * manual rebuild instead of collapsing to a tiny partial live view.
      */
     private suspend fun indexIsPopulated(): Boolean =
-        runCatching { indexStateRepository.isMetadataComplete() }.getOrDefault(false)
+        runCatching { indexStateRepository.isUsable() }.getOrDefault(false)
 
     /**
      * Aggregates a [StorageOverview] from the persistent index instead of walking

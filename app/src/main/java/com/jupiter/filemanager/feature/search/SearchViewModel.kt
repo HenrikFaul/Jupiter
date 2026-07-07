@@ -124,9 +124,10 @@ class SearchViewModel @Inject constructor(
 
             val (indexEnabled, indexComplete) = withContext(Dispatchers.IO) {
                 val enabled = runCatching { settings.indexingEnabled.first() }.getOrDefault(true)
-                // Authoritative completeness comes from the Room index_state (not a row
-                // count or a DataStore flag), so a partial index never suppresses the walk.
-                val complete = runCatching { indexStateRepository.isMetadataComplete() }
+                // Authoritative usability comes from the Room index_state (not a row count):
+                // COMPLETE, or a rescan running over a prior complete generation. A first-ever
+                // partial index never suppresses the walk.
+                val complete = runCatching { indexStateRepository.isUsable() }
                     .getOrDefault(false)
                 enabled to complete
             }
