@@ -83,6 +83,7 @@ class DuplicateDetector @Inject constructor(
     private val indexRepository: FileIndexRepository,
     private val perceptualHashSource: PerceptualHashSource,
     private val structuralFingerprintSource: StructuralFingerprintSource,
+    private val mediaFingerprintSource: MediaFingerprintSource,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : ArrivalInspector {
 
@@ -223,8 +224,81 @@ class DuplicateDetector @Inject constructor(
                     )
                 }
             }
+
+            // 5) SIMILAR media (video / PDF / audio): a perceptual/acoustic fingerprint from an
+            // on-device decoder, compared within the same type. Same on-demand-backfill contract as
+            // images so an original that predates the feature is still in the comparison set.
+            val mediaAlert: DuplicateAlert? = when (item.type) {
+                FileType.VIDEO -> mediaNearCheck(
+                    item = item,
+                    compute = mediaFingerprintSource::videoKeyframeHash,
+                    find = { p, h -> indexRepository.findNearDuplicateVideo(p, h, StructuralHash.VIDEO_NEAR_THRESHOLD) },
+                    layer = SimilarityLayer.PERCEPTUAL,
+                    similarity = 0.9,
+                    noun = "video",
+                    detail = "same footage, re-encoded or recompressed",
+                )
+                FileType.PDF -> mediaNearCheck(
+                    item = item,
+                    compute = mediaFingerprintSource::pdfRenderHash,
+                    find = { p, h -> indexRepository.findNearDuplicatePdf(p, h, StructuralHash.PDF_NEAR_THRESHOLD) },
+                    layer = SimilarityLayer.PERCEPTUAL,
+                    similarity = 0.9,
+                    noun = "document",
+                    detail = "same document, re-exported or scanned",
+                )
+                FileType.AUDIO -> mediaNearCheck(
+                    item = item,
+                    compute = mediaFingerprintSource::audioAcousticHash,
+                    find = { p, h -> indexRepository.findNearDuplicateAudio(p, h, StructuralHash.AUDIO_NEAR_THRESHOLD) },
+                    layer = SimilarityLayer.PERCEPTUAL,
+                    similarity = 0.88,
+                    noun = "recording",
+                    detail = "same recording, re-encoded",
+                )
+                else -> null
+            }
+            if (mediaAlert != null) return@withContext mediaAlert
             null
         }.getOrNull()
+    }
+
+    /**
+     * Shared VIDEO/PDF/AUDIO near-duplicate path: fingerprint the arriving file with [compute],
+     * persist it, backfill the missing structural fingerprints of the same type, look up matches via
+     * [find], and emit a fused SIMILAR alert. Returns the alert (so the caller can return it) or null
+     * when the file is unique / not decodable. [compute]/[find] are the only type-specific bits.
+     */
+    private suspend fun mediaNearCheck(
+        item: FileItem,
+        compute: (String) -> Long?,
+        find: suspend (String, Long) -> List<FileItem>,
+        layer: SimilarityLayer,
+        similarity: Double,
+        noun: String,
+        detail: String,
+    ): DuplicateAlert? {
+        val hash = compute(item.path) ?: return null
+        indexRepository.putStructuralHash(item.path, hash)
+        if (hash == StructuralHash.UNHASHABLE) return null
+        ensureStructuralFingerprinted()
+        val similar = find(item.path, hash)
+        if (similar.isEmpty()) return null
+        val score = SimilarityScorer.score(
+            type = TypeClass.fromFileType(item.type),
+            exactIdentity = false,
+            signals = listOf(LayerSignal(layer, similarity)),
+        )
+        val count = if (similar.size == 1) "a $noun" else "${similar.size} ${noun}s"
+        return emit(
+            DuplicateAlert(
+                newFile = item,
+                existing = similar,
+                kind = DuplicateKind.SIMILAR,
+                tier = score.tier,
+                explanation = "Same $noun as $count you already have ($detail)",
+            ),
+        )
     }
 
     /**
@@ -246,6 +320,9 @@ class DuplicateDetector @Inject constructor(
                     FileType.CODE -> structuralFingerprintSource.textSimHash(file.path)
                     FileType.ARCHIVE, FileType.APK ->
                         structuralFingerprintSource.archiveTreeHash(file.path)
+                    FileType.VIDEO -> mediaFingerprintSource.videoKeyframeHash(file.path)
+                    FileType.PDF -> mediaFingerprintSource.pdfRenderHash(file.path)
+                    FileType.AUDIO -> mediaFingerprintSource.audioAcousticHash(file.path)
                     else -> StructuralHash.UNHASHABLE // out of scope → mark so it leaves the list
                 } ?: StructuralHash.UNHASHABLE // transient failure → mark to guarantee progress
                 if (runCatching { indexRepository.putStructuralHash(file.path, fingerprint) }.isSuccess) {

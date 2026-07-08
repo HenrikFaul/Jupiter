@@ -8,8 +8,10 @@ import com.jupiter.filemanager.data.index.DuplicateDetector
 import com.jupiter.filemanager.data.index.FileIndexDao
 import com.jupiter.filemanager.data.index.FileIndexDatabase
 import com.jupiter.filemanager.data.index.FileIndexRepositoryImpl
+import com.jupiter.filemanager.data.index.AndroidMediaFingerprintSource
 import com.jupiter.filemanager.data.index.IndexStateDao
 import com.jupiter.filemanager.data.index.IndexStateRepositoryImpl
+import com.jupiter.filemanager.data.index.MediaFingerprintSource
 import com.jupiter.filemanager.data.index.MediaStoreIndexSource
 import com.jupiter.filemanager.data.index.NewFileSource
 import com.jupiter.filemanager.data.index.SettingsDedupCheckpointStore
@@ -82,6 +84,11 @@ abstract class IndexBindingsModule {
 
     @Binds
     abstract fun bindArrivalInspector(impl: DuplicateDetector): ArrivalInspector
+
+    @Binds
+    abstract fun bindMediaFingerprintSource(
+        impl: AndroidMediaFingerprintSource,
+    ): MediaFingerprintSource
 
     @Binds
     abstract fun bindStorageAccessGate(impl: StorageAccessManager): StorageAccessGate

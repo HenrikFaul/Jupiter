@@ -367,6 +367,53 @@ class FileIndexRepositoryImpl @Inject constructor(
         existingOrPruned(dao.entriesForPaths(samePaths).map(::toFileItem))
     }
 
+    override suspend fun findNearDuplicateVideo(
+        path: String,
+        hash: Long,
+        threshold: Int,
+    ): List<FileItem> = withContext(ioDispatcher) {
+        nearByStructuralHamming(path, hash, threshold, VIDEO_TYPE_NAMES)
+    }
+
+    override suspend fun findNearDuplicatePdf(
+        path: String,
+        hash: Long,
+        threshold: Int,
+    ): List<FileItem> = withContext(ioDispatcher) {
+        nearByStructuralHamming(path, hash, threshold, PDF_TYPE_NAMES)
+    }
+
+    override suspend fun findNearDuplicateAudio(
+        path: String,
+        hash: Long,
+        threshold: Int,
+    ): List<FileItem> = withContext(ioDispatcher) {
+        nearByStructuralHamming(path, hash, threshold, AUDIO_TYPE_NAMES)
+    }
+
+    /**
+     * Shared near-lookup for the perceptual/dHash-style structural fingerprints (video keyframe, PDF
+     * render, audio envelope): scan the lean (path, structuralHash) projection of the given types in
+     * memory, keep those within [threshold] Hamming distance, then materialize + existence-prune the
+     * few matches. The UNHASHABLE sentinel is excluded by the query.
+     */
+    private suspend fun nearByStructuralHamming(
+        path: String,
+        hash: Long,
+        threshold: Int,
+        typeNames: List<String>,
+    ): List<FileItem> {
+        if (hash == StructuralHash.UNHASHABLE) return emptyList()
+        val nearPaths = dao.structuralHashesOfTypes(typeNames, StructuralHash.UNHASHABLE)
+            .asSequence()
+            .filter { it.path != path }
+            .filter { java.lang.Long.bitCount(hash xor it.structuralHash) <= threshold }
+            .map { it.path }
+            .toList()
+        if (nearPaths.isEmpty()) return emptyList()
+        return existingOrPruned(dao.entriesForPaths(nearPaths).map(::toFileItem))
+    }
+
     override suspend fun filesNeedingStructuralHash(limit: Int): List<FileItem> =
         withContext(ioDispatcher) {
             dao.filesMissingStructuralHash(STRUCTURAL_TYPE_NAMES, limit).map(::toFileItem)
@@ -571,7 +618,13 @@ class FileIndexRepositoryImpl @Inject constructor(
         /** Types carrying an archive member-tree structural fingerprint. */
         val ARCHIVE_TYPE_NAMES = listOf(FileType.ARCHIVE.name, FileType.APK.name)
 
+        /** Types carrying a media dHash / envelope structural fingerprint. */
+        val VIDEO_TYPE_NAMES = listOf(FileType.VIDEO.name)
+        val PDF_TYPE_NAMES = listOf(FileType.PDF.name)
+        val AUDIO_TYPE_NAMES = listOf(FileType.AUDIO.name)
+
         /** Every type that gets a structural fingerprint (backfill work list scope). */
-        val STRUCTURAL_TYPE_NAMES = TEXT_TYPE_NAMES + ARCHIVE_TYPE_NAMES
+        val STRUCTURAL_TYPE_NAMES =
+            TEXT_TYPE_NAMES + ARCHIVE_TYPE_NAMES + VIDEO_TYPE_NAMES + PDF_TYPE_NAMES + AUDIO_TYPE_NAMES
     }
 }

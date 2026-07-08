@@ -54,9 +54,12 @@ fingerprint) — both wired LIVE into the arrival pipeline via `StructuralFinger
 on-demand backfill — the fusion scorer with tiers + explainability (`SimilarityScorer`), and — the
 fix that makes arrival detection actually fire — a **checkpoint-based MediaStore delta reconciler**
 (`DedupReconciler`) plus a shared `DuplicateDetector`. The live near-duplicate layers are now
-identity (all types) + perceptual (images) + semantic/text (code) + structural (archives); the
-remaining extractors (video keyframe, PDF render, audio chromaprint, embeddings) require on-device
-media decode and are the documented backlog. The sections below document all of it and the target.
+identity (all types) + perceptual (images, **video keyframe, PDF rendered-page**) + acoustic
+(**audio loudness-envelope**) + semantic/text (code) + structural (archives). The media decoders
+(`MediaMetadataRetriever`/`PdfRenderer`/`MediaCodec`) live behind the `MediaFingerprintSource` seam:
+the arrival-pipeline wiring is proven in CI against a scripted fake, and the decode itself is
+verified on a device (the emulator-less CI has no real codecs). On-device semantic **embeddings**
+(image/text/frame CLIP-class) remain the documented backlog. The sections below document all of it.
 
 ---
 
@@ -263,9 +266,12 @@ reprocessing everything blindly.
   only; never claim "similar").
 
 Jupiter today ships (and runs LIVE at arrival): metadata + SHA-1 content hash + image dHash +
-**text/code SimHash** + **archive member-tree fingerprint** (`StructuralFingerprintSource`, backfilled
-on demand exactly like the image dHash). The remaining extractors — video keyframe, PDF render, audio
-chromaprint, embeddings — require on-device media decode / ML models and are the prioritized backlog.
+**text/code SimHash** + **archive member-tree fingerprint** (`StructuralFingerprintSource`) +
+**video representative-keyframe dHash** + **PDF first-page render dHash** + **audio loudness-envelope
+fingerprint** (`AndroidMediaFingerprintSource` behind the `MediaFingerprintSource` seam) — all
+backfilled on demand exactly like the image dHash and compared within their own type. The video/PDF/
+audio decoders run only on-device (real codecs); the pipeline is CI-proven with a scripted fake. The
+remaining work — on-device semantic **embeddings** (CLIP-class image/text/frame) — is the backlog.
 
 ---
 
@@ -756,8 +762,8 @@ system is self-sufficient and offline; an optional backend (vector search, cross
 telemetry) can layer on later without changing the on-device contracts.
 
 This is the architecture Jupiter is converging on. The arrival-detection reconciler, the exact +
-perceptual (image) + semantic (text SimHash) + structural (archive member-tree) layers, the fusion
-scorer, the generation/state index, and the observability of decisions are the load-bearing pieces —
-all shipped and live — and the remaining extractors (video keyframe, PDF render, audio chromaprint,
-on-device embeddings) plug into the same `StructuralFingerprintSource`-style pattern and the same
-fusion scorer without re-architecting anything.
+perceptual (image / video keyframe / PDF render) + acoustic (audio envelope) + semantic (text SimHash)
++ structural (archive member-tree) layers, the fusion scorer, the generation/state index, and the
+observability of decisions are the load-bearing pieces — all shipped and live (the media decoders
+behind the `MediaFingerprintSource` seam, device-verified). The only remaining extractor is on-device
+semantic embeddings, which plugs into the same seam + fusion scorer without re-architecting anything.

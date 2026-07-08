@@ -49,7 +49,8 @@ class DuplicateDetectorStructuralTest {
             .allowMainThreadQueries().build()
         repo = FileIndexRepositoryImpl(db.fileIndexDao(), dispatcher)
         detector = DuplicateDetector(
-            ctx, repo, PerceptualHashSource(), StructuralFingerprintSource(), dispatcher,
+            ctx, repo, PerceptualHashSource(), StructuralFingerprintSource(),
+            FakeMediaFingerprintSource(), dispatcher,
         )
         tempDir = java.nio.file.Files.createTempDirectory("jupiter-detector-struct").toFile()
     }
