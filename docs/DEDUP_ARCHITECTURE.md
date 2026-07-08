@@ -384,6 +384,12 @@ index time so it is immediately findable.
 
 ## 9. Scoring and fusion engine
 
+_(shipped: `data/index/dedup/SimilarityScorer` + `SimilarityModel` — the fusion, tiers, per-type
+weights, vetoes, confidence, and explanation described below are implemented and unit-tested;
+`TextSimHash` and `ApkComparator` provide the text/code and APK layer signals. What remains is
+wiring the per-type descriptor EXTRACTORS that feed the structural/perceptual layers for video /
+PDF / audio / archive.)_
+
 ### 9.1 Score formula
 
 ```

@@ -128,6 +128,18 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Planned next
 - Trash / restore + audit (minden törlés visszaállíthatóan a Lomtárba); scan-szűrők; perceptuális near-duplicate.
 
+## [jupiter:0.36.0] - 2026-07-08
+### Added — A dedup-blueprint HIÁNYZÓ magja kódban: fúziós pontozó + döntési szintek + magyarázhatóság + új típusrétegek
+- **Fúziós pontozó motor** (`data/index/dedup/SimilarityScorer` + `SimilarityModel`): a független hasonlósági rétegeket (IDENTITY, METADATA, STRUCTURAL, SAMPLE, PERCEPTUAL, SEMANTIC) egyetlen [0,100] pontszámmá, **6 döntési szintté** (UNRELATED→WEAK→POSSIBLE→PROBABLE→VERY_LIKELY→EXACT), konfidenciává és **ember-olvasható magyarázattá** olvasztja. Szabályok: az exact tartalom-hash MINDIG dominál (EXACT); **típusfüggő súlyok** (kép→perceptuális 55, APK→struktúra 60, szöveg/kód→szemantikus 60, bináris→minta 55…, mind 100-ra normálva); **hard veto**-k (aláíró-, méret-, hossz-eltérés) LEfelé korlátozzák a pontot (sosem fel). Tiszta, teljes igazságtáblával tesztelve (`SimilarityScorerTest`).
+- **Szöveg/kód réteg — SimHash** (`TextSimHash`): 64 bites, formázás-érzéketlen (kisbetűs, tokenizált) ujjlenyomat; a Hamming-távolság ≤ 3 → közeli duplikátum. Túléli az újraformázást/kis szerkesztést (a tartalom-hash nem). Tesztelve.
+- **APK réteg** (`ApkIdentity` + `ApkComparator`): csomagnév + aláíró-tanúsítvány + verziókód alapján megkülönbözteti: SAME_EXACT / SAME_APP_UPDATE (verzió-család, NEM törlendő) / DIFFERENT_SIGNER (átcsomagolt — veto, sosem „ugyanaz az app") / UNRELATED. Tesztelve.
+- **Minta/chunk réteg** (`SampleOffsets`): nagy bináris fájlok determinisztikus, méret-magvú mintavételi tartományai (első/utolsó/közép + belső pozíciók) — gyors előszűrő. Tesztelve.
+- **Magyarázható riasztások**: a `DuplicateAlert` mostantól `tier` + `explanation` mezőt hordoz; az észlelő a fúziós pontozón át tölti ki (EXACT → „Identical content — same bytes as N files"; SIMILAR → perceptuális rétegből számolt szint + „Same picture … different size or format").
+### Changed
+- `docs/DEDUP_ARCHITECTURE.md`: a fúziós pontozó, a szöveg/kód és APK réteg „shipped"-re jelölve; `DuplicateAlert`/`DuplicateDetector` a tier+magyarázat kitöltésével; `versionName` → 0.36.0.
+### Known issues / megjegyzés
+- A videó/PDF/audió/archívum deszkriptor-kinyerés és a szemantikus embeddingek + ANN-jelölt-lekérdezés továbbra is a tervrajz szerinti következő körök; a mostani kör a pontozó/szint/magyarázhatóság gerincét és a kép/szöveg-kód/APK/bináris réteg-logikát szállítja (tesztelve). A pontozó jelenleg az elérhető rétegekből dolgozik; a hiányzó extraktorok bekötése további körökben történik.
+
 ## [jupiter:0.35.0] - 2026-07-08
 ### Fixed — A DUPLIKÁTUM-FELISMERÉS VALÓDI GYÖKÉR-OKA: az észlelés csak élő process alatt futott
 - **Gyökér-ok (végre a valódi)**: a duplikátum-észlelés KIZÁRÓLAG a `DownloadIndexObserver`-en át futott, ami CSAK amíg az app process él. Amikor Chrome-ból/kameráből/üzenetküldőből érkezik fájl **zárt Jupiter mellett** (a tipikus eset!), semmi nem figyeli, és a következő app-megnyitáskor a felmérés csak metaadatot indexel — dedup-ellenőrzést NEM futtat az új fájlra. Ráadásul élő process alatt is törékeny volt: sok eszközön a `ContentObserver` a puszta gyűjtemény-URI-val tüzel, így a `resolvePath` egy TETSZŐLEGES sort oldott fel, nem az új fájlt. Ezért nem jelzett egyik teszt-esetben sem.

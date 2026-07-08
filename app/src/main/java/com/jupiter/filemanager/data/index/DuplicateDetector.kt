@@ -9,6 +9,11 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.jupiter.filemanager.data.index.dedup.DedupTier
+import com.jupiter.filemanager.data.index.dedup.LayerSignal
+import com.jupiter.filemanager.data.index.dedup.SimilarityLayer
+import com.jupiter.filemanager.data.index.dedup.SimilarityScorer
+import com.jupiter.filemanager.data.index.dedup.TypeClass
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
@@ -32,12 +37,15 @@ enum class DuplicateKind {
 }
 
 /**
- * A newly-arrived file together with the existing files it duplicates and the [kind] of match.
+ * A newly-arrived file together with the existing files it duplicates, the [kind] of match, the
+ * fused confidence [tier], and a human-readable [explanation] of why they matched.
  */
 data class DuplicateAlert(
     val newFile: FileItem,
     val existing: List<FileItem>,
     val kind: DuplicateKind,
+    val tier: DedupTier = DedupTier.EXACT,
+    val explanation: String = "",
 )
 
 /**
@@ -95,13 +103,26 @@ class DuplicateDetector @Inject constructor(
             // Always index first: even a unique file must be comparable against FUTURE arrivals.
             indexRepository.indexFile(item)
 
-            // 1) EXACT byte-identical duplicate.
+            val typeClass = TypeClass.fromFileType(item.type)
+
+            // 1) EXACT byte-identical duplicate → fused to tier EXACT (identity dominates).
             val exact = indexRepository.findContentDuplicates(item)
             if (exact.isNotEmpty()) {
-                return@withContext emit(DuplicateAlert(item, exact, DuplicateKind.EXACT))
+                val score = SimilarityScorer.score(typeClass, exactIdentity = true, signals = emptyList())
+                val copies = if (exact.size == 1) "1 file" else "${exact.size} files"
+                return@withContext emit(
+                    DuplicateAlert(
+                        newFile = item,
+                        existing = exact,
+                        kind = DuplicateKind.EXACT,
+                        tier = score.tier,
+                        explanation = "Identical content — same bytes as $copies you already have",
+                    ),
+                )
             }
 
-            // 2) SIMILAR picture (images only): fingerprint + near-dHash lookup.
+            // 2) SIMILAR picture (images only): fingerprint + near-dHash lookup, fused through the
+            // perceptual layer so the alert carries a confidence tier + explanation.
             if (item.type == FileType.IMAGE) {
                 val hash = perceptualHashSource.compute(item.path) ?: return@withContext null
                 indexRepository.putPerceptualHash(item.path, hash)
@@ -112,7 +133,23 @@ class DuplicateDetector @Inject constructor(
                     threshold = PerceptualHash.DEFAULT_NEAR_THRESHOLD,
                 )
                 if (similar.isNotEmpty()) {
-                    return@withContext emit(DuplicateAlert(item, similar, DuplicateKind.SIMILAR))
+                    // A within-threshold dHash match is a strong perceptual signal.
+                    val score = SimilarityScorer.score(
+                        type = TypeClass.IMAGE,
+                        exactIdentity = false,
+                        signals = listOf(LayerSignal(SimilarityLayer.PERCEPTUAL, 0.92)),
+                    )
+                    val imgs = if (similar.size == 1) "an image" else "${similar.size} images"
+                    return@withContext emit(
+                        DuplicateAlert(
+                            newFile = item,
+                            existing = similar,
+                            kind = DuplicateKind.SIMILAR,
+                            tier = score.tier,
+                            explanation = "Same picture as $imgs you already have " +
+                                "(different size or format)",
+                        ),
+                    )
                 }
             }
             null
