@@ -44,4 +44,12 @@ data class FileIndexEntry(
      * Only meaningful for image files.
      */
     val perceptualHash: Long? = null,
+    /**
+     * 64-bit non-perceptual near-duplicate fingerprint, meaningful for TEXT/CODE (a formatting-
+     * insensitive [com.jupiter.filemanager.data.index.dedup.TextSimHash]) and ARCHIVE/APK (a
+     * member-tree fingerprint). Compared ONLY within the same file type, so the shared column is
+     * unambiguous. Null = not computed yet; [StructuralHash.UNHASHABLE] = tried but not comparable
+     * (never retried, never matched). See [StructuralFingerprintSource].
+     */
+    val structuralHash: Long? = null,
 )

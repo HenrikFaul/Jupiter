@@ -65,6 +65,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                     // Same-content rule as the content hash: the perceptual fingerprint
                     // survives while identity is unchanged, else it is recomputed.
                     perceptualHash = if (identityKept) prior?.perceptualHash else null,
+                    structuralHash = if (identityKept) prior?.structuralHash else null,
                 )
             }
             dao.upsertAll(entries)
@@ -107,6 +108,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                 // otherwise every 12 h survey would wipe all fingerprints and force the
                 // backfill to re-decode the whole photo library.
                 perceptualHash = if (identityKept) prior?.perceptualHash else null,
+                structuralHash = if (identityKept) prior?.structuralHash else null,
                 lastSeenGeneration = generation ?: prior?.lastSeenGeneration ?: 0L,
             )
         }
@@ -129,6 +131,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                 toEntry(item, now).copy(
                     contentHash = unchanged?.contentHash,
                     perceptualHash = unchanged?.perceptualHash,
+                    structuralHash = unchanged?.structuralHash,
                 ),
             ),
         )
@@ -184,6 +187,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                     toEntry(toItem, now).copy(
                         contentHash = if (identityKept) entry.contentHash else null,
                         perceptualHash = if (identityKept) entry.perceptualHash else null,
+                        structuralHash = if (identityKept) entry.structuralHash else null,
                     )
                 } else {
                     entry.copy(
@@ -324,6 +328,49 @@ class FileIndexRepositoryImpl @Inject constructor(
     override suspend fun putPerceptualHash(path: String, hash: Long) = withContext(ioDispatcher) {
         dao.updatePerceptualHash(path, hash)
     }
+
+    override suspend fun putStructuralHash(path: String, hash: Long) = withContext(ioDispatcher) {
+        dao.updateStructuralHash(path, hash)
+    }
+
+    override suspend fun findNearDuplicateText(
+        path: String,
+        simHash: Long,
+        threshold: Int,
+    ): List<FileItem> = withContext(ioDispatcher) {
+        if (simHash == StructuralHash.UNHASHABLE) return@withContext emptyList()
+        val nearPaths = dao.structuralHashesOfTypes(TEXT_TYPE_NAMES, StructuralHash.UNHASHABLE)
+            .asSequence()
+            .filter { it.path != path }
+            .filter {
+                com.jupiter.filemanager.data.index.dedup.TextSimHash
+                    .isNear(simHash, it.structuralHash, threshold)
+            }
+            .map { it.path }
+            .toList()
+        if (nearPaths.isEmpty()) return@withContext emptyList()
+        existingOrPruned(dao.entriesForPaths(nearPaths).map(::toFileItem))
+    }
+
+    override suspend fun findSameArchiveContents(
+        path: String,
+        treeHash: Long,
+    ): List<FileItem> = withContext(ioDispatcher) {
+        if (treeHash == StructuralHash.UNHASHABLE) return@withContext emptyList()
+        val samePaths = dao.structuralHashesOfTypes(ARCHIVE_TYPE_NAMES, StructuralHash.UNHASHABLE)
+            .asSequence()
+            .filter { it.path != path }
+            .filter { it.structuralHash == treeHash } // equal member-tree = same contents
+            .map { it.path }
+            .toList()
+        if (samePaths.isEmpty()) return@withContext emptyList()
+        existingOrPruned(dao.entriesForPaths(samePaths).map(::toFileItem))
+    }
+
+    override suspend fun filesNeedingStructuralHash(limit: Int): List<FileItem> =
+        withContext(ioDispatcher) {
+            dao.filesMissingStructuralHash(STRUCTURAL_TYPE_NAMES, limit).map(::toFileItem)
+        }
 
     override suspend fun findNearDuplicateImages(
         path: String,
@@ -517,5 +564,14 @@ class FileIndexRepositoryImpl @Inject constructor(
          * indexing sources' exclusions so pre-existing rows are filtered at read time too.
          */
         val EXCLUDED_RESULT_SEGMENTS = listOf(".trash", ".trashed", ".thumbnails")
+
+        /** Types carrying a text SimHash structural fingerprint. */
+        val TEXT_TYPE_NAMES = listOf(FileType.CODE.name)
+
+        /** Types carrying an archive member-tree structural fingerprint. */
+        val ARCHIVE_TYPE_NAMES = listOf(FileType.ARCHIVE.name, FileType.APK.name)
+
+        /** Every type that gets a structural fingerprint (backfill work list scope). */
+        val STRUCTURAL_TYPE_NAMES = TEXT_TYPE_NAMES + ARCHIVE_TYPE_NAMES
     }
 }

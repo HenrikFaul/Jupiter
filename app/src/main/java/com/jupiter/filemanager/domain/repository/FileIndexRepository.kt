@@ -82,6 +82,30 @@ interface FileIndexRepository {
     /** Stores an image's perceptual (dHash) fingerprint for [path]. */
     suspend fun putPerceptualHash(path: String, hash: Long)
 
+    /** Stores a text/archive structural (SimHash / member-tree) fingerprint for [path]. */
+    suspend fun putStructuralHash(path: String, hash: Long)
+
+    /**
+     * Returns indexed TEXT/CODE files whose [com.jupiter.filemanager.data.index.dedup.TextSimHash]
+     * is within [threshold] Hamming distance of [simHash] — the same text reformatted, re-indented,
+     * or lightly edited. Excludes [path] itself and non-comparable sentinels. Existence-pruned.
+     */
+    suspend fun findNearDuplicateText(path: String, simHash: Long, threshold: Int): List<FileItem>
+
+    /**
+     * Returns indexed ARCHIVE/APK files whose member-tree fingerprint equals [treeHash] — the same
+     * contents repacked (possibly with different compression, hence different bytes). Excludes
+     * [path] itself and non-comparable sentinels. Existence-pruned.
+     */
+    suspend fun findSameArchiveContents(path: String, treeHash: Long): List<FileItem>
+
+    /**
+     * Next batch of indexed TEXT/CODE + ARCHIVE/APK files that still lack a structural fingerprint,
+     * for the on-demand/background backfill. The caller marks every returned row (hash or sentinel),
+     * so repeated calls always make progress.
+     */
+    suspend fun filesNeedingStructuralHash(limit: Int): List<FileItem>
+
     /**
      * Returns indexed images that are perceptually NEAR-duplicates of the image at [path]
      * whose dHash is [hash] — the same picture in a different format/resolution/compression

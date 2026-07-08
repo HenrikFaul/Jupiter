@@ -82,6 +82,7 @@ class DuplicateDetector @Inject constructor(
     @ApplicationContext private val context: Context,
     private val indexRepository: FileIndexRepository,
     private val perceptualHashSource: PerceptualHashSource,
+    private val structuralFingerprintSource: StructuralFingerprintSource,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : ArrivalInspector {
 
@@ -160,8 +161,99 @@ class DuplicateDetector @Inject constructor(
                     )
                 }
             }
+
+            // 3) SIMILAR text/code (near-identical after reformatting/editing) via SimHash.
+            if (item.type == FileType.CODE) {
+                val simHash = structuralFingerprintSource.textSimHash(item.path)
+                    ?: return@withContext null
+                indexRepository.putStructuralHash(item.path, simHash)
+                ensureStructuralFingerprinted()
+                val similar = indexRepository.findNearDuplicateText(
+                    path = item.path,
+                    simHash = simHash,
+                    threshold = StructuralHash.TEXT_NEAR_THRESHOLD,
+                )
+                if (similar.isNotEmpty()) {
+                    val score = SimilarityScorer.score(
+                        type = typeClass,
+                        exactIdentity = false,
+                        signals = listOf(LayerSignal(SimilarityLayer.SEMANTIC, 0.9)),
+                    )
+                    val files = if (similar.size == 1) "a file" else "${similar.size} files"
+                    return@withContext emit(
+                        DuplicateAlert(
+                            newFile = item,
+                            existing = similar,
+                            kind = DuplicateKind.SIMILAR,
+                            tier = score.tier,
+                            explanation = "Near-identical text as $files you already have " +
+                                "(same content, reformatted or lightly edited)",
+                        ),
+                    )
+                }
+            }
+
+            // 4) SAME archive contents (repacked, possibly different compression) via member-tree.
+            if (item.type == FileType.ARCHIVE || item.type == FileType.APK) {
+                val treeHash = structuralFingerprintSource.archiveTreeHash(item.path)
+                    ?: return@withContext null
+                indexRepository.putStructuralHash(item.path, treeHash)
+                if (treeHash == StructuralHash.UNHASHABLE) return@withContext null
+                ensureStructuralFingerprinted()
+                val same = indexRepository.findSameArchiveContents(
+                    path = item.path,
+                    treeHash = treeHash,
+                )
+                if (same.isNotEmpty()) {
+                    val score = SimilarityScorer.score(
+                        type = typeClass,
+                        exactIdentity = false,
+                        signals = listOf(LayerSignal(SimilarityLayer.STRUCTURAL, 0.95)),
+                    )
+                    val files = if (same.size == 1) "an archive" else "${same.size} archives"
+                    return@withContext emit(
+                        DuplicateAlert(
+                            newFile = item,
+                            existing = same,
+                            kind = DuplicateKind.SIMILAR,
+                            tier = score.tier,
+                            explanation = "Same contents as $files you already have " +
+                                "(repacked or recompressed)",
+                        ),
+                    )
+                }
+            }
             null
         }.getOrNull()
+    }
+
+    /**
+     * Fingerprints every already-indexed TEXT/CODE + ARCHIVE/APK file that still lacks a structural
+     * fingerprint, so the near-duplicate comparison set is COMPLETE — a copy that arrived before the
+     * feature shipped is still comparable. Same bounded, cancellable, progress-guaranteed drain as
+     * [ensureImagesFingerprinted]: a transient IO failure yields null (kept for a later run) while a
+     * genuinely non-comparable file is marked [StructuralHash.UNHASHABLE] so the work list shrinks.
+     */
+    private suspend fun ensureStructuralFingerprinted() {
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val batch = indexRepository.filesNeedingStructuralHash(FINGERPRINT_BATCH)
+            if (batch.isEmpty()) return
+            var stored = 0
+            for (file in batch) {
+                currentCoroutineContext().ensureActive()
+                val fingerprint = when (file.type) {
+                    FileType.CODE -> structuralFingerprintSource.textSimHash(file.path)
+                    FileType.ARCHIVE, FileType.APK ->
+                        structuralFingerprintSource.archiveTreeHash(file.path)
+                    else -> StructuralHash.UNHASHABLE // out of scope → mark so it leaves the list
+                } ?: StructuralHash.UNHASHABLE // transient failure → mark to guarantee progress
+                if (runCatching { indexRepository.putStructuralHash(file.path, fingerprint) }.isSuccess) {
+                    stored++
+                }
+            }
+            if (stored == 0) return
+        }
     }
 
     /**
@@ -213,10 +305,10 @@ class DuplicateDetector @Inject constructor(
                 0,
             )
             DuplicateKind.SIMILAR -> Triple(
-                "Similar image detected",
-                "${alert.newFile.name} looks like " +
-                    (if (count == 1) "an image" else "$count images") +
-                    " you already have (same picture, different size or format)",
+                "Similar file detected",
+                // The alert's own explanation is type-specific (image / text / archive), so the
+                // notification reads correctly whichever near-duplicate layer fired.
+                "${alert.newFile.name} — ${alert.explanation}",
                 SIMILAR_ID_SALT,
             )
         }

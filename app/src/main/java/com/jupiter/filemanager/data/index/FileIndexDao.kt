@@ -137,6 +137,35 @@ interface FileIndexDao {
     )
     suspend fun imagesMissingPerceptualHash(imageTypeName: String, limit: Int): List<FileIndexEntry>
 
+    /**
+     * Stores a text/archive structural fingerprint. Targeted UPDATE for the same reason as
+     * [updateHash]: it must never disturb a concurrent survey's generation stamp.
+     */
+    @Query("UPDATE file_index SET structuralHash = :hash WHERE path = :path")
+    suspend fun updateStructuralHash(path: String, hash: Long)
+
+    /**
+     * Path + structural hash of every fingerprinted file of the given [typeNames] (the comparison
+     * set for text near-dups / archive same-contents). Excludes the UNHASHABLE sentinel so unrelated
+     * uncomparable files never match. Comparing only within one type keeps the shared column safe.
+     */
+    @Query(
+        "SELECT path, structuralHash AS structuralHash FROM file_index " +
+            "WHERE structuralHash IS NOT NULL AND structuralHash != :unhashable " +
+            "AND isDirectory = 0 AND typeName IN (:typeNames)",
+    )
+    suspend fun structuralHashesOfTypes(
+        typeNames: List<String>,
+        unhashable: Long,
+    ): List<PathStructuralHash>
+
+    /** Rows of the given [typeNames] that still need a structural fingerprint (backfill work list). */
+    @Query(
+        "SELECT * FROM file_index WHERE structuralHash IS NULL AND isDirectory = 0 " +
+            "AND typeName IN (:typeNames) LIMIT :limit",
+    )
+    suspend fun filesMissingStructuralHash(typeNames: List<String>, limit: Int): List<FileIndexEntry>
+
     /** Deletes every row directly under [parentPath]. */
     @Query("DELETE FROM file_index WHERE parentPath = :parentPath")
     suspend fun deleteByParent(parentPath: String)
@@ -243,4 +272,13 @@ interface FileIndexDao {
 data class PathPerceptualHash(
     val path: String,
     val perceptualHash: Long,
+)
+
+/**
+ * Lean projection for the text/archive near-duplicate comparison set: only (path, structuralHash)
+ * is needed to scan tens of thousands of fingerprints; full rows are fetched for matches only.
+ */
+data class PathStructuralHash(
+    val path: String,
+    val structuralHash: Long,
 )

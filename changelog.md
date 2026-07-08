@@ -456,3 +456,17 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `DuplicateDetectorImageTest` (Robolectric NATIVE graphics): egy METAADAT-ONLY (ujjlenyomat nélküli) eredeti ellen egy más formátumú+felbontású másolat SIMILAR riasztást vált ki, és az eredeti utána ujjlenyomatolt; egy fordított (más) kép NEM ad riasztást. `DedupResultPruningTest`: kuka-beli és eltűnt duplikátum nem jelenik meg és törlődik az indexből, míg egy élő duplikátum továbbra is megjelenik.
 ### Regression guard
 - A meglévő `DuplicateDetectorTest` (EXACT), `PerceptualHashSourceTest`, reconciler/fusion tesztek változatlanul futnak; a dedup pontszám/tier/explainability réteg érintetlen.
+
+## [jupiter:0.38.0] - 2026-07-08
+### Added
+- **Élő szöveg/kód near-duplikátum észlelés** (data/index): a `StructuralFingerprintSource` egy formázás-független `TextSimHash`-t számol `FileType.CODE` fájlokra, és a `DuplicateDetector` érkezéskor összeveti a könyvtárral (Hamming ≤ 3 / 64) — így egy újraformázott, újra-behúzott vagy kicsit szerkesztett másolat is "hasonló" riasztást ad, holott a content-hash szétesett. Igény szerinti (on-demand) backfill mint a képeknél: az első kód-fájl érkezés ujjlenyomatolja a meglévő könyvtárat, utána ingyen.
+- **Élő archívum azonos-tartalom észlelés** (data/index): ZIP-családú archívumokra (`FileType.ARCHIVE`/`APK`) a member-tree ujjlenyomat (rendezett `(név,méret,crc)` halmaz FNV-1a-ja); két azonos tartalmú, de más tömörítéssel újracsomagolt archívum (más bájtok → más content-hash) most "azonos tartalom" riasztást ad. A nem-ZIP konténerek (tar/gz/7z/rar) konzervatívan UNHASHABLE (sosem egyeznek).
+- Új `FileIndexEntry.structuralHash` oszlop (DB v3→v4, destruktív fallback — az index cache) + DAO/repository lekérdezések (`structuralHashesOfTypes`, `filesMissingStructuralHash`, `putStructuralHash`, `findNearDuplicateText`, `findSameArchiveContents`), a meglévő létezés-szűréssel (kuka/eltűnt fájl sosem jelenik meg). A `structuralHash` a `perceptualHash`-hoz hasonlóan megmarad a survey-k között, ha az identitás (méret+mtime) változatlan.
+### Changed
+- A SIMILAR értesítés szövege most az alert saját (típus-specifikus) magyarázatát használja, így kép/szöveg/archívum near-dup egyaránt helyesen olvasható ("Similar file detected").
+- `docs/DEDUP_ARCHITECTURE.md`: a szöveg/kód (SimHash) és archívum (member-tree) rétegek "shipped/live"-ra jelölve (§1, §4.6, §5.2, §7.1, §9, §20); a hátralévő extraktorok (videó keyframe, PDF render, audió chromaprint, embeddingek) explicit backlog, mert eszköz-szintű média-dekódolást igényelnek.
+- `app/build.gradle.kts`: `versionName` → 0.38.0.
+### Verification
+- `StructuralFingerprintSourceTest` (tiszta JVM): újraformázott kód near, független kód far, bináris tartalom EMPTY; azonos tagok más tömörítéssel egyenlő fingerprint, más tagok különböznek, nem-ZIP UNHASHABLE. `DuplicateDetectorStructuralTest` (Robolectric + Room): metaadat-only (ujjlenyomat nélküli) kód-eredeti ellen újraformázott másolat → SIMILAR; újracsomagolt archívum → SIMILAR; független kód/archívum → nincs riasztás.
+### Known issues / backlog
+- Videó/PDF/audió near-dup extraktorok és on-device embeddingek továbbra sem szállítottak — ezek eszköz-szintű média/ML-dekódolást igényelnek, amit az emulátor nélküli CI nem tud őszintén igazolni; nem állítjuk késznek. A fusion scorer + tierek + magyarázat már készen fogadja őket.

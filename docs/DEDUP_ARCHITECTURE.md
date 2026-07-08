@@ -48,9 +48,15 @@ combined only in the fusion stage, with exact identity always able to dominate.
 **Current state in Jupiter (shipped):** Room-backed metadata index with a generation/state machine
 (`FileIndexEntry`, `IndexState`), a foreground survey (`IndexingWorker`), exact content-hash dedup
 (`FileIndexRepository.findContentDuplicates`, SHA-1), perceptual dHash for images
-(`PerceptualHash` + `PerceptualHashBackfillWorker`), and — the fix that makes arrival detection
-actually fire — a **checkpoint-based MediaStore delta reconciler** (`DedupReconciler`) plus a shared
-`DuplicateDetector`. The sections below both document that and lay out the full target design.
+(`PerceptualHash` + `PerceptualHashBackfillWorker`), **text/code near-duplicate detection**
+(formatting-insensitive `TextSimHash`) and **archive same-contents detection** (ZIP member-tree
+fingerprint) — both wired LIVE into the arrival pipeline via `StructuralFingerprintSource` with
+on-demand backfill — the fusion scorer with tiers + explainability (`SimilarityScorer`), and — the
+fix that makes arrival detection actually fire — a **checkpoint-based MediaStore delta reconciler**
+(`DedupReconciler`) plus a shared `DuplicateDetector`. The live near-duplicate layers are now
+identity (all types) + perceptual (images) + semantic/text (code) + structural (archives); the
+remaining extractors (video keyframe, PDF render, audio chromaprint, embeddings) require on-device
+media decode and are the documented backlog. The sections below document all of it and the target.
 
 ---
 
@@ -201,12 +207,15 @@ preserve. Perceptual **complements** binary identity: identity catches exact cop
 positives; perceptual catches the re-encodes identity misses. Combine methods by requiring agreement
 (e.g. dHash near **and** histogram correlation > 0.9) for higher-confidence tiers.
 
-### 4.6 Semantic layer _(planned)_
+### 4.6 Semantic layer _(text SimHash shipped; embeddings planned)_
 
-Text/OCR embeddings (documents, code), image embeddings (MobileCLIP-class, on-device), frame-sequence
-embeddings (video), APK resource/manifest similarity. Semantic similarity is **not** duplicate
-detection — it detects "same topic / same content family / same document in a different form." It
-feeds REVIEW tiers and grouping, never silent auto-dedup.
+For **text/code the formatting-insensitive `TextSimHash`** is shipped and live: a reformatted,
+re-indented, or lightly-edited copy of a source/config/markup file is recognised (Hamming ≤ 3 of 64)
+even though its content hash shattered. True embeddings — text/OCR embeddings (documents), image
+embeddings (MobileCLIP-class, on-device), frame-sequence embeddings (video), APK resource/manifest
+similarity — remain planned. Semantic similarity is **not** exact duplicate detection — it detects
+"same content, different form" — so it feeds POSSIBLE/REVIEW tiers and grouping, never silent
+auto-dedup.
 
 ### 4.7 Decision fusion layer
 
@@ -253,8 +262,10 @@ reprocessing everything blindly.
 - **Misc binaries:** safe generic metadata, chunk fingerprints, conservative fallback (exact + sample
   only; never claim "similar").
 
-Jupiter today ships metadata + SHA-1 content hash + image dHash. The remaining extractors are the
-prioritized backlog (videos and PDFs next, per user-visible value).
+Jupiter today ships (and runs LIVE at arrival): metadata + SHA-1 content hash + image dHash +
+**text/code SimHash** + **archive member-tree fingerprint** (`StructuralFingerprintSource`, backfilled
+on demand exactly like the image dHash). The remaining extractors — video keyframe, PDF render, audio
+chromaprint, embeddings — require on-device media decode / ML models and are the prioritized backlog.
 
 ---
 
@@ -341,8 +352,11 @@ real id is observed (never pinned to a low value before storage permission, whic
 re-alert the whole library).
 
 `DuplicateDetector.onFileArrived` = index the file → exact content-hash check (hash same-size
-candidates on demand) → if none and image, perceptual dHash near-check → emit alert + notification on
-the first match kind; otherwise the file is now indexed for future comparisons.
+candidates on demand) → if none: for an **image** run the perceptual dHash near-check, for **text/code**
+run the `TextSimHash` near-check, for an **archive/APK** run the ZIP member-tree same-contents check
+(each backfills its own missing fingerprints on demand first, so an original that arrived before the
+feature shipped is still in the comparison set) → emit the first match's alert + notification;
+otherwise the file is now fingerprinted and indexed for future comparisons.
 
 ### 7.2 Change handling
 
@@ -386,9 +400,10 @@ index time so it is immediately findable.
 
 _(shipped: `data/index/dedup/SimilarityScorer` + `SimilarityModel` — the fusion, tiers, per-type
 weights, vetoes, confidence, and explanation described below are implemented and unit-tested;
-`TextSimHash` and `ApkComparator` provide the text/code and APK layer signals. What remains is
-wiring the per-type descriptor EXTRACTORS that feed the structural/perceptual layers for video /
-PDF / audio / archive.)_
+`TextSimHash` (text/code) and the ZIP member-tree (archives) now feed the LIVE detector via
+`StructuralFingerprintSource`; `ApkComparator` provides the APK layer signal. What remains is wiring
+the per-type descriptor EXTRACTORS that feed the structural/perceptual layers for video / PDF /
+audio — these need on-device media decode and are the backlog.)_
 
 ### 9.1 Score formula
 
@@ -741,6 +756,8 @@ system is self-sufficient and offline; an optional backend (vector search, cross
 telemetry) can layer on later without changing the on-device contracts.
 
 This is the architecture Jupiter is converging on. The arrival-detection reconciler, the exact +
-perceptual layers, the generation/state index, and the observability of decisions are the load-bearing
-pieces — shipped or in this change — and the remaining extractors (video, PDF, audio, APK, archive,
-semantic) plug into the same pipeline without re-architecting it.
+perceptual (image) + semantic (text SimHash) + structural (archive member-tree) layers, the fusion
+scorer, the generation/state index, and the observability of decisions are the load-bearing pieces —
+all shipped and live — and the remaining extractors (video keyframe, PDF render, audio chromaprint,
+on-device embeddings) plug into the same `StructuralFingerprintSource`-style pattern and the same
+fusion scorer without re-architecting anything.
