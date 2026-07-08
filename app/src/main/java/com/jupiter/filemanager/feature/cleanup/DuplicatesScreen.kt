@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -142,10 +144,25 @@ fun DuplicatesScreen(
                             contentDescription = "Keep best copy in each group",
                         )
                     }
-                    IconButton(onClick = { viewModel.selectAllExtras() }) {
+                    // Toggle: select every extra copy when nothing is selected, otherwise clear the
+                    // whole selection. One button does both (the ✓✓ used to only ever select).
+                    val hasSelection = state.selectedCount > 0
+                    IconButton(
+                        onClick = {
+                            if (hasSelection) viewModel.clearSelection() else viewModel.selectAllExtras()
+                        },
+                    ) {
                         Icon(
-                            imageVector = Icons.Outlined.DoneAll,
-                            contentDescription = "Select all extra copies",
+                            imageVector = if (hasSelection) {
+                                Icons.Outlined.RemoveDone
+                            } else {
+                                Icons.Outlined.DoneAll
+                            },
+                            contentDescription = if (hasSelection) {
+                                "Clear selection"
+                            } else {
+                                "Select all extra copies"
+                            },
                         )
                     }
                     IconButton(
@@ -714,6 +731,9 @@ private fun DeleteBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // Clear the system navigation bar (gesture pill / 3-button bar) so the Delete
+                // action is never drawn underneath it and stays tappable on every device.
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

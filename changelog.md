@@ -486,3 +486,14 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `DuplicateDetectorMediaTest` (Robolectric + Room, scriptelt `FakeMediaFingerprintSource`): metaadat-only (ujjlenyomat nélküli) videó/PDF/audió-eredeti + küszöbön belüli másolat → SIMILAR; küszöbön kívüli → nincs; két dekódolhatatlan (UNHASHABLE) fájl sosem egyezik. `StructuralFingerprintSourceTest`, `DuplicateDetectorStructuralTest`, `PerceptualHashSourceTest` (refaktor után is) változatlanul zöld.
 ### Known issues / backlog
 - A valós média-dekódolás (`MediaMetadataRetriever`/`PdfRenderer`/`MediaCodec`) helyessége csak eszközön igazolható — az emulátor nélküli CI-ben nincs valós kodek, ezért ott a pipeline-t fake-kel bizonyítjuk, a dekódert device-on teszteld. A videó jelenleg egyetlen reprezentatív keyframe-et használ (temporális több-frame ujjlenyomat későbbi finomítás). On-device szemantikus embeddingek továbbra is backlog.
+
+## [jupiter:0.40.0] - 2026-07-08
+### Fixed
+- **Duplicate cleanup: azonnali újranyitás fehér várakozás nélkül** (feature/cleanup): új `DuplicateScanCache` (@Singleton) őrzi az utolsó lefutott elemzés eredményét a folyamat élettartamára; a `DuplicatesViewModel` újranyitáskor EGYBŐL megjeleníti a mentett állapotot (üres eredmény = "nincs duplikátum" is), majd a háttérben CSENDESEN újraszkennel (`scan(silent=true)`) és a kész friss eredményt becseréli — így nincs többé sok-másodperces üres képernyő. (Teljes process-kill után a következő hidegindítás egyszer újraszkennel és újratölti a cache-t.)
+- **✓✓ gomb most kapcsoló: összes kijelölése ↔ kijelölés törlése** (feature/cleanup): ha nincs kijelölés, mindent kijelöl (a legjobb példány kivételével); ha van kijelölés, törli az egészet (a `RemoveDone` ikon jelzi az állapotot). Eddig csak kijelölni tudott.
+- **Delete gomb nem csúszik a navigációs sáv mögé** (feature/cleanup): a törlő sáv (`DeleteBar`) most `navigationBarsPadding()`-et alkalmaz, így a Delete gomb minden eszközön a rendszer navigációs sávja FÖLÖTT jelenik meg és kattintható marad (gesztus-pill és 3-gombos sáv esetén is).
+### Changed
+- `DuplicatesViewModel.scan(silent)`: nem-csendes szkennkor a "scanning" állapot szinkron beáll (nincs villanó "nincs duplikátum" üres állapot indulás előtt); a törlés utáni lista is elmentődik a cache-be, hogy újranyitáskor a friss (törlés utáni) állapot jöjjön.
+- `app/build.gradle.kts`: `versionName` → 0.40.0.
+### Known issues
+- A cache a folyamat élettartamára szól (nem lemezre perzisztált) — teljes app-kill után az első megnyitás újraszkennel; ez tudatos, alacsony kockázatú kompromisszum, a képernyőn-belüli/navigációs újranyitást (a bejelentett esetet) teljesen lefedi.
