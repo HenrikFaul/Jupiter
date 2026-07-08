@@ -1,0 +1,80 @@
+[package]
+name = "sift"
+version = "0.1.0"
+edition = "2021"
+description = "Sift — persistent duplicate & file-index intelligence for Windows"
+authors = ["Sift contributors"]
+license = "MIT OR Apache-2.0"
+rust-version = "1.77"
+
+# The library crate holds the engine so it is unit-testable without Tauri/UI.
+[lib]
+name = "sift_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sift"
+path = "src/main.rs"
+
+[dependencies]
+# --- Tauri shell (desktop window + IPC bridge to the React UI) ---
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"     # native folder/drive pickers
+tauri-plugin-shell = "2"      # "reveal in Explorer"
+
+# --- Persistence (the index = recovery truth) ---
+rusqlite = { version = "0.31", features = ["bundled", "blob"] }
+
+# --- Hashing & parallelism ---
+blake3 = "1"
+rayon = "1"                   # bounded worker pool for the hashing stage
+
+# --- Perceptual image hashing (similar-image detection) ---
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp", "tiff"] }
+image_hasher = "3"            # dHash/pHash/blockhash over the `image` crate
+base64 = "0.22"              # encode thumbnails for the webview
+
+# --- Safe deletion (cross-platform Recycle Bin / Trash, long-path correct) ---
+trash = "5"
+
+# --- Per-file timeout for the media probe (kill a hung ffprobe so one bad file
+#     can never stall the whole analysis pass) ---
+wait-timeout = "0.2"
+
+# --- Offline license verification (Ed25519) for the Free/Pro entitlement mechanism.
+#     Verify-only in the shipped binary; the signing seed lives offline. ---
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+
+# --- Serialization / errors / paths ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+unicode-normalization = "0.1" # NFC path keys (CODING_RULES §5)
+
+# --- Logging / audit (structured, replayable — CODING_RULES §8) ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- Windows volume identity & long-path APIs (CODING_RULES §5) ---
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Ioctl",
+] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"          # nearly full-LTO runtime, much faster builds than lto=true
+codegen-units = 16
+strip = true          # smaller EXE
+
+# Deny risky patterns in shipping code (CODING_RULES gates). CI runs:
+#   cargo clippy --all-targets -- -D warnings -D clippy::unwrap_used -D clippy::expect_used
+# scoped to engine/db modules via #![cfg_attr] allow in test modules only.
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

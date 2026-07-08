@@ -1,0 +1,1088 @@
+{
+  "_comment": "EXAMPLE valuation content (hu) — Effectime Enterprise. When dropping this folder into a NEW repo, replace all content with your product's data.",
+  "executive_summary": {
+    "description": "Az Effectime Enterprise egy <b>multi-tenant, vállalati szintű HR szabadságkezelő és munkaerő-tervező SaaS platform</b>, amelyet a magyarországi/KKE-régiós KKV és közepes vállalati szegmensnek fejlesztettek. Teljes körű szabadsági kérelem életciklus-kezelést, többnézetes naptárat valós idejű idővonallal, erőforrás- és projekttervezést, agilis integrációt (Jira + Azure DevOps), egyéni riport-szerkesztőt SQL-móddal és mobilos támogatást nyújt Capacitoron keresztül.",
+    "kpis_title": "Kulcsmutatók",
+    "kpis": [
+      {
+        "label": "Forrásfájlok (.ts/.tsx)",
+        "value": "170"
+      },
+      {
+        "label": "Kódsorok",
+        "value": "31 435"
+      },
+      {
+        "label": "DB Migrációk",
+        "value": "53"
+      },
+      {
+        "label": "Edge Functions",
+        "value": "17"
+      },
+      {
+        "label": "Vállalati Komponensek",
+        "value": "77"
+      },
+      {
+        "label": "Fejlesztési időszak",
+        "value": "2 hónap"
+      }
+    ],
+    "tables": [
+      {
+        "title": "Fejlesztési ráfordítás összefoglaló",
+        "headers": [
+          "Mérőszám",
+          "Alacsony",
+          "Legvalószínűbb",
+          "Magas"
+        ],
+        "col_widths": [
+          150,
+          110,
+          120,
+          110
+        ],
+        "rows": [
+          [
+            "Személyórák",
+            "2 041",
+            "3 051",
+            "4 485"
+          ],
+          [
+            "Személyhónapok (160 ó/hó)",
+            "12,8",
+            "19,1",
+            "28,0"
+          ],
+          [
+            "Naptári hónapok (3 fős csapat)",
+            "5,5 hó",
+            "7,5 hó",
+            "11 hó"
+          ]
+        ]
+      },
+      {
+        "title": "Fejlesztési költség összefoglaló",
+        "headers": [
+          "Forgatókönyv",
+          "Alacsony",
+          "Legvalószínűbb",
+          "Magas"
+        ],
+        "col_widths": [
+          170,
+          100,
+          120,
+          100
+        ],
+        "rows": [
+          [
+            "KKE / Magyarország (helyi csapat)",
+            "118 000 €",
+            "178 000 €",
+            "245 000 €"
+          ],
+          [
+            "Nyugat-EU ügynökség",
+            "265 000 €",
+            "380 000 €",
+            "520 000 €"
+          ],
+          [
+            "Vegyes KKE + WEU vezető",
+            "165 000 €",
+            "235 000 €",
+            "330 000 €"
+          ]
+        ]
+      },
+      {
+        "title": "Piaci értékbecslés összefoglaló",
+        "headers": [
+          "Forgatókönyv",
+          "Tartomány",
+          "Középponti becslés"
+        ],
+        "col_widths": [
+          200,
+          145,
+          145
+        ],
+        "rows": [
+          [
+            "Előbevételes IP eladás",
+            "200 000 – 600 000 €",
+            "380 000 €"
+          ],
+          [
+            "Korai ügyfelek (50–100 ezer € ÉBF)",
+            "400 000 – 1 200 000 €",
+            "700 000 €"
+          ],
+          [
+            "Növekedési szakasz (300–500 ezer € ÉBF)",
+            "1,8M – 4,5M €",
+            "3,0M €"
+          ],
+          [
+            "Stratégiai felvásárlás",
+            "700 000 – 2 500 000 €",
+            "1 500 000 €"
+          ],
+          [
+            "Jelenlegi állapot (ismeretlen bevétel)",
+            "350 000 – 900 000 €",
+            "550 000 €"
+          ]
+        ]
+      }
+    ],
+    "callout": "⚠  <b>Legnagyobb bizonytalansági tényező:</b> A bevételi/ÉBF adat nem elérhető a tárházban. Ez az egyetlen tényező dominálja leginkább a piaci értékelést. Egy 100 000 € ÉBF pályán a középponti becslés 550 000 €-ról ~700 000–1 000 000 €-ra emelkedne."
+  },
+  "product_reconstruction": {
+    "h2_blocks": [
+      {
+        "title": "Technikai architektúra",
+        "tables": [
+          {
+            "headers": [
+              "Réteg",
+              "Technológia",
+              "Verzió"
+            ],
+            "col_widths": [
+              150,
+              220,
+              130
+            ],
+            "rows": [
+              [
+                "Frontend keretrendszer",
+                "React + TypeScript + Vite",
+                "18.3 / 5.8 / 5.4"
+              ],
+              [
+                "UI komponensek",
+                "shadcn/ui (Radix UI) + Tailwind CSS",
+                "3.4.17"
+              ],
+              [
+                "Animáció",
+                "Framer Motion",
+                "12.35"
+              ],
+              [
+                "Állapot / Adatlekérés",
+                "TanStack Query",
+                "v5.83"
+              ],
+              [
+                "Grafikonok",
+                "Recharts",
+                "2.15"
+              ],
+              [
+                "Mobil",
+                "Capacitor (iOS + Android)",
+                "8.2"
+              ],
+              [
+                "Backend / DB",
+                "Supabase (PostgreSQL)",
+                "2.98"
+              ],
+              [
+                "Edge Functions",
+                "Deno (TypeScript)",
+                "17 függvény"
+              ],
+              [
+                "Hitelesítés",
+                "Supabase Auth + Google OAuth",
+                "Egyéni aktiválás"
+              ],
+              [
+                "Agilis integráció",
+                "Jira REST API v3 + Azure DevOps WIQL",
+                "Kétirányú"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Modulonkénti funkciótérkép",
+        "tables": [
+          {
+            "headers": [
+              "Modul",
+              "Főbb képességek"
+            ],
+            "col_widths": [
+              150,
+              350
+            ],
+            "rows": [
+              [
+                "Hitelesítés és személyazonosság",
+                "Google OAuth + egyéni aktiválási kapu, OTP e-mail, fiók törlése (GDPR)"
+              ],
+              [
+                "Munkaterület és bérlés",
+                "Multi-workspace, meghívó rendszer, szerepkör-kezelés, márkajelzés"
+              ],
+              [
+                "Szabadsági kérelem életciklus",
+                "6 állapotú állapotgép, 2 lépéses benyújtás, helyettesítő-választó, kvótakezelés"
+              ],
+              [
+                "Ütközés-motor",
+                "Párhuzamos validálás: ünnepnapok, tiltott napok, napi szabályok, irodai lefedettség"
+              ],
+              [
+                "Naptár és idővonal",
+                "3 nézet: havi / Absentify-idővonal / éves rács; drag&drop szűrősáv"
+              ],
+              [
+                "Erőforrás-kezelés",
+                "Projektek + Gantt + kapacitáshiány + kihasználtsági hőtérkép + forgatókönyv-tervező"
+              ],
+              [
+                "Agilis integráció",
+                "Jira + ADO: backlog böngésző, issue visszaírás, kapacitás illeszkedés, what-if szimuláció"
+              ],
+              [
+                "Riport-szerkesztő",
+                "Vizuális konfig + SQL mód + élő előnézet + ütemezett kézbesítés"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scope_decomposition": {
+    "h2_blocks": [
+      {
+        "title": "Komplexitási értékelések területenként",
+        "tables": [
+          {
+            "headers": [
+              "Funkcióterület",
+              "Komplexitás",
+              "Rejtett költségmozgatók"
+            ],
+            "col_widths": [
+              130,
+              85,
+              285
+            ],
+            "rows": [
+              [
+                "Hitelesítés",
+                "Közepes",
+                "Egyéni Google OAuth aktiválási kapu; legacy bypass szabályok"
+              ],
+              [
+                "Multi-Tenant Architektúra",
+                "Magas",
+                "RLS szabályok 30+ táblán; séma felosztás; dinamikus jogosultsági fa"
+              ],
+              [
+                "Szabadsági kérelem életciklus",
+                "Magas",
+                "6 állapotú gép; kvóta tranzakció hatókör; helyettesítő rendezés"
+              ],
+              [
+                "Ütközés-motor",
+                "Közepes-Magas",
+                "6 táblás párhuzamos lekérés; multi-pozíció OR szemantika"
+              ],
+              [
+                "Naptár és idővonal",
+                "Magas",
+                "TanStack Virtual (200+ sor); lefedettség-tervező versenyhelyzetek"
+              ],
+              [
+                "Agilis integráció",
+                "Nagyon Magas",
+                "Jira REST v3 + ADO WIQL egy proxyban; alap-URL normalizálás"
+              ],
+              [
+                "Riport-szerkesztő",
+                "Magas",
+                "SQL mód workspace-szintű hozzáférés-vezérléssel; ütemezett cron kézbesítés"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Komplexitási szorzók",
+        "tables": [
+          {
+            "headers": [
+              "Tényező",
+              "Hatás",
+              "Indoklás"
+            ],
+            "col_widths": [
+              160,
+              70,
+              270
+            ],
+            "rows": [
+              [
+                "Multi-séma PostgreSQL",
+                "+15%",
+                "3 séma; helper függvények; nem-destruktív migrációs megkötés"
+              ],
+              [
+                "Kétterméke kódbázis",
+                "+10%",
+                "Megosztott infrastruktúra; koordinációs többletmunka"
+              ],
+              [
+                "AI-gyorsított fejlesztés",
+                "−30%",
+                "A build idő AI eszközöket tükröz; hagyományos becslés 2–3× hosszabb"
+              ],
+              [
+                "Minimális automata teszt",
+                "+20%",
+                "Manuális QA teher; magasabb regressziós kockázat"
+              ],
+              [
+                "17 Deno edge function",
+                "+15%",
+                "Hidegindítási megfontolások; Deno vs Node API különbségek"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "methodology": {
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "Alulról-felfelé becslés",
+            "body": "Mind a 10 fő terület al-komponensekre bontva. A ráfordítás komponensenként becsült a kódsorok, DB táblák, API végpontok, UI interakciós komplexitás és a changelogban bizonyított peremesetek alapján."
+          },
+          {
+            "title": "Háromponti PERT",
+            "body": "Optimista / Legvalószínűbb / Pesszimista becslések területenként. Képlet: E = (O + 4M + P) / 6. Szórás: SD = (P − O) / 6."
+          },
+          {
+            "title": "Analóg becslés",
+            "body": "Összehasonlítható termékek (Calamari, Timetastic, Sloneek, Absence.io) referenciaként; nyilvános HR-SaaS mérnöki blogok 6–18 hónapos MVP időkeretet erősítenek meg."
+          }
+        ]
+      },
+      {
+        "title": "Fontos megkülönböztetések",
+        "bullets": [
+          "<b>Ráfordítás ≠ Időtartam:</b> 2 880 személyóra leszállítható 5 hónap alatt (3 FTE) vagy 24 hónap alatt (0,5 FTE).",
+          "<b>Fejlesztési költség ≠ Piaci érték:</b> A helyettesítési költség a padló; a vonzerő megsokszorozza.",
+          "<b>Kód ≠ Termék:</b> A leszállított termék tervezést, felhasználókutatást és ügyfélsikert is tartalmaz, ami nem látszik a kódban.",
+          "<b>AI-segített ≠ Hagyományos:</b> A 2 hónapos build AI eszközöket tükröz; hagyományos csapatok 2–3× tovább dolgoznak."
+        ]
+      }
+    ]
+  },
+  "team_composition": {
+    "h2_blocks": [
+      {
+        "title": "Szükséges szerepkörök",
+        "tables": [
+          {
+            "headers": [
+              "Szerepkör",
+              "Miért kell",
+              "Fázis",
+              "Ráfordítás %"
+            ],
+            "col_widths": [
+              140,
+              200,
+              80,
+              70
+            ],
+            "rows": [
+              [
+                "Senior Full-Stack Mérnök",
+                "Architektúra, Supabase séma, RLS, edge functions",
+                "Mind",
+                "35%"
+              ],
+              [
+                "Közép Frontend Mérnök",
+                "React komponensek, Recharts, DnD Kit, reszponzív UI",
+                "2–8",
+                "30%"
+              ],
+              [
+                "Backend / DB Mérnök",
+                "PostgreSQL séma, RLS szabályok, migrációk",
+                "1–3, 6–8",
+                "15%"
+              ],
+              [
+                "UX/UI Tervező",
+                "Információs architektúra, komponenskönyvtár, mobil elrendezések",
+                "1–2, 4–5",
+                "10%"
+              ],
+              [
+                "Termékmenedzser",
+                "Követelmények, sprint tervezés, backlog priorizálás",
+                "Mind",
+                "7%"
+              ],
+              [
+                "QA Mérnök",
+                "Manuális tesztelés, regresszió, cross-browser/eszköz",
+                "3–8",
+                "3%"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Leszállítási csapat opciók",
+        "callouts": [
+          "<b>Karcsú csapat (3 fő, 7–10 hónap)</b><br/>1× Senior Full-Stack · 1× Közép Frontend · 0,5× UX/UI Tervező<br/><i>Legalacsonyabb költség; egyéni alapítónak vagy bootstrap terméknek.</i>",
+          "<b>Kiegyensúlyozott csapat (5 fő, 5–7 hónap)</b><br/>1× Senior Full-Stack · 1× Közép Frontend · 1× Backend/DB · 0,5× UX/UI · 0,5× PM<br/><i>Seed fázisú startupnak ajánlott. Párhuzamos frontend/backend sávok.</i>",
+          "<b>Vállalati leszállítási csapat (8 fő, 4–5 hónap)</b><br/>2× Senior · 2× Közép Frontend · 1× Backend/DB · 1× UX/UI · 1× PM · 1× QA<br/><i>Maximális sebesség. Ügynökségi leszállításhoz.</i>"
+        ]
+      }
+    ]
+  },
+  "effort_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Területenkénti lebontás (PERT)",
+        "tables": [
+          {
+            "headers": [
+              "Funkcióterület",
+              "Opt. (ó)",
+              "LV (ó)",
+              "Pessz. (ó)",
+              "PERT (ó)"
+            ],
+            "col_widths": [
+              170,
+              70,
+              70,
+              80,
+              70
+            ],
+            "rows": [
+              [
+                "Hitelesítés",
+                "80",
+                "120",
+                "180",
+                "122"
+              ],
+              [
+                "Munkaterület és bérlés",
+                "120",
+                "180",
+                "260",
+                "183"
+              ],
+              [
+                "Szabadsági kérelem életciklus",
+                "180",
+                "260",
+                "380",
+                "263"
+              ],
+              [
+                "Naptár és idővonal nézetek",
+                "200",
+                "290",
+                "420",
+                "293"
+              ],
+              [
+                "Erőforrás-kezelés",
+                "180",
+                "260",
+                "380",
+                "263"
+              ],
+              [
+                "Agilis integráció",
+                "140",
+                "200",
+                "300",
+                "203"
+              ],
+              [
+                "Riport-szerkesztő és riportolás",
+                "120",
+                "180",
+                "270",
+                "183"
+              ],
+              [
+                "Egyéb területek (8 modul)",
+                "550",
+                "820",
+                "1 260",
+                "837"
+              ],
+              [
+                "Részösszeg (kódolás)",
+                "1 570",
+                "2 310",
+                "3 450",
+                "2 347"
+              ],
+              [
+                "+ 30% többletmunka (QA, PM, tervezés)",
+                "471",
+                "693",
+                "1 035",
+                "704"
+              ],
+              [
+                "ÖSSZESEN",
+                "2 041",
+                "3 003",
+                "4 485",
+                "3 051"
+              ]
+            ],
+            "highlight_penultimate": true,
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Összegzés több mértékegységben",
+        "tables": [
+          {
+            "headers": [
+              "Mérőszám",
+              "Alacsony",
+              "Legvalószínűbb",
+              "Magas"
+            ],
+            "col_widths": [
+              170,
+              95,
+              120,
+              95
+            ],
+            "rows": [
+              [
+                "Személyórák",
+                "2 041",
+                "3 051",
+                "4 485"
+              ],
+              [
+                "Személynapok (8ó)",
+                "255",
+                "381",
+                "561"
+              ],
+              [
+                "Személyhónapok (160ó)",
+                "12,8",
+                "19,1",
+                "28,0"
+              ],
+              [
+                "Naptári hónapok (3 fős mag)",
+                "5,5",
+                "7,5",
+                "11"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cost_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Részletes költségmodell — Legvalószínűbb (KKE díjak)",
+        "tables": [
+          {
+            "headers": [
+              "Szerepkör",
+              "Arány",
+              "Órák",
+              "Díj",
+              "Költség"
+            ],
+            "col_widths": [
+              165,
+              60,
+              70,
+              70,
+              90
+            ],
+            "rows": [
+              [
+                "Senior Full-Stack Mérnök",
+                "35%",
+                "1 068",
+                "52 €/ó",
+                "55 536 €"
+              ],
+              [
+                "Közép Frontend Mérnök",
+                "30%",
+                "915",
+                "33 €/ó",
+                "30 195 €"
+              ],
+              [
+                "Backend / DB Mérnök",
+                "15%",
+                "458",
+                "48 €/ó",
+                "21 984 €"
+              ],
+              [
+                "UX/UI Tervező",
+                "10%",
+                "305",
+                "30 €/ó",
+                "9 150 €"
+              ],
+              [
+                "Termékmenedzser",
+                "7%",
+                "214",
+                "38 €/ó",
+                "8 132 €"
+              ],
+              [
+                "QA Mérnök",
+                "3%",
+                "91",
+                "28 €/ó",
+                "2 548 €"
+              ],
+              [
+                "Közvetlen munkaerő",
+                "",
+                "3 051",
+                "",
+                "127 545 €"
+              ],
+              [
+                "Általános költség (25%)",
+                "",
+                "",
+                "",
+                "31 886 €"
+              ],
+              [
+                "Tartalék (15%)",
+                "",
+                "",
+                "",
+                "19 132 €"
+              ],
+              [
+                "ÖSSZESEN",
+                "",
+                "",
+                "",
+                "178 563 €"
+              ]
+            ],
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Költségtartományok forgatókönyvenként",
+        "tables": [
+          {
+            "headers": [
+              "Forgatókönyv",
+              "Alacsony",
+              "Legvalószínűbb",
+              "Magas"
+            ],
+            "col_widths": [
+              170,
+              95,
+              120,
+              95
+            ],
+            "rows": [
+              [
+                "KKE / Magyarország (karcsú csapat)",
+                "118 000 €",
+                "178 000 €",
+                "245 000 €"
+              ],
+              [
+                "Nyugat-EU ügynökség",
+                "265 000 €",
+                "380 000 €",
+                "520 000 €"
+              ],
+              [
+                "Vegyes KKE + WEU vezető",
+                "165 000 €",
+                "235 000 €",
+                "330 000 €"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_comparison": {
+    "h2_blocks": [
+      {
+        "title": "Összehasonlítható termékek",
+        "tables": [
+          {
+            "headers": [
+              "Termék",
+              "Székhely",
+              "Ár/Fő/Hó",
+              "Fő megjegyzések"
+            ],
+            "col_widths": [
+              90,
+              75,
+              90,
+              245
+            ],
+            "rows": [
+              [
+                "Calamari",
+                "Lengyelország",
+                "2,50–5,00 €",
+                "Legközelebbi KKE; nincs agilis integráció"
+              ],
+              [
+                "Timetastic",
+                "UK",
+                "1,50–2,50 $",
+                "Sokkal egyszerűbb; 2023-ban felvásárolva"
+              ],
+              [
+                "Absence.io",
+                "Németország",
+                "3,50–5,00 €",
+                "EU-fókuszú, GDPR; hasonló hatókör"
+              ],
+              [
+                "Personio",
+                "Németország",
+                "5–25 €",
+                "Vállalati, bérszámfejtés; 8,5 Mrd € csúcsérték"
+              ],
+              [
+                "Sloneek",
+                "Cseh/KKE",
+                "~5–10 € becslés",
+                "Legközelebbi KKE; magyar UI; 3,6M € 2024-ben"
+              ],
+              [
+                "Teamdeck",
+                "Lengyelország",
+                "3,99 $",
+                "Erőforrás + szabadság; legközelebbi összehasonlítható"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "HR SaaS értékelési szorzók (2024–2026)",
+        "tables": [
+          {
+            "headers": [
+              "Növekedési ütem",
+              "Tipikus ÉBF szorzó",
+              "Példák"
+            ],
+            "col_widths": [
+              150,
+              130,
+              220
+            ],
+            "rows": [
+              [
+                ">100% év/év (korai)",
+                "10–15× ÉBF",
+                "Rippling: 29×; HiBob: 22×"
+              ],
+              [
+                "50–100% év/év",
+                "7–10× ÉBF",
+                "Personio csúcs: 24×"
+              ],
+              [
+                "20–50% év/év (érett SaaS)",
+                "5–8× ÉBF",
+                "Deputy: ~11× (2022)"
+              ],
+              [
+                "<20% év/év (stabil)",
+                "3–5× ÉBF",
+                "Bootstrap SaaS medián: 4,8×"
+              ],
+              [
+                "M&A medián (2025)",
+                "3,1–3,8× ÉBF",
+                "Jelenlegi tranzakciós környezet"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_value_estimate": {
+    "intro": "Öt értékelési lencsét alkalmazunk és háromszögelünk a tartomány-alapú becsléshez.",
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "1. lencse: Helyettesítési / IP érték",
+            "body": "Build költség KKE díjakkal: 145–245 ezer €. Marketingelt IP eszközként 1,5–2,5× szorzó alkalmazandó. Eredmény: <b>200 000 – 550 000 €</b> (padló — nulla bevétel)."
+          },
+          {
+            "title": "2. lencse: Összehasonlító-alapú értékelés",
+            "body": "5–8× ÉBF szorzókkal: 30 ezer € ÉBF → 240–400 ezer €; 100 ezer € ÉBF → 700K–1M €; 500 ezer € ÉBF → 2,5–4M €. A Sloneek 3,6M €-t gyűjtött ~5–9M € ÉBF mellett."
+          },
+          {
+            "title": "3. lencse: Funkciómélység prémium",
+            "body": "Kétirányú Jira+ADO integráció, SQL riport-szerkesztő, smart ütemezés, multi-séma architektúra meghaladja a tipikus árszintű versenytársakat. Prémium: 1,3–1,8×."
+          },
+          {
+            "title": "4. lencse: Kockázati kiigazítás",
+            "body": "Levonások: minimális tesztlefedettség (−15%), AI-segített minőségi változékonyság (−10%), csak magyar UI (−10%). Ellentételezés: modern stack (+10%), tiszta RLS (+5%). Nettó: −12%."
+          },
+          {
+            "title": "5. lencse: Stratégiai felvásárlási prémium",
+            "body": "Stratégiai felvásárló (KKE HR roll-up, Jira-közeli szállító) 1,5–3× IP értéket fizetne az agilis integrációs modulért vagy a KKE piacra lépésért. Tartomány: <b>300K – 1,65M €</b>."
+          }
+        ]
+      },
+      {
+        "title": "Végső piaci érték tartományok",
+        "tables": [
+          {
+            "headers": [
+              "Forgatókönyv",
+              "Tartomány",
+              "Középponti becslés"
+            ],
+            "col_widths": [
+              180,
+              140,
+              140
+            ],
+            "rows": [
+              [
+                "Előbevételes IP eladás",
+                "200K – 600K €",
+                "380K €"
+              ],
+              [
+                "Korai ügyfelek (30–100K € ÉBF)",
+                "400K – 1 200K €",
+                "700K €"
+              ],
+              [
+                "Post-PMF (200–500K € ÉBF)",
+                "1,5M – 4,5M €",
+                "3,0M €"
+              ],
+              [
+                "Stratégiai felvásárlás",
+                "700K – 2 500K €",
+                "1 500K €"
+              ],
+              [
+                "Jelenlegi állapot (ismeretlen bevétel)",
+                "350K – 900K €",
+                "550K €"
+              ]
+            ],
+            "highlight_last": true
+          }
+        ]
+      }
+    ],
+    "callout": "<b>Középponti becslés: 550 000 €</b> — korai vonzerőt, növekedés előtti szakaszt, ismeretlen bevételt feltételezve. Egy bizonyított 100 ezer € ÉBF ~700–1 000 ezer €-ra módosítaná."
+  },
+  "assumptions_limitations": {
+    "h2_blocks": [
+      {
+        "title": "Kemény bizonyíték (ismert)",
+        "bullet_marker": "✓",
+        "bullets": [
+          "Teljes forráskód: 170 fájl, 31 435 sor TypeScript/TSX",
+          "53 adatbázis-migrációs fájl teljes sématörténettel",
+          "Teljes changelog v2.0.0-tól v2.6.0+-ig Jira ticket hivatkozásokkal",
+          "17 Supabase edge function teljes implementációval",
+          "Fejlesztési időszak: ~2 hónap AI-segített build"
+        ]
+      },
+      {
+        "title": "Következtetett (nem közvetlenül megfigyelt)",
+        "bullet_marker": "~",
+        "bullets": [
+          "Fejlesztési ráfordítás (kódmennyiségből és komplexitási jelekből becsülve)",
+          "Díjfeltételezések (KKE piackutatás, iparági normák)",
+          "Piaci összehasonlítók (nyilvános árazási oldalak, sajtóközlemények)"
+        ]
+      },
+      {
+        "title": "Ismeretlen / hiányzó",
+        "bullet_marker": "✗",
+        "bullets": [
+          "Bevétel / ÉBF — nincs monetizációs adat; legdominánsabb értékelési változó",
+          "Felhasználó/bérlő szám — nincs látható telemetria vagy analitika",
+          "SLA / rendelkezésre állási előzmény — nincs monitoring vagy incidensadat"
+        ]
+      }
+    ]
+  },
+  "next_steps": {
+    "h2_blocks": [
+      {
+        "title": "Költségoptimalizáláshoz",
+        "bullet_marker": "→",
+        "bullets": [
+          "Automata tesztlefedettség hozzáadása (cél: 70%+ a fő motorokon)",
+          "A 4 másodperces DB polling cseréje Supabase Realtime feliratkozásokra",
+          "i18next bevezetése a megfelelő nemzetköziesítéshez"
+        ]
+      },
+      {
+        "title": "Termékeladáshoz / felvásárláshoz / tőkebevonáshoz",
+        "bullet_marker": "→",
+        "bullets": [
+          "Mérhető ÉBF kialakítása (már 5–20 ezer € korai bevétel is növeli az értékelés hitelességét)",
+          "Angol nyelvű termék- és landing-oldal verzió publikálása",
+          "Legalább egy referenciálható vállalati ügyfél megszerzése (50+ alkalmazott)"
+        ]
+      },
+      {
+        "title": "Technikai adósság csökkentéséhez",
+        "bullet_marker": "→",
+        "bullets": [
+          "1. prioritás: Automata teszt-csomag (vitest konfigurálva, de használaton kívül)",
+          "2. prioritás: Audit napló megbízhatóság (a fire-and-forget megfelelőségi kockázat)",
+          "3. prioritás: Polling cseréje Realtime feliratkozásokra"
+        ]
+      }
+    ]
+  },
+  "appendix": {
+    "h2_blocks": [
+      {
+        "title": "A. Adatbázis tábla leltár (válogatott)",
+        "tables": [
+          {
+            "headers": [
+              "Tábla",
+              "Modul",
+              "Cél"
+            ],
+            "col_widths": [
+              170,
+              90,
+              240
+            ],
+            "rows": [
+              [
+                "enterprise_workspaces",
+                "Workspace",
+                "Bérlői munkaterület rekordok"
+              ],
+              [
+                "leave_requests",
+                "Szabadság",
+                "6 állapotú szabadsági kérelem rekordok"
+              ],
+              [
+                "enterprise_approval_chains",
+                "Konfig",
+                "Többlépéses jóváhagyási definíciók"
+              ],
+              [
+                "enterprise_audit_events",
+                "Audit",
+                "Megváltoztathatatlan audit napló (előző/új állapot JSON)"
+              ],
+              [
+                "enterprise_agile_issues",
+                "Agilis",
+                "Gyorsítótárazott Jira/ADO issue rekordok"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "B. Megbízhatóság értékelése",
+        "tables": [
+          {
+            "headers": [
+              "Dimenzió",
+              "Megbízhatóság",
+              "Indoklás"
+            ],
+            "col_widths": [
+              170,
+              120,
+              210
+            ],
+            "rows": [
+              [
+                "Fejlesztési ráfordítás becslés",
+                "Magas (±20%)",
+                "Teljes kódbázis elérhető; changelog bizonyíték"
+              ],
+              [
+                "Költségbecslés (KKE)",
+                "Magas (±25%)",
+                "Piaci díjadatok elérhetők"
+              ],
+              [
+                "Piaci érték (előbevételes)",
+                "Közepes (±40%)",
+                "Nincs bevétel; összehasonlító-alapú"
+              ],
+              [
+                "Piaci érték (bevétellel)",
+                "Közepes-Magas (±25%)",
+                "Szabványos ÉBF szorzók alkalmazhatók"
+              ]
+            ]
+          }
+        ]
+      }
+    ],
+    "closing": "<i>Ezt a jelentést MI-segített technikai átvilágítással készítettük, közvetlen tárházinspekció és külső piackutatás kombinálásával. Tájékoztató célra készült, nem minősül pénzügyi tanácsadásnak.</i>"
+  }
+}

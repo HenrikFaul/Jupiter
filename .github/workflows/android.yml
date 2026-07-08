@@ -1,0 +1,177 @@
+name: Android CI
+
+# Build the Jupiter file manager on pushes/PRs and on manual dispatch.
+# Produces an installable debug APK (always) and a release APK (best effort)
+# and publishes them as downloadable build artifacts.
+on:
+  push:
+    branches: [ "main", "master", "develop", "claude/**" ]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Read/write the remote Gradle cache only from the default branches so
+          # PRs cannot poison the cache; PR builds still benefit from a read-only cache.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # ---- Debug build (primary, must succeed) ------------------------------
+      - name: Assemble debug APK
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupiter-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # ---- Release build (best effort; R8/minify enabled) -------------------
+      # Signed with the debug keystore (see app/build.gradle.kts) so CI yields an
+      # installable artifact without provisioning a secret keystore. Marked
+      # continue-on-error so an R8 surprise never blocks the debug deliverable.
+      - name: Assemble release APK
+        id: release
+        continue-on-error: true
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Upload release APK
+        if: steps.release.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupiter-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      # ---- Archive the build before publishing the new "latest" ------------
+      # Safety net: every build is preserved with a UTC date+timestamp postfix in
+      # an accumulating "archive" release, so any previous working app can always be
+      # re-downloaded and rolled back to. Names never collide, so assets accumulate.
+      - name: Stage timestamped archive copies
+        if: github.event_name == 'push'
+        run: |
+          TS=$(date -u +'%Y%m%d-%H%M%S')
+          echo "ARCHIVE_TS=${TS}" >> "$GITHUB_ENV"
+          mkdir -p archive
+          cp app/build/outputs/apk/debug/app-debug.apk "archive/app-debug-${TS}.apk"
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk "archive/app-release-${TS}.apk"
+          fi
+          ls -la archive/
+
+      - name: Publish to build archive (accumulating)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: archive
+          name: Jupiter — build archive
+          body: |
+            Accumulating archive of every build. Each APK is postfixed with a UTC
+            `YYYYMMDD-HHMMSS` timestamp so older working builds can be rolled back to.
+          prerelease: true
+          fail_on_unmatched_files: false
+          files: |
+            archive/*.apk
+
+      # ---- Publish a public, one-click download (GitHub Release) -------------
+      # Rolling "build-latest" release so the download URL is permanent:
+      #   https://github.com/HenrikFaul/Jupiter/releases/download/build-latest/app-debug.apk
+      # Runs only on branch pushes (PR builds from forks lack write token).
+      - name: Publish APKs to GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-latest
+          name: Jupiter — latest build (${{ github.sha }})
+          body: |
+            Automated build of `${{ github.ref_name }}` @ `${{ github.sha }}`.
+            - **app-debug.apk** — installable, recommended.
+            - **app-release.apk** — R8-minified (present when the release build succeeds).
+            - Older builds are archived under the `archive` release tag (timestamped).
+          prerelease: true
+          fail_on_unmatched_files: false
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run JVM unit tests
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7

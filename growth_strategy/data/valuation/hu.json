@@ -1,0 +1,471 @@
+{
+  "_comment": "Software Valuation & Technical Due-Diligence — Jupiter (native privacy-first Android file manager). Numbers grounded in growth_strategy/data/repo_scan.json.",
+  "executive_summary": {
+    "description": "A Jupiter egy <b>natív, adatvédelmet előtérbe helyező Android fájlkezelő</b> (egyetlen <i>:app</i> modul, <i>com.jupiter.filemanager</i>), amelynek célja, hogy <b>olyan egyszerű legyen, mint a Files by Google, ám olyan hatékony, mint a Solid Explorer / X-plore</b>. A hétköznapi helyi fájlkezelést <b>valódi LAN/távoli háttérrendszerekkel</b> (SMB, SFTP, FTP, WebDAV), beágyazott <b>Wi-Fi asztali fájlátviteli szerverrel</b>, biometrikus feloldású <b>AES-GCM titkosított széffel</b>, széles körű <b>archívumtámogatással</b> (zip/tar/gz/7z/rar), <b>WorkManager-alapú automatizálással</b>, alkalmazáson belüli PDF/médialejátszóval, valamint <b>opcionális, eszközön futó Claude (Anthropic) AI-asszisztenssel</b> (felhasználó által megadott kulcs mögé zárva) ötvözi. A termék kifejezetten <b>reklámmentes és sötét minták nélküli</b>. Célközönsége: haladó felhasználók, alkotók, irodai dolgozók/diákok, adatvédelem-tudatos felhasználók, valamint LAN/NAS-felhasználók. Fázis: <b>funkcionálisan kész, bevétel előtti MVP</b> — még nincsenek felhasználók, nincs monetizálás.",
+    "kpis_title": "Kulcsfontosságú statisztikák (repozitórium-vizsgálatból)",
+    "kpis": [
+      { "label": "Kotlin-fájlok", "value": "212" },
+      { "label": "Kotlin sorok száma", "value": "33,932" },
+      { "label": "Összes fájl", "value": "237" },
+      { "label": "Funkciócsomagok", "value": "~27" },
+      { "label": "Domain-repozitóriumok", "value": "12" },
+      { "label": "Git-commitok", "value": "16" }
+    ],
+    "tables": [
+      {
+        "title": "Fejlesztési ráfordítás összefoglalója",
+        "headers": ["Mutató", "Alacsony", "Legvalószínűbb", "Magas"],
+        "col_widths": [180, 100, 120, 100],
+        "rows": [
+          ["Munkaóra", "2,106", "3,159", "4,940"],
+          ["Munkahónap (160 óra/hó)", "13.2", "19.7", "30.9"],
+          ["Naptári hónap (2–3 fős csapat)", "5", "7", "11"]
+        ]
+      },
+      {
+        "title": "Fejlesztési költség összefoglalója",
+        "headers": ["Forgatókönyv", "Alacsony", "Legvalószínűbb", "Magas"],
+        "col_widths": [180, 100, 120, 100],
+        "rows": [
+          ["KKE / vegyes (karcsú csapat)", "€110,000", "€168,000", "€255,000"],
+          ["Nyugat-európai ügynökség", "€250,000", "€370,000", "€540,000"],
+          ["Vegyes KKE + nyugat-EU vezetés", "€155,000", "€225,000", "€330,000"]
+        ]
+      },
+      {
+        "title": "Piaci érték összefoglalója",
+        "headers": ["Forgatókönyv", "Becsült tartomány", "Központi becslés"],
+        "col_widths": [200, 150, 150],
+        "rows": [
+          ["Bevétel előtti IP / eszközértékesítés", "€140K – €320K", "€220K"],
+          ["Korai felhasználói bázis (10–50K MAU, reklámmentes)", "€350K – €900K", "€550K"],
+          ["Előfizetéses PMF (€100–300K ARR)", "€800K – €2.4M", "€1.5M"],
+          ["Stratégiai akvizíció (acqui-hire / portfólió)", "€250K – €700K", "€420K"]
+        ]
+      }
+    ],
+    "callout": "⚠  <b>A legnagyobb bizonytalansági tényező:</b> A Jupiternek <b>nulla felhasználója és nulla bevétele</b> van — ez egy monetizálás előtti MVP. Telepítések, megtartás és ARR-jelzés híján a piaci érték szinte teljes egészében a <b>pótlási/IP-értékhez (€140K–€320K)</b> horgonyzódik. Egyetlen bizonyíték — néhány ezer megtartott telepítés, vagy akár €10–30K ARR egy adatvédelem-központú előfizetésből — a központi becslést az IP-padlóról (~€220K) az €500K–€900K korai felhasználói bázis sávja felé tolná el."
+  },
+  "product_reconstruction": {
+    "intro": "Rekonstruálva a <i>com.jupiter.filemanager</i> forrásfa, az <i>app/build.gradle.kts</i> és a Gradle verziókatalógus közvetlen vizsgálatából.",
+    "h2_blocks": [
+      {
+        "title": "Technikai architektúra",
+        "tables": [
+          {
+            "headers": ["Réteg", "Technológia", "Verzió / Megjegyzés"],
+            "col_widths": [150, 220, 130],
+            "rows": [
+              ["Nyelv", "Kotlin", "2.0"],
+              ["UI", "Jetpack Compose + Material 3", "Compose BOM"],
+              ["Architektúra", "MVVM + Clean Architecture", "domain / data / feature"],
+              ["DI", "Hilt (KSP) + Hilt-Work", "—"],
+              ["Aszinkronitás", "Coroutines + Flow", "—"],
+              ["Navigáció", "Navigation-Compose", "egyetlen Activity"],
+              ["Perzisztencia", "DataStore Preferences + DocumentFile", "SAF-tudatos"],
+              ["Biztonság / Széf", "Jetpack Security EncryptedFile + Biometric", "AES-GCM, MasterKey"],
+              ["Háttérfeladatok", "WorkManager", "automatizálási szabályok"],
+              ["Build", "Gradle 8.14.3 / AGP 8.7.3", "minSdk 26 / target+compileSdk 35"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Funkciómodul-térkép",
+        "tables": [
+          {
+            "headers": ["Modul", "Fő képességek"],
+            "col_widths": [160, 350],
+            "rows": [
+              ["Böngésző és fájlműveletek", "Helyi tallózás, másolás/áthelyezés/törlés/átnevezés, rendezés/szűrés, kijelölés, SAF tárolókötetek"],
+              ["Távoli / LAN háttérrendszerek", "SMB2/3 (SMBJ), SFTP (JSch), FTP/FTPS (commons-net), WebDAV (OkHttp) hitelesítőadat-tárolóval"],
+              ["Wi-Fi asztali fájlátvitel", "Beágyazott NanoHTTPD szerver böngészőalapú fájlátvitelhez LAN-on"],
+              ["Titkosított széf", "EncryptedFile AES-GCM bejegyzések + sima szöveges metaadat-melléklet, biometrikus/MasterKey feloldás"],
+              ["Archívum", "zip/tar/gz/bzip2/7z (commons-compress + xz) és RAR-kicsomagolás (junrar)"],
+              ["Felhő / Szinkronizálás / Automatizálás", "WorkManager-ütemezéssel vezérelt szinkronizálási és automatizálási repozitóriumok"],
+              ["Előnézet és szerkesztő", "Alkalmazáson belüli PdfRenderer-megjelenítő, kép/videó miniatűrök (Coil), szövegszerkesztő"],
+              ["AI-asszisztens", "Anthropic Claude Messages API, felhasználó által megadott kulcshoz kötve; NoOp tartalék, ha hiányzik"],
+              ["Tisztítás és analitika", "Duplikátum-/egyesítésfelismerés, tárhelyanalitika, legutóbbiak/letöltések/kedvencek"],
+              ["Címkék / Munkaterületek / Verziók", "Címkézés, több munkaterület, fájlverzió-előzmények, tevékenységnapló"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scope_decomposition": {
+    "h2_blocks": [
+      {
+        "title": "Komplexitási besorolások területenként",
+        "tables": [
+          {
+            "headers": ["Funkcióterület", "Komplexitás", "Rejtett költségtényezők"],
+            "col_widths": [140, 90, 270],
+            "rows": [
+              ["Helyi fájlműveletek és SAF", "Közepes-magas", "Hatókörös tárolás, SAF/DocumentFile, Android 11+ engedélymodell"],
+              ["Távoli / LAN háttérrendszerek", "Nagyon magas", "Négy protokoll (SMB/SFTP/FTP/WebDAV), kapcsolat életciklusa, hitelesítőadat-biztonság, instabil hálózat kezelése"],
+              ["Wi-Fi fájlátviteli szerver", "Magas", "Beágyazott HTTP-szerver, életciklus, többrészes feltöltés, LAN-felderítés"],
+              ["Titkosított széf", "Magas", "AES-GCM EncryptedFile-on keresztül, MasterKey, biometrikus kérés, melléklet-metaadat"],
+              ["Archívummotor", "Közepes-magas", "Öt formátum, streamelt kicsomagolás, nagy fájloknál memórianyomás"],
+              ["Automatizálás / Szinkronizálás", "Közepes-magas", "WorkManager-megkötések, idempotencia, Hilt-Work integráció"],
+              ["AI-asszisztens", "Közepes", "Anthropic Messages API, kulcshoz kötés, kulcs nélküli zökkenőmentes tartalék"],
+              ["Compose UI / Navigáció", "Közepes-magas", "Material 3, 27 funkcióképernyő, állapotkiemelés (state hoisting), témázás"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Komplexitási szorzók",
+        "tables": [
+          {
+            "headers": ["Tényező", "Hatás", "Indoklás"],
+            "col_widths": [170, 70, 260],
+            "rows": [
+              ["Négy valódi LAN-protokoll", "+20%", "Minden háttérrendszer (SMB/SFTP/FTP/WebDAV) önálló integrációs projekt; a teszteléshez élő szerverek kellenek"],
+              ["Biztonságkritikus széf", "+15%", "A kriptográfiai helyesség, kulcskezelés és biometrikus folyamatok nulla hibatűréssel járnak"],
+              ["AI-gyorsított fejlesztés", "−30%", "16 commit egyetlen gyors lökésben jelentős AI-eszközhasználatra utal; a hagyományos csapatoknak 2–3-szor tovább tart"],
+              ["Vékony automatizált tesztlefedettség", "+15%", "Léteznek egységtesztek a modellekhez/segédfüggvényekhez; a háttérrendszerek és a UI manuális QA-ra támaszkodnak"],
+              ["Android-fragmentáció", "+10%", "minSdk 26 → SDK 35: a tárolási/engedélyezési viselkedés verziónként/gyártónként jelentősen eltér"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "methodology": {
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "Alulról építkező becslés",
+            "body": "A 212 fájlon és ~27 funkciócsomagon átívelő 33 932 Kotlin-sort 12 funkcionális területre bontottuk. Minden területet a kódmennyiség, az integrált protokollok/SDK-k száma, a UI-interakciós felület, valamint a forrásban tetten érhető biztonsági/szélsőeseti teher alapján becsültünk."
+          },
+          {
+            "title": "Hárompontos PERT",
+            "body": "Optimista / Legvalószínűbb / Pesszimista óraszámok területenként, az E = (O + 4·M + P) / 6 képlettel kombinálva, SD = (P − O) / 6 szórással. Végig tartományokat közlünk — soha nem egyetlen pontot."
+          },
+          {
+            "title": "Analóg becslés",
+            "body": "Összehasonlítható Android fájlkezelőkhöz (Solid Explorer, X-plore, Cx File Explorer, Material Files, Files by Google) és a többprotokollos Android segédprogramok nyilvános mérnöki normáihoz kalibrálva."
+          }
+        ]
+      },
+      {
+        "title": "Fontos megkülönböztetések",
+        "bullets": [
+          "<b>Ráfordítás ≠ Időtartam:</b> ~3 159 munkaóra leszállítható ~7 hónap alatt (2–3 FTE) vagy elnyúlhat 18+ hónapra (1 FTE).",
+          "<b>Fejlesztési költség ≠ Piaci érték:</b> A pótlási költség a padló; a telepítések, a megtartás és a bevétel megsokszorozzák.",
+          "<b>Kód ≠ Termék:</b> Egy kiszállított alkalmazáshoz Play Store-eszközök, áruházi optimalizálás, támogatás és bevezetés is kell, amelyek nem láthatók a repozitóriumban.",
+          "<b>AI-támogatott ≠ Hagyományos:</b> A 16 commites, egyetlen lökésben készült build AI-gyorsított fejlesztést tükröz; egy hagyományos csapatnak 2–3-szor tovább tartana."
+        ]
+      }
+    ]
+  },
+  "team_composition": {
+    "h2_blocks": [
+      {
+        "title": "Szükséges szerepkörök",
+        "tables": [
+          {
+            "headers": ["Szerepkör", "Miért szükséges", "Fázis", "Ráfordítás %"],
+            "col_widths": [150, 195, 75, 70],
+            "rows": [
+              ["Senior Android mérnök", "Architektúra, Compose, Hilt, tárolás/SAF, távoli háttérrendszerek", "Mind", "40%"],
+              ["Medior Android mérnök", "Funkcióképernyők, archívum, előnézet, automatizálás, széf UI", "2–8", "27%"],
+              ["Backend/hálózati mérnök", "SMB/SFTP/FTP/WebDAV integráció, Wi-Fi fájlátviteli szerver", "2–6", "13%"],
+              ["UX/UI tervező", "Material 3 rendszer, ikonográfia, bevezetés, üres állapotok", "1–2, 4–5", "9%"],
+              ["QA mérnök", "Eszközmátrix-tesztelés, protokoll-/széfellenőrzés", "3–8", "6%"],
+              ["Termék / PM", "Hatókör, priorizálás, áruházi készenlét", "Mind", "5%"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Megvalósító csapat lehetőségei",
+        "callouts": [
+          "<b>Egyfős / Karcsú (1–2 fő, 9–12 hónap)</b><br/>1× Senior Android · 0,5× Tervező<br/><i>Legalacsonyabb költség; egy önfinanszírozó indie alapítóhoz illik. Valószínűleg így készült ez az MVP.</i>",
+          "<b>Kiegyensúlyozott (3 fő, 6–8 hónap)</b><br/>1× Senior Android · 1× Medior Android · 1× Backend/hálózat (megosztott Tervező/QA)<br/><i>Finanszírozott indie-hez vagy kis stúdióhoz ajánlott. Párhuzamos helyi/távoli munkaszálak.</i>",
+          "<b>Stúdiós megvalósítás (5 fő, 4–6 hónap)</b><br/>2× Senior · 1× Medior · 1× Backend/hálózat · 1× Tervező (megosztott QA/PM)<br/><i>Maximális sebesség. Kemény határidős ügynökségi szállításhoz alkalmas.</i>"
+        ]
+      }
+    ]
+  },
+  "effort_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Területenkénti bontás (PERT)",
+        "tables": [
+          {
+            "headers": ["Funkcióterület", "Opt. (ó)", "LV (ó)", "Pessz. (ó)", "PERT (ó)"],
+            "col_widths": [180, 70, 70, 75, 70],
+            "rows": [
+              ["Helyi fájlműveletek és SAF-tárolás", "120", "180", "270", "183"],
+              ["Böngésző UI és alapvető fájlműveletek", "220", "320", "470", "318"],
+              ["Távoli / LAN háttérrendszerek (SMB/SFTP/FTP/WebDAV)", "240", "350", "520", "360"],
+              ["Wi-Fi fájlátviteli szerver (NanoHTTPD)", "90", "140", "210", "140"],
+              ["Titkosított széf + biometria", "110", "160", "240", "161"],
+              ["Archívummotor (zip/tar/gz/7z/rar)", "90", "130", "200", "131"],
+              ["Felhő / Szinkronizálás / Automatizálás (WorkManager)", "150", "220", "330", "223"],
+              ["AI-asszisztens (Anthropic Claude)", "70", "110", "170", "113"],
+              ["Előnézet / Megjelenítők / Szerkesztő (PdfRenderer)", "120", "180", "270", "183"],
+              ["Tisztítás / Analitika / Címkék / Munkaterületek / Verziók", "160", "240", "360", "243"],
+              ["Compose UI / Téma / Navigáció / Bevezetés", "180", "270", "410", "273"],
+              ["DI / Architektúra / Core / Result", "70", "100", "150", "102"],
+              ["Részösszeg (kódolás)", "1,620", "2,400", "3,600", "2,430"],
+              ["+ 30% rezsi (QA, PM, dizájn, DevOps, dokumentáció)", "486", "720", "1,080", "729"],
+              ["ÖSSZESEN", "2,106", "3,120", "4,680", "3,159"]
+            ],
+            "highlight_penultimate": true,
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Összefoglaló több mértékegységben",
+        "tables": [
+          {
+            "headers": ["Mutató", "Alacsony", "Legvalószínűbb", "Magas"],
+            "col_widths": [180, 95, 120, 95],
+            "rows": [
+              ["Munkaóra", "2,106", "3,159", "4,940"],
+              ["Munkanap (8 ó)", "263", "395", "618"],
+              ["Munkahónap (160 ó)", "13.2", "19.7", "30.9"],
+              ["Naptári hónap (2–3 fős mag)", "5", "7", "11"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cost_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Részletes költségmodell — Legvalószínűbb (KKE vegyes díjszabás)",
+        "tables": [
+          {
+            "headers": ["Szerepkör", "Arány", "Órák", "Díj", "Költség"],
+            "col_widths": [165, 60, 70, 70, 90],
+            "rows": [
+              ["Senior Android mérnök", "40%", "1,264", "€70/ó", "€88,480"],
+              ["Medior Android mérnök", "27%", "853", "€48/ó", "€40,944"],
+              ["Backend / hálózati mérnök", "13%", "411", "€58/ó", "€23,838"],
+              ["UX/UI tervező", "9%", "284", "€45/ó", "€12,780"],
+              ["QA mérnök", "6%", "190", "€40/ó", "€7,600"],
+              ["Termék / PM", "5%", "158", "€55/ó", "€8,690"],
+              ["Közvetlen munkadíj", "", "3,159", "", "€182,332"],
+              ["Rezsi (15%) − AI-build jóváírás", "", "", "", "−€18,000"],
+              ["Tartalék (12%)", "", "", "", "€19,720"],
+              ["ÖSSZESEN", "", "", "", "€168,000"]
+            ],
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Költségtartományok forgatókönyvenként",
+        "tables": [
+          {
+            "headers": ["Forgatókönyv", "Alacsony", "Legvalószínűbb", "Magas"],
+            "col_widths": [180, 95, 120, 95],
+            "rows": [
+              ["KKE / vegyes (karcsú csapat)", "€110,000", "€168,000", "€255,000"],
+              ["Nyugat-európai ügynökség", "€250,000", "€370,000", "€540,000"],
+              ["Vegyes KKE + nyugat-EU vezetés", "€155,000", "€225,000", "€330,000"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_comparison": {
+    "h2_blocks": [
+      {
+        "title": "Összehasonlítható Android fájlkezelők",
+        "tables": [
+          {
+            "headers": ["Termék", "Modell", "Megjegyzés"],
+            "col_widths": [110, 110, 290],
+            "rows": [
+              ["Solid Explorer", "Fizetős (~€2–3 egyszeri)", "A legközelebbi haladó felhasználói versenytárs; felhő + LAN (SMB/FTP/WebDAV), erős UX. A Jupiter erre a hatékonysági szintre céloz."],
+              ["X-plore File Manager", "Ingyenes + fizetős Donate", "Kétpaneles, mély LAN/felhő, Wi-Fi PC-megosztás; nagyon funkciósűrű, elavult UI."],
+              ["Cx File Explorer", "Ingyenes (reklámtámogatott)", "Letisztult UX, hálózati (SMB/FTP/WebDAV) támogatás; nagy telepítési bázis."],
+              ["Material Files", "Ingyenes / nyílt forráskódú", "Modern Material UI, archívum + FTP/SFTP/SMB; a legközelebbi dizájn-/architektúra-analógia."],
+              ["Files by Google", "Ingyenes (Google)", "Hatalmas elérés, rendkívül egyszerű UX, tisztítási tippek; nincs valódi LAN/távoli mélység. A Jupiter erre az egyszerűségi szintre céloz."],
+              ["FX File Explorer", "Ingyenes + Plus (~€2–4)", "Adatvédelem-központú (Plusban reklámmentes), hálózati + média eszközök; a legközelebbi adatvédelmi hozzáállású versenytárs."]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Fogyasztói Android segédprogramok értékhajtói",
+        "tables": [
+          {
+            "headers": ["Hajtó", "Tipikus jelzés", "Relevancia a Jupiterre"],
+            "col_widths": [150, 170, 180],
+            "rows": [
+              ["Telepítési bázis / MAU", "100K–10M+ a vezető segédprogramoknál", "Jelenleg nulla — a meghatározó hiányosság"],
+              ["Monetizálás", "Egyszeri €2–4 vagy reklámtámogatott", "Még nincs kiválasztva; a reklámmentes hozzáállás a fizetős/előfizetéses modellt támogatja"],
+              ["Megtartás (D30)", "15–30% a ragadós segédprogramoknál", "Ismeretlen — nincs telemetria"],
+              ["Megkülönböztethetőség", "LAN-mélység, adatvédelem, AI", "Valódi LAN + széf + eszközön kulcsolt AI = hiteles versenyelőny"]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_value_estimate": {
+    "intro": "Öt értékelési nézőpontot alkalmazunk és háromszögelünk. Mivel a Jupiter bevétel előtti, felhasználók nélküli, a becslés a pótlási/IP-értékhez horgonyzódik, és a projekt €140K–€320K alapvonalához konvergál.",
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "1. nézőpont: Pótlási / IP-érték",
+            "body": "A fejlesztési költség KKE vegyes díjszabással €110K–€255K (legvalószínűbb €168K). Tiszta, marketingelt IP-eszközként, valódi LAN háttérrendszerekkel és titkosított széffel 1,0–1,3× szorzó alkalmazandó. Eredmény: <b>€140,000 – €320,000</b> — a padló, nulla bevétellel."
+          },
+          {
+            "title": "2. nézőpont: Összehasonlításon alapuló értékelés",
+            "body": "Az összehasonlítható Android fájlkezelők egyszeri €2–4 vásárlással vagy reklámmal monetizálnak. Felhasználói bázis előtt az összehasonlítások alig utalnak a pótlási költség feletti értékre; az érték csak a telepítésekkel halmozódik. 10–50K aktív felhasználónál egy reklámmentes alkalmazás <b>€350K–€900K</b> értéket tarthat fenn; €100–300K ARR-nél <b>€800K–€2.4M</b>."
+          },
+          {
+            "title": "3. nézőpont: Funkciómélységi prémium",
+            "body": "Négy valódi LAN-protokoll, beágyazott Wi-Fi fájlátviteli szerver, AES-GCM széf, öt archívumformátum és egy opcionális Claude-asszisztens túlmutat azon, amit a legtöbb ingyenes fájlkezelő nyújt. A pótlási padlóhoz képest ez <b>1,1–1,3×</b> mélységi prémiumot támogat — amely már beépült az 1. nézőpont felső határába."
+          },
+          {
+            "title": "4. nézőpont: Kockázati kiigazítás",
+            "body": "Levonások: nulla felhasználói/megtartási bizonyíték (−15%), vékony automatizált tesztlefedettség a háttérrendszereken/UI-n (−10%), egyetlen közreműködő kulcsemberi kockázata (−10%), bizonyítatlan monetizálás (−10%). Ellensúlyozó tényezők: modern Kotlin/Compose/Clean stack (+10%), adatvédelmi/reklámmentes pozicionálás (+5%), debug+release APK-kat építő CI (+5%). Nettó: ≈ −25%, ami a központi becslést az IP-padló közelében tartja."
+          },
+          {
+            "title": "5. nézőpont: Stratégiai / acqui-hire érték",
+            "body": "Egy adatvédelem-központú alkalmazásportfólió, egy OEM vagy egy NAS-gyártó (pl. Synology/QNAP-közeli) számára a LAN-stack + széf + tiszta architektúra <b>1,5–2,2× IP</b> acqui-hire értéket képvisel a csapatért és a kódbázisért. Tartomány: <b>€250K – €700K</b> egy stratégiai megállapodásban."
+          }
+        ]
+      },
+      {
+        "title": "Végső piaci érték tartományok",
+        "tables": [
+          {
+            "headers": ["Forgatókönyv", "Tartomány", "Központi becslés"],
+            "col_widths": [200, 145, 145],
+            "rows": [
+              ["Bevétel előtti IP / eszközértékesítés (jelenlegi állapot)", "€140K – €320K", "€220K"],
+              ["Korai felhasználói bázis (10–50K MAU, reklámmentes)", "€350K – €900K", "€550K"],
+              ["Előfizetéses PMF (€100–300K ARR)", "€800K – €2.4M", "€1.5M"],
+              ["Stratégiai / acqui-hire megállapodás", "€250K – €700K", "€420K"],
+              ["Háromszögelt jelenlegi érték", "€140K – €320K", "€220K"]
+            ],
+            "highlight_last": true
+          }
+        ]
+      }
+    ],
+    "callout": "<b>Háromszögelt jelenlegi érték: €140K – €320K (központi ≈ €220K).</b> Bevétel előtti, felhasználók nélküli MVP-ként a Jupiter lényegében pótlási/IP-költségen értékelt. A megtartott telepítések vagy szerény ARR bemutatása a legnagyobb hatású módja annak, hogy az €350K–€900K korai felhasználói bázis sávjába lépjen."
+  },
+  "assumptions_limitations": {
+    "h2_blocks": [
+      {
+        "title": "Kemény bizonyíték (ismert)",
+        "bullet_marker": "✓",
+        "bullets": [
+          "Teljes forrás: 212 Kotlin-fájl, 33 932 Kotlin-sor, összesen 237 fájl (repozitórium-vizsgálat)",
+          "Megerősített stack: Kotlin 2.0 / Compose / Material 3 / MVVM + Clean / Hilt / Coroutines; Gradle 8.14.3 + AGP 8.7.3; minSdk 26 / target+compileSdk 35",
+          "Valódi LAN háttérrendszerek a kódban: SMBJ (SMB), JSch (SFTP), commons-net (FTP), OkHttp (WebDAV); NanoHTTPD Wi-Fi szerver",
+          "EncryptedFile/MasterKey széf, WorkManager-automatizálás, PdfRenderer-megjelenítő, archívum (commons-compress + xz + junrar)",
+          "Felhasználói kulcshoz kötött Anthropic Claude-asszisztens NoOp tartalékkal; JUnit egységtesztek; a CI debug + release APK-kat épít",
+          "Git: 16 commit, egyetlen gyors lökés; 0.1.0 verzió"
+        ]
+      },
+      {
+        "title": "Következtetett (nem közvetlenül megfigyelt)",
+        "bullet_marker": "~",
+        "bullets": [
+          "Fejlesztési ráfordítás (a kódmennyiségből, a protokollszámból és a biztonsági komplexitásból becsülve)",
+          "Díjszabási feltételezések (KKE vegyes €45–€75/ó piaci normák)",
+          "Összehasonlítható termékek és monetizálásuk (nyilvános áruházi listák)",
+          "AI-gyorsítási jóváírás a költségen (16 commitból egyetlen lökésben következtetve)"
+        ]
+      },
+      {
+        "title": "Ismeretlen / Hiányzó",
+        "bullet_marker": "✗",
+        "bullets": [
+          "Felhasználók / telepítések / MAU — nincs; az alkalmazás kiadatlan",
+          "Bevétel / ARR / monetizálási modell — még nincs kiválasztva; a legmeghatározóbb értékelési változó",
+          "Megtartás, összeomlásmentes arány, áruházi értékelések — nincs telemetria vagy Play Console adat",
+          "Valódi aláíró kulcstár — a release jelenleg a debug kulccsal aláírt (helykitöltő)"
+        ]
+      }
+    ]
+  },
+  "next_steps": {
+    "h2_blocks": [
+      {
+        "title": "Az értékelés növeléséhez (értékesítés / forrásbevonás)",
+        "bullet_marker": "→",
+        "bullets": [
+          "Szállítsd ki a Play Store-ba, és mérd a telepítéseket/megtartást — már 5–20K aktív felhasználó is megváltoztatja az értékelési sávot",
+          "Válassz monetizálási modellt (egyszeri feloldás vagy adatvédelem-központú előfizetés), és bizonyíts €10–30K korai ARR-t",
+          "Tegyél közzé egy landing oldalt és ASO-eszközöket, kiemelve a reklámmentes / adatvédelmi / valódi LAN versenyelőnyt"
+        ]
+      },
+      {
+        "title": "Technikai megerősítéshez",
+        "bullet_marker": "→",
+        "bullets": [
+          "Cseréld le a debug aláírási konfigurációt valódi release kulcstárra a közzététel előtt",
+          "Bővítsd az automatizált lefedettséget a négy távoli háttérrendszerre és a széfre (a legkockázatosabb, legkevésbé tesztelt területek)",
+          "Adj hozzá összeomlás-jelentést és adatvédelmet tisztelő analitikát, hogy létrejöjjön az értékeléshez szükséges megtartási bizonyíték"
+        ]
+      },
+      {
+        "title": "Termék-megkülönböztetéshez",
+        "bullet_marker": "→",
+        "bullets": [
+          "Helyezz nagyobb hangsúlyt a Claude-asszisztensre mint marketingelt funkcióra (okos átnevezés, tisztítás, keresés), világos saját-kulcs-megadási UX-szel",
+          "Csiszold a bevezetést, hogy elérd az 'olyan egyszerű, mint a Files by Google' szintet a nem haladó felhasználók számára",
+          "Dokumentáld a NAS/LAN beállítási folyamatokat, hogy elnyerd a LAN/NAS perszónát a Solid Explorer / X-plore ellenében"
+        ]
+      }
+    ]
+  },
+  "appendix": {
+    "h2_blocks": [
+      {
+        "title": "A. Domain-repozitóriumok leltára",
+        "tables": [
+          {
+            "headers": ["Repozitórium", "Felelősség"],
+            "col_widths": [180, 320],
+            "rows": [
+              ["FileRepository", "Helyi fájllistázás és műveletek"],
+              ["RemoteAccessRepository", "SMB/SFTP/FTP/WebDAV távoli hozzáférés"],
+              ["ConnectionRepository", "Mentett távoli kapcsolatok + hitelesítőadatok"],
+              ["VaultRepository", "Titkosított széfbejegyzések (EncryptedFile)"],
+              ["TransferRepository", "Wi-Fi / asztali fájlátviteli munkamenetek"],
+              ["AutomationRepository", "WorkManager-vezérelt automatizálási szabályok"],
+              ["SyncRepository", "Mappaszinkronizálás"],
+              ["StorageAnalyticsRepository", "Tárhelyhasználat / tisztítási analitika"],
+              ["TagRepository / BookmarkRepository", "Címkézés és könyvjelzők"],
+              ["WorkspaceRepository / VersionRepository / ActivityRepository", "Munkaterületek, fájlverziók, tevékenységnapló"]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "B. Megbízhatósági értékelés",
+        "tables": [
+          {
+            "headers": ["Dimenzió", "Megbízhatóság", "Indoklás"],
+            "col_widths": [170, 120, 210],
+            "rows": [
+              ["Fejlesztési ráfordítás becslése", "Magas (±20%)", "Teljes kódbázis; világos architektúra és protokollfelület"],
+              ["Költségbecslés (KKE)", "Közepes-magas (±25%)", "Vegyes díjadatok elérhetők; AI-build jóváírás következtetett"],
+              ["Piaci érték (bevétel előtt)", "Közepes (±40%)", "Nincs felhasználó/bevétel; az IP-padlóhoz horgonyzott"],
+              ["Piaci érték (felhasználói bázissal)", "Alacsony-közepes (±50%)", "A monetizálási modell nincs kiválasztva; az összehasonlítások egyszeri/reklámalapúak"]
+            ]
+          }
+        ]
+      }
+    ],
+    "closing": "<i>Ezt a jelentést AI-támogatott technikai due-diligence állította elő, amely ötvözi a Jupiter Android kódbázisának közvetlen repozitórium-vizsgálatát és a fogyasztói Android fájlkezelőkről szóló külső piackutatást. Tájékoztató jellegű, és nem minősül pénzügyi tanácsadásnak.</i>"
+  }
+}

@@ -1,0 +1,1088 @@
+{
+  "_comment": "EXAMPLE valuation content (en) — Effectime Enterprise. When dropping this folder into a NEW repo, replace all content with your product's data.",
+  "executive_summary": {
+    "description": "Effectime Enterprise is a <b>multi-tenant, enterprise-grade HR leave management and workforce planning SaaS platform</b> built for the Hungarian/CEE SME and mid-market segment. It provides end-to-end leave lifecycle management, multi-view calendar with real-time timeline, resource and project capacity planning, Agile integration (Jira + Azure DevOps), custom report builder with SQL mode, and mobile support via Capacitor.",
+    "kpis_title": "Key Statistics",
+    "kpis": [
+      {
+        "label": "Source Files (.ts/.tsx)",
+        "value": "170"
+      },
+      {
+        "label": "Lines of Code",
+        "value": "31,435"
+      },
+      {
+        "label": "DB Migrations",
+        "value": "53"
+      },
+      {
+        "label": "Edge Functions",
+        "value": "17"
+      },
+      {
+        "label": "Enterprise Components",
+        "value": "77"
+      },
+      {
+        "label": "Dev Timeline",
+        "value": "2 months"
+      }
+    ],
+    "tables": [
+      {
+        "title": "Build Effort Summary",
+        "headers": [
+          "Metric",
+          "Low",
+          "Most Likely",
+          "High"
+        ],
+        "col_widths": [
+          150,
+          110,
+          120,
+          110
+        ],
+        "rows": [
+          [
+            "Person-hours",
+            "2,041",
+            "3,051",
+            "4,485"
+          ],
+          [
+            "Person-months (160 h/mo)",
+            "12.8",
+            "19.1",
+            "28.0"
+          ],
+          [
+            "Calendar months (3-person team)",
+            "5.5 mo",
+            "7.5 mo",
+            "11 mo"
+          ]
+        ]
+      },
+      {
+        "title": "Build Cost Summary",
+        "headers": [
+          "Scenario",
+          "Low",
+          "Most Likely",
+          "High"
+        ],
+        "col_widths": [
+          170,
+          100,
+          120,
+          100
+        ],
+        "rows": [
+          [
+            "CEE / Hungary team",
+            "€118,000",
+            "€178,000",
+            "€245,000"
+          ],
+          [
+            "Western EU agency",
+            "€265,000",
+            "€380,000",
+            "€520,000"
+          ],
+          [
+            "Mixed CEE + WEU lead",
+            "€165,000",
+            "€235,000",
+            "€330,000"
+          ]
+        ]
+      },
+      {
+        "title": "Market Value Summary",
+        "headers": [
+          "Scenario",
+          "Estimated Range",
+          "Central Estimate"
+        ],
+        "col_widths": [
+          200,
+          145,
+          145
+        ],
+        "rows": [
+          [
+            "Pre-revenue IP sale",
+            "€200K – €600K",
+            "€380K"
+          ],
+          [
+            "Early customers (€50–100K ARR)",
+            "€400K – €1,200K",
+            "€700K"
+          ],
+          [
+            "Growth stage (€300–500K ARR)",
+            "€1.8M – €4.5M",
+            "€3.0M"
+          ],
+          [
+            "Strategic acquisition",
+            "€700K – €2,500K",
+            "€1.5M"
+          ],
+          [
+            "Current state (unknown revenue)",
+            "€350K – €900K",
+            "€550K"
+          ]
+        ]
+      }
+    ],
+    "callout": "⚠  <b>Biggest Uncertainty Driver:</b> Revenue/ARR data is not available in the repository. This single factor is the most dominant variable in market valuation. A €100K ARR trajectory would move the central estimate from €550K to ~€700–1,000K."
+  },
+  "product_reconstruction": {
+    "h2_blocks": [
+      {
+        "title": "Technical Architecture",
+        "tables": [
+          {
+            "headers": [
+              "Layer",
+              "Technology",
+              "Version"
+            ],
+            "col_widths": [
+              150,
+              220,
+              130
+            ],
+            "rows": [
+              [
+                "Frontend Framework",
+                "React + TypeScript + Vite",
+                "18.3 / 5.8 / 5.4"
+              ],
+              [
+                "UI Components",
+                "shadcn/ui (Radix UI) + Tailwind CSS",
+                "3.4.17"
+              ],
+              [
+                "Animation",
+                "Framer Motion",
+                "12.35"
+              ],
+              [
+                "State / Data Fetching",
+                "TanStack Query",
+                "v5.83"
+              ],
+              [
+                "Charts",
+                "Recharts",
+                "2.15"
+              ],
+              [
+                "Mobile",
+                "Capacitor (iOS + Android)",
+                "8.2"
+              ],
+              [
+                "Backend / DB",
+                "Supabase (PostgreSQL)",
+                "2.98"
+              ],
+              [
+                "Edge Functions",
+                "Deno (TypeScript)",
+                "17 functions"
+              ],
+              [
+                "Auth",
+                "Supabase Auth + Google OAuth",
+                "Custom activation"
+              ],
+              [
+                "Agile Integration",
+                "Jira REST API v3 + Azure DevOps WIQL",
+                "Bidirectional"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Feature Module Map",
+        "tables": [
+          {
+            "headers": [
+              "Module",
+              "Key Capabilities"
+            ],
+            "col_widths": [
+              150,
+              350
+            ],
+            "rows": [
+              [
+                "Authentication & Identity",
+                "Google OAuth + custom activation gate, OTP email, account deletion (GDPR)"
+              ],
+              [
+                "Workspace & Tenancy",
+                "Multi-workspace, invitation system, role management, branding"
+              ],
+              [
+                "Leave Request Lifecycle",
+                "6-status state machine, 2-step submit, substitute picker, quota tracking"
+              ],
+              [
+                "Conflict Engine",
+                "Parallel validation: holidays, blocked dates, daily rules, office coverage"
+              ],
+              [
+                "Calendar & Timeline",
+                "3 views: monthly / Absentify-timeline / annual grid; drag&drop filter bar"
+              ],
+              [
+                "Resource Management",
+                "Projects + Gantt + capacity gap + utilization heatmap + scenario planner"
+              ],
+              [
+                "Agile Integration",
+                "Jira + ADO: backlog browser, issue writeback, capacity fit, what-if simulation"
+              ],
+              [
+                "Report Builder",
+                "Visual config + SQL mode + live preview + scheduled delivery"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scope_decomposition": {
+    "h2_blocks": [
+      {
+        "title": "Complexity Ratings by Area",
+        "tables": [
+          {
+            "headers": [
+              "Feature Area",
+              "Complexity",
+              "Hidden Cost Drivers"
+            ],
+            "col_widths": [
+              130,
+              85,
+              285
+            ],
+            "rows": [
+              [
+                "Auth & Identity",
+                "Medium",
+                "Custom Google OAuth activation gate; legacy bypass rules"
+              ],
+              [
+                "Multi-Tenant Architecture",
+                "High",
+                "RLS policies on 30+ tables; schema split; dynamic permission tree"
+              ],
+              [
+                "Leave Request Lifecycle",
+                "High",
+                "6-state machine; quota transaction scoping; substitute ordering"
+              ],
+              [
+                "Conflict Engine",
+                "Medium-High",
+                "6-table parallel fetch; multi-position OR semantics"
+              ],
+              [
+                "Calendar & Timeline",
+                "High",
+                "TanStack Virtual (200+ rows); coverage planner race conditions"
+              ],
+              [
+                "Agile Integration",
+                "Very High",
+                "Jira REST v3 + ADO WIQL in one proxy; base-URL normalisation"
+              ],
+              [
+                "Report Builder",
+                "High",
+                "SQL mode with workspace-scoped access control; scheduled cron delivery"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Complexity Multipliers",
+        "tables": [
+          {
+            "headers": [
+              "Factor",
+              "Impact",
+              "Rationale"
+            ],
+            "col_widths": [
+              160,
+              70,
+              270
+            ],
+            "rows": [
+              [
+                "Multi-schema PostgreSQL",
+                "+15%",
+                "3 schemas; helper functions; non-destructive migration constraint"
+              ],
+              [
+                "Dual-product codebase",
+                "+10%",
+                "Shared infrastructure; coordination overhead"
+              ],
+              [
+                "AI-accelerated development",
+                "−30%",
+                "Build time reflects AI tooling; traditional estimate 2–3× longer"
+              ],
+              [
+                "Minimal automated tests",
+                "+20%",
+                "Manual QA burden; higher regression risk"
+              ],
+              [
+                "17 Deno edge functions",
+                "+15%",
+                "Cold-start considerations; Deno vs Node API differences"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "methodology": {
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "Bottom-Up Estimation",
+            "body": "Each of 10 major areas decomposed into sub-components. Effort estimated per component based on lines of code, DB tables, API endpoints, UI interaction complexity, and edge cases evidenced in the changelog."
+          },
+          {
+            "title": "Three-Point PERT",
+            "body": "Optimistic / Most Likely / Pessimistic estimates per area. Formula: E = (O + 4M + P) / 6. Standard deviation: SD = (P − O) / 6."
+          },
+          {
+            "title": "Analogous Estimation",
+            "body": "Comparable products (Calamari, Timetastic, Sloneek, Absence.io) used as reference points; public HR-SaaS engineering blogs confirm 6–18 month MVP timelines."
+          }
+        ]
+      },
+      {
+        "title": "Important Distinctions",
+        "bullets": [
+          "<b>Effort ≠ Duration:</b> 2,880 person-hours can be delivered in 5 months (3 FTE) or 24 months (0.5 FTE).",
+          "<b>Build Cost ≠ Market Value:</b> Replacement cost is the floor; traction multiplies it.",
+          "<b>Code ≠ Product:</b> A shipped product includes design, user research, and customer success not visible in code.",
+          "<b>AI-assisted ≠ Traditional:</b> The 2-month build reflects AI tooling; conventional teams take 2–3× longer."
+        ]
+      }
+    ]
+  },
+  "team_composition": {
+    "h2_blocks": [
+      {
+        "title": "Required Roles",
+        "tables": [
+          {
+            "headers": [
+              "Role",
+              "Why Needed",
+              "Phase",
+              "Effort %"
+            ],
+            "col_widths": [
+              140,
+              200,
+              80,
+              70
+            ],
+            "rows": [
+              [
+                "Senior Full-Stack Engineer",
+                "Architecture, Supabase schema, RLS, edge functions",
+                "All",
+                "35%"
+              ],
+              [
+                "Mid-Level Frontend Engineer",
+                "React components, Recharts, DnD Kit, responsive UI",
+                "2–8",
+                "30%"
+              ],
+              [
+                "Backend / DB Engineer",
+                "PostgreSQL schema, RLS policies, migrations",
+                "1–3, 6–8",
+                "15%"
+              ],
+              [
+                "UX/UI Designer",
+                "Information architecture, component library, mobile layouts",
+                "1–2, 4–5",
+                "10%"
+              ],
+              [
+                "Product Manager",
+                "Requirements, sprint planning, backlog prioritisation",
+                "All",
+                "7%"
+              ],
+              [
+                "QA Engineer",
+                "Manual testing, regression, cross-browser/device",
+                "3–8",
+                "3%"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Delivery Team Options",
+        "callouts": [
+          "<b>Lean Team (3 people, 7–10 months)</b><br/>1× Senior Full-Stack · 1× Mid Frontend · 0.5× UX/UI Designer<br/><i>Lowest cost; best for a solo founder or bootstrapped product.</i>",
+          "<b>Balanced Team (5 people, 5–7 months)</b><br/>1× Senior Full-Stack · 1× Mid Frontend · 1× Backend/DB · 0.5× UX/UI · 0.5× PM<br/><i>Recommended for a seed-stage startup. Parallel frontend/backend tracks.</i>",
+          "<b>Enterprise Delivery Team (8 people, 4–5 months)</b><br/>2× Senior · 2× Mid Frontend · 1× Backend/DB · 1× UX/UI · 1× PM · 1× QA<br/><i>Maximum velocity. Suitable for agency delivery.</i>"
+        ]
+      }
+    ]
+  },
+  "effort_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Area-by-Area Breakdown (PERT)",
+        "tables": [
+          {
+            "headers": [
+              "Feature Area",
+              "Opt. (h)",
+              "ML (h)",
+              "Pess. (h)",
+              "PERT (h)"
+            ],
+            "col_widths": [
+              170,
+              70,
+              70,
+              80,
+              70
+            ],
+            "rows": [
+              [
+                "Auth & Identity",
+                "80",
+                "120",
+                "180",
+                "122"
+              ],
+              [
+                "Workspace & Tenancy",
+                "120",
+                "180",
+                "260",
+                "183"
+              ],
+              [
+                "Leave Request Lifecycle",
+                "180",
+                "260",
+                "380",
+                "263"
+              ],
+              [
+                "Calendar & Timeline Views",
+                "200",
+                "290",
+                "420",
+                "293"
+              ],
+              [
+                "Resource Management",
+                "180",
+                "260",
+                "380",
+                "263"
+              ],
+              [
+                "Agile Integration",
+                "140",
+                "200",
+                "300",
+                "203"
+              ],
+              [
+                "Report Builder & Reporting",
+                "120",
+                "180",
+                "270",
+                "183"
+              ],
+              [
+                "Other areas (8 modules)",
+                "550",
+                "820",
+                "1,260",
+                "837"
+              ],
+              [
+                "Subtotal (coding)",
+                "1,570",
+                "2,310",
+                "3,450",
+                "2,347"
+              ],
+              [
+                "+ 30% overhead (QA, PM, design, deploy)",
+                "471",
+                "693",
+                "1,035",
+                "704"
+              ],
+              [
+                "TOTAL",
+                "2,041",
+                "3,003",
+                "4,485",
+                "3,051"
+              ]
+            ],
+            "highlight_penultimate": true,
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Summary in Multiple Units",
+        "tables": [
+          {
+            "headers": [
+              "Metric",
+              "Low",
+              "Most Likely",
+              "High"
+            ],
+            "col_widths": [
+              170,
+              95,
+              120,
+              95
+            ],
+            "rows": [
+              [
+                "Person-hours",
+                "2,041",
+                "3,051",
+                "4,485"
+              ],
+              [
+                "Person-days (8h)",
+                "255",
+                "381",
+                "561"
+              ],
+              [
+                "Person-months (160h)",
+                "12.8",
+                "19.1",
+                "28.0"
+              ],
+              [
+                "Calendar months (3-person core)",
+                "5.5",
+                "7.5",
+                "11"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cost_estimate": {
+    "h2_blocks": [
+      {
+        "title": "Detailed Cost Model — Most Likely (CEE Rates)",
+        "tables": [
+          {
+            "headers": [
+              "Role",
+              "Share",
+              "Hours",
+              "Rate",
+              "Cost"
+            ],
+            "col_widths": [
+              165,
+              60,
+              70,
+              70,
+              90
+            ],
+            "rows": [
+              [
+                "Senior Full-Stack Engineer",
+                "35%",
+                "1,068",
+                "€52/h",
+                "€55,536"
+              ],
+              [
+                "Mid-Level Frontend Engineer",
+                "30%",
+                "915",
+                "€33/h",
+                "€30,195"
+              ],
+              [
+                "Backend / DB Engineer",
+                "15%",
+                "458",
+                "€48/h",
+                "€21,984"
+              ],
+              [
+                "UX/UI Designer",
+                "10%",
+                "305",
+                "€30/h",
+                "€9,150"
+              ],
+              [
+                "Product Manager",
+                "7%",
+                "214",
+                "€38/h",
+                "€8,132"
+              ],
+              [
+                "QA Engineer",
+                "3%",
+                "91",
+                "€28/h",
+                "€2,548"
+              ],
+              [
+                "Direct Labour",
+                "",
+                "3,051",
+                "",
+                "€127,545"
+              ],
+              [
+                "Overhead (25%)",
+                "",
+                "",
+                "",
+                "€31,886"
+              ],
+              [
+                "Contingency (15%)",
+                "",
+                "",
+                "",
+                "€19,132"
+              ],
+              [
+                "TOTAL",
+                "",
+                "",
+                "",
+                "€178,563"
+              ]
+            ],
+            "highlight_last": true
+          }
+        ]
+      },
+      {
+        "title": "Cost Ranges by Scenario",
+        "tables": [
+          {
+            "headers": [
+              "Scenario",
+              "Low",
+              "Most Likely",
+              "High"
+            ],
+            "col_widths": [
+              170,
+              95,
+              120,
+              95
+            ],
+            "rows": [
+              [
+                "CEE / Hungary (lean team)",
+                "€118,000",
+                "€178,000",
+                "€245,000"
+              ],
+              [
+                "Western EU agency",
+                "€265,000",
+                "€380,000",
+                "€520,000"
+              ],
+              [
+                "Mixed CEE + WEU lead",
+                "€165,000",
+                "€235,000",
+                "€330,000"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_comparison": {
+    "h2_blocks": [
+      {
+        "title": "Comparable Products",
+        "tables": [
+          {
+            "headers": [
+              "Product",
+              "HQ",
+              "Price/User/Mo",
+              "Key Notes"
+            ],
+            "col_widths": [
+              90,
+              75,
+              90,
+              245
+            ],
+            "rows": [
+              [
+                "Calamari",
+                "Poland",
+                "€2.50–5.00",
+                "Closest CEE peer; no Agile integration"
+              ],
+              [
+                "Timetastic",
+                "UK",
+                "$1.50–2.50",
+                "Much simpler; acquired 2023; $1.7M ARR"
+              ],
+              [
+                "Absence.io",
+                "Germany",
+                "€3.50–5.00",
+                "EU-focused, GDPR; similar scope"
+              ],
+              [
+                "Personio",
+                "Germany",
+                "€5–25",
+                "Enterprise, payroll; €8.5B valuation peak"
+              ],
+              [
+                "Sloneek",
+                "Czech/CEE",
+                "~€5–10 est.",
+                "Closest CEE; Hungarian UI; €3.6M raised 2024"
+              ],
+              [
+                "Teamdeck",
+                "Poland",
+                "$3.99",
+                "Resource + leave; closest overall comparable"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "HR SaaS Valuation Multiples (2024–2026)",
+        "tables": [
+          {
+            "headers": [
+              "Growth Rate",
+              "Typical ARR Multiple",
+              "Examples"
+            ],
+            "col_widths": [
+              150,
+              130,
+              220
+            ],
+            "rows": [
+              [
+                ">100% YoY (early stage)",
+                "10–15× ARR",
+                "Rippling: 29×; HiBob: 22×"
+              ],
+              [
+                "50–100% YoY",
+                "7–10× ARR",
+                "Personio peak: 24×"
+              ],
+              [
+                "20–50% YoY (mature SaaS)",
+                "5–8× ARR",
+                "Deputy: ~11× (2022)"
+              ],
+              [
+                "<20% YoY (stable)",
+                "3–5× ARR",
+                "Bootstrapped SaaS median: 4.8×"
+              ],
+              [
+                "M&A median (2025)",
+                "3.1–3.8× ARR",
+                "Current deal environment"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "market_value_estimate": {
+    "intro": "Five valuation lenses are applied and triangulated to produce a range-based estimate.",
+    "h2_blocks": [
+      {
+        "subsections": [
+          {
+            "title": "Lens 1: Replacement / IP Value",
+            "body": "Build cost at CEE rates: €145K–€245K. As a marketed IP asset, a 1.5–2.5× multiplier applies. Result: <b>€200,000 – €550,000</b> (floor — zero revenue)."
+          },
+          {
+            "title": "Lens 2: Comparable-Based Valuation",
+            "body": "At 5–8× ARR multiples: €30K ARR → €240–400K; €100K ARR → €700K–1M; €500K ARR → €2.5–4M. Sloneek raised €3.6M at ~€5–9M ARR."
+          },
+          {
+            "title": "Lens 3: Feature Depth Premium",
+            "body": "Bidirectional Jira+ADO integration, SQL report builder, smart scheduling, multi-schema architecture exceed typical price-tier competitors. Premium: 1.3–1.8×."
+          },
+          {
+            "title": "Lens 4: Risk Adjustment",
+            "body": "Haircuts: minimal test coverage (−15%), AI-assisted quality variability (−10%), Hungarian-only UI (−10%). Offsetting: modern stack (+10%), clean RLS (+5%). Net: −12%."
+          },
+          {
+            "title": "Lens 5: Strategic Acquisition Premium",
+            "body": "A strategic acquirer (CEE HR roll-up, Jira-adjacent vendor) would pay 1.5–3× IP value for the agile integration module or CEE market entry. Range: <b>€300K – €1.65M</b>."
+          }
+        ]
+      },
+      {
+        "title": "Final Market Value Ranges",
+        "tables": [
+          {
+            "headers": [
+              "Scenario",
+              "Range",
+              "Central Estimate"
+            ],
+            "col_widths": [
+              180,
+              140,
+              140
+            ],
+            "rows": [
+              [
+                "Pre-revenue IP sale",
+                "€200K – €600K",
+                "€380K"
+              ],
+              [
+                "Early customers (€30–100K ARR)",
+                "€400K – €1,200K",
+                "€700K"
+              ],
+              [
+                "Post-PMF (€200–500K ARR)",
+                "€1.5M – €4.5M",
+                "€3.0M"
+              ],
+              [
+                "Strategic acquisition",
+                "€700K – €2,500K",
+                "€1,500K"
+              ],
+              [
+                "Current state (unknown revenue)",
+                "€350K – €900K",
+                "€550K"
+              ]
+            ],
+            "highlight_last": true
+          }
+        ]
+      }
+    ],
+    "callout": "<b>Central Estimate: €550,000</b> — assuming early traction, pre-growth stage, unknown revenue. A demonstrated €100K ARR would revise this to ~€700–1,000K."
+  },
+  "assumptions_limitations": {
+    "h2_blocks": [
+      {
+        "title": "Hard Evidence (Known)",
+        "bullet_marker": "✓",
+        "bullets": [
+          "Full source code: 170 files, 31,435 lines of TypeScript/TSX",
+          "53 database migration files with complete schema history",
+          "Complete changelog from v2.0.0 to v2.6.0+ with Jira ticket references",
+          "17 Supabase edge functions with full implementation",
+          "Development timeline: ~2 months of AI-assisted build"
+        ]
+      },
+      {
+        "title": "Inferred (Not Directly Observed)",
+        "bullet_marker": "~",
+        "bullets": [
+          "Development effort (estimated from code volume and complexity signals)",
+          "Rate assumptions (CEE market research, industry norms)",
+          "Market comparables (public pricing pages, press releases)"
+        ]
+      },
+      {
+        "title": "Unknown / Missing",
+        "bullet_marker": "✗",
+        "bullets": [
+          "Revenue / ARR — no monetisation data; most dominant valuation variable",
+          "User/tenant count — no telemetry or analytics integration visible",
+          "SLA / uptime history — no monitoring or incident data"
+        ]
+      }
+    ]
+  },
+  "next_steps": {
+    "h2_blocks": [
+      {
+        "title": "For Cost Optimisation",
+        "bullet_marker": "→",
+        "bullets": [
+          "Add automated test coverage (target 70%+ on core engines)",
+          "Replace 4-second DB polling with Supabase Realtime subscriptions",
+          "Introduce i18next for proper internationalisation"
+        ]
+      },
+      {
+        "title": "For Product Sale / Acquisition / Fundraising",
+        "bullet_marker": "→",
+        "bullets": [
+          "Establish measurable ARR (even €5–20K early revenue raises valuation credibility)",
+          "Publish an English-language version of product and landing page",
+          "Obtain at least one referenceable enterprise customer (50+ employees)"
+        ]
+      },
+      {
+        "title": "For Technical Debt Reduction",
+        "bullet_marker": "→",
+        "bullets": [
+          "Priority 1: Automated test suite (vitest configured but unused)",
+          "Priority 2: Audit log reliability (fire-and-forget is a compliance risk)",
+          "Priority 3: Replace polling with Realtime subscriptions"
+        ]
+      }
+    ]
+  },
+  "appendix": {
+    "h2_blocks": [
+      {
+        "title": "A. Database Table Inventory (Selected)",
+        "tables": [
+          {
+            "headers": [
+              "Table",
+              "Module",
+              "Purpose"
+            ],
+            "col_widths": [
+              170,
+              90,
+              240
+            ],
+            "rows": [
+              [
+                "enterprise_workspaces",
+                "Workspace",
+                "Tenant workspace records"
+              ],
+              [
+                "leave_requests",
+                "Leave",
+                "6-status leave request records"
+              ],
+              [
+                "enterprise_approval_chains",
+                "Config",
+                "Multi-step approval definitions"
+              ],
+              [
+                "enterprise_audit_events",
+                "Audit",
+                "Immutable audit trail (prev/new state JSON)"
+              ],
+              [
+                "enterprise_agile_issues",
+                "Agile",
+                "Cached Jira/ADO issue records"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "title": "B. Confidence Assessment",
+        "tables": [
+          {
+            "headers": [
+              "Dimension",
+              "Confidence",
+              "Rationale"
+            ],
+            "col_widths": [
+              170,
+              120,
+              210
+            ],
+            "rows": [
+              [
+                "Build effort estimate",
+                "High (±20%)",
+                "Full codebase available; changelog evidence"
+              ],
+              [
+                "Cost estimate (CEE)",
+                "High (±25%)",
+                "Market rate data available"
+              ],
+              [
+                "Market value (pre-revenue)",
+                "Medium (±40%)",
+                "No revenue; comparable-based"
+              ],
+              [
+                "Market value (with revenue)",
+                "Medium-High (±25%)",
+                "Standard ARR multiples applicable"
+              ]
+            ]
+          }
+        ]
+      }
+    ],
+    "closing": "<i>This report was produced by AI-assisted technical due-diligence combining direct repository inspection and external market research. It is for informational purposes and does not constitute financial advice.</i>"
+  }
+}

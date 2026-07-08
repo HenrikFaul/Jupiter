@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive icon foreground layer.
+
+    A 108x108dp canvas. The visually meaningful content is kept inside the
+    inner 72x72dp safe zone (18dp inset on every side) so the foreground is not
+    clipped by any device icon mask. The glyph is a stylised folder paired with
+    a bold "J", representing the Jupiter file manager.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Folder body -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,42
+            h12
+            l5,6
+            h23
+            a4,4 0 0 1 4,4
+            v18
+            a4,4 0 0 1 -4,4
+            H34
+            a4,4 0 0 1 -4,-4
+            V46
+            a4,4 0 0 1 4,-4 z" />
+
+    <!-- Folder tab highlight -->
+    <path
+        android:fillColor="#FFDFE0FF"
+        android:pathData="M34,42
+            h12
+            l5,6
+            H30
+            v-2
+            a4,4 0 0 1 4,-4 z" />
+
+    <!-- "J" glyph cut into the folder face -->
+    <path
+        android:fillColor="#FF4A55C7"
+        android:pathData="M61,53
+            h6
+            v15
+            a6,6 0 0 1 -6,6
+            h-6
+            a6,6 0 0 1 -6,-6
+            v-2
+            h6
+            v2
+            h6 z" />
+
+</vector>

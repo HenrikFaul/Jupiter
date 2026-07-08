@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "homegrid",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "HomeGrid/homegrid", "run", "dev", "--", "-p", "3009"],
+      "port": 3009
+    },
+    {
+      "name": "singula-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "app", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

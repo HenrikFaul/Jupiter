@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Storage permissions.
+
+        On API <= 32 (Android 12L and below) classic read access to shared storage
+        is granted through READ_EXTERNAL_STORAGE. From API 33 (Tiramisu) onward
+        broad media access is handled through MANAGE_EXTERNAL_STORAGE (All Files
+        Access) for a file manager, so the legacy read permission is capped.
+    -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!--
+        Legacy write access was only meaningful up to API 29 (Q). After that
+        scoped storage / All Files Access supersede it, so the permission is
+        capped to avoid requesting a no-op grant on newer platforms.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!--
+        All Files Access. Required for a general purpose file manager to browse
+        and operate across the whole external storage volume on API 30+ (R).
+    -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!--
+        Granular media access (API 33+, Tiramisu). Powers the fast MediaStore-backed
+        category browser (Images / Videos / Audio) without a full filesystem walk.
+        On API <= 32 the same MediaStore queries are covered by READ_EXTERNAL_STORAGE
+        above / MANAGE_EXTERNAL_STORAGE.
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!--
+        Network access. Required for the Wi-Fi transfer server (NanoHTTPD binds a
+        local ServerSocket — the INTERNET permission maps to the inet GID the kernel
+        requires for socket(AF_INET)) and for the remote SMB/SFTP/FTP/WebDAV clients.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Biometric unlock for the encrypted Vault feature. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- Required to post foreground/operation progress notifications on API 33+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        Foreground service for the full-storage index survey. A 200 GB volume takes real
+        time to walk; a plain background WorkManager job is throttled/killed by Doze and the
+        background-execution limits and never completes. Running the survey as a foreground
+        service (WorkManager setForeground) with an ongoing notification lets it run to
+        completion. FOREGROUND_SERVICE_DATA_SYNC is the API 34+ typed variant.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!--
+        Usage access — read per-app storage (StorageStatsManager) so the App-storage screen
+        can account for the large app-private slice (Android/data, APKs, caches) the
+        filesystem cannot enumerate. This is a special-access permission the USER grants in
+        system settings (Usage access); declaring it is required to even request it.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+        Package visibility. Since Android 11 (API 30), getInstalledApplications() silently
+        filters out most user-installed packages unless the app holds QUERY_ALL_PACKAGES —
+        which made the App-storage screen list only system apps and account for a fraction
+        of real app storage (the biggest consumers — games, messengers — were invisible).
+        A file manager whose core feature is device-wide storage accounting is an explicitly
+        permitted use case for this permission under Play policy. Granted at install
+        (normal permission, no user prompt).
+    -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!--
+        Required since Android 9 (API 28) for ACTION_DELETE / ACTION_UNINSTALL_PACKAGE to
+        show the system uninstall dialog. Without it the request is silently rejected —
+        which made the App-storage "Uninstall" action appear to do nothing. Normal
+        install-time permission, no user prompt.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <application
+        android:name=".JupiterApp"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Jupiter"
+        tools:targetApi="31">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Jupiter"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            Give WorkManager's foreground service the "dataSync" type so the index survey can
+            run as a typed foreground service on API 34+ (required there). tools:node="merge"
+            adds the attribute onto WorkManager's own <service> declaration.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <!--
+            FileProvider used to share files (open-with / share intents) without
+            exposing raw file:// URIs. The authority is derived from the build's
+            applicationId so debug (.debug suffix) and release variants do not
+            collide when installed side by side.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!--
+            Home-screen widget listing the user's favorite folders/files. Tapping a
+            row launches MainActivity with an OPEN_PATH extra. Not exported: only the
+            system AppWidget host delivers the APPWIDGET_UPDATE broadcast.
+        -->
+        <receiver
+            android:name=".widget.FavoritesWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/favorites_widget_info" />
+        </receiver>
+
+    </application>
+
+</manifest>

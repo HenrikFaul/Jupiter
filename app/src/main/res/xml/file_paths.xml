@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Paths exposed by androidx.core.content.FileProvider for sharing content://
+    URIs. Covers the public external storage volume (so any browsed file can be
+    shared/opened) and the app's private files directory (used by the Vault for
+    exported/temporary copies).
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Whole shared/external storage volume (e.g. /storage/emulated/0). -->
+    <external-path
+        name="external_files"
+        path="." />
+
+    <!-- App-private internal files dir (Context.getFilesDir()), e.g. vault exports. -->
+    <files-path
+        name="internal_files"
+        path="." />
+
+</paths>
