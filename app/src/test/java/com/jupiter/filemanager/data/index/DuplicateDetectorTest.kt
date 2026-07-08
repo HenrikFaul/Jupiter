@@ -43,7 +43,9 @@ class DuplicateDetectorTest {
         db = Room.inMemoryDatabaseBuilder(ctx, FileIndexDatabase::class.java)
             .allowMainThreadQueries().build()
         repo = FileIndexRepositoryImpl(db.fileIndexDao(), dispatcher)
-        detector = DuplicateDetector(ctx, repo, PerceptualHashSource(), dispatcher)
+        detector = DuplicateDetector(
+            ctx, repo, PerceptualHashSource(), StructuralFingerprintSource(), dispatcher,
+        )
         tempDir = java.nio.file.Files.createTempDirectory("jupiter-detector").toFile()
     }
 
