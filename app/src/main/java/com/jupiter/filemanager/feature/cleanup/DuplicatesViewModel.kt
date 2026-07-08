@@ -39,6 +39,7 @@ class DuplicatesViewModel @Inject constructor(
     private val mediaQualityProbe: MediaQualityProbe,
     private val storageAccessManager: StorageAccessManager,
     private val trashRepository: TrashRepository,
+    private val scanCache: DuplicateScanCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DuplicatesUiState())
@@ -54,7 +55,21 @@ class DuplicatesViewModel @Inject constructor(
     private val probeJobs = mutableListOf<Job>()
 
     init {
-        scan()
+        val cached = scanCache.groups
+        if (cached != null) {
+            // Instant open: render the previous analysis immediately (even an empty result =
+            // "no duplicates"), then quietly refresh in the background so it can't go stale.
+            // This is the fix for the multi-second blank-screen wait on every re-open.
+            _uiState.value = _uiState.value.copy(
+                groups = cached,
+                qualities = scanCache.qualities,
+                isScanning = false,
+                permissionRequired = false,
+            )
+            scan(silent = true)
+        } else {
+            scan()
+        }
     }
 
     /**
@@ -63,10 +78,16 @@ class DuplicatesViewModel @Inject constructor(
      * If the app lacks All-Files-Access, the walk is skipped entirely and
      * [DuplicatesUiState.permissionRequired] is set so the screen can render an
      * actionable CTA instead of an indefinite spinner.
+     *
+     * When [silent] is true the currently-shown groups/selection are KEPT while the rescan runs
+     * (used for the background refresh on open), and the fresh results are swapped in only when the
+     * scan completes — so re-opening never flashes a blank screen. A normal (non-silent) scan clears
+     * the list and shows the scanning state as before.
      */
-    fun scan() {
+    fun scan(silent: Boolean = false) {
         if (!storageAccessManager.hasAllFilesAccess()) {
             cancelProbes()
+            scanCache.saveGroups(emptyList())
             _uiState.value = _uiState.value.copy(
                 isScanning = false,
                 permissionRequired = true,
@@ -80,6 +101,19 @@ class DuplicatesViewModel @Inject constructor(
         }
 
         cancelProbes()
+        // Set the scanning state synchronously (non-silent) so the screen never momentarily
+        // renders the "no duplicates" empty state before the flow's onStart fires.
+        if (!silent) {
+            _uiState.value = _uiState.value.copy(
+                isScanning = true,
+                permissionRequired = false,
+                groups = emptyList(),
+                selectedPaths = emptySet(),
+                qualities = emptyMap(),
+                errorMessage = null,
+                infoMessage = null,
+            )
+        }
         viewModelScope.launch {
             val root = android.os.Environment.getExternalStorageDirectory()?.absolutePath
                 ?: "/storage/emulated/0"
@@ -89,9 +123,6 @@ class DuplicatesViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(
                         isScanning = true,
                         permissionRequired = false,
-                        groups = emptyList(),
-                        selectedPaths = emptySet(),
-                        qualities = emptyMap(),
                         errorMessage = null,
                         infoMessage = null,
                     )
@@ -104,18 +135,24 @@ class DuplicatesViewModel @Inject constructor(
                 }
                 .onCompletion { cause ->
                     if (cause == null) {
-                        _uiState.value = _uiState.value.copy(isScanning = false)
+                        val result = collected.toList()
+                        // A silent refresh keeps the old list visible during the scan; swap in the
+                        // fresh result now. A visible scan has been streaming groups already.
+                        _uiState.value = _uiState.value.copy(isScanning = false, groups = result)
+                        scanCache.saveGroups(result)
                         // Probe quality only after the scan finishes, so probing never
                         // competes with the (CPU/IO-heavy) hashing walk on the IO pool.
-                        probeGroups(collected.toList())
+                        probeGroups(result)
                     }
                 }
                 .collect { group ->
                     if (group.files.size > 1) {
                         collected.add(group)
-                        // First group leaves the spinner; the screen renders content as
-                        // soon as `groups` is non-empty even while `isScanning` is true.
-                        _uiState.value = _uiState.value.copy(groups = collected.toList())
+                        // A visible scan renders content as soon as `groups` is non-empty; a silent
+                        // refresh keeps the cached list on screen until it completes (no flicker).
+                        if (!silent) {
+                            _uiState.value = _uiState.value.copy(groups = collected.toList())
+                        }
                     }
                 }
         }
@@ -135,9 +172,9 @@ class DuplicatesViewModel @Inject constructor(
                 probeGate.withPermit {
                     val probed: Map<String, MediaQuality> = mediaQualityProbe.probeAll(paths)
                     if (probed.isNotEmpty()) {
-                        _uiState.value = _uiState.value.copy(
-                            qualities = _uiState.value.qualities + probed,
-                        )
+                        val merged = _uiState.value.qualities + probed
+                        _uiState.value = _uiState.value.copy(qualities = merged)
+                        scanCache.saveQualities(merged)
                     }
                 }
             }
@@ -256,6 +293,10 @@ class DuplicatesViewModel @Inject constructor(
             val remainingGroups = _uiState.value.groups
                 .map { group -> group.copy(files = group.files.filter { it.path !in deleted }) }
                 .filter { it.files.size > 1 }
+            // Keep the cache consistent with what the user now sees, so a re-open shows the
+            // post-deletion list instantly rather than the pre-deletion one.
+            scanCache.saveGroups(remainingGroups)
+            scanCache.saveQualities(_uiState.value.qualities - deleted)
 
             val message = when {
                 deleted.isEmpty() -> "Could not delete the selected files"
