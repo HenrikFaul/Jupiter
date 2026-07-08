@@ -126,15 +126,38 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
+     * Runs the duplicate-detection catch-up ([DedupReconciler]): processes every MediaStore file
+     * newer than the checkpoint (including ones that arrived while the app was dead) through the
+     * detector. KEEP coalesces the chatty ContentObserver signals into at most one queued run.
+     * Cheap when nothing is new.
+     *
+     * Deliberately NOT expedited: the job is tiny and frequent, and an expedited [CoroutineWorker]
+     * without a `getForegroundInfo()` override fails on API < 31 (WorkManager runs it as a
+     * foreground service there). A plain job runs on every API level and needs no notification.
+     */
+    fun reconcileDedupNow() {
+        try {
+            workManager.enqueueUniqueWork(
+                DedupReconcileWorker.UNIQUE_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<DedupReconcileWorker>().build(),
+            )
+        } catch (_: Exception) {
+            // Best-effort.
+        }
+    }
+
+    /**
      * Cancels any pending/running index survey AND the periodic refresh AND the perceptual
-     * backfill (e.g. when the user disables indexing), so nothing keeps running after the
-     * feature is turned off. Best-effort.
+     * backfill AND the dedup reconcile (e.g. when the user disables indexing), so nothing keeps
+     * running after the feature is turned off. Best-effort.
      */
     fun cancel() {
         try {
             workManager.cancelUniqueWork(IndexingWorker.UNIQUE_WORK_NAME)
             workManager.cancelUniqueWork(PERIODIC_REFRESH_WORK_NAME)
             workManager.cancelUniqueWork(PerceptualHashBackfillWorker.UNIQUE_WORK_NAME)
+            workManager.cancelUniqueWork(DedupReconcileWorker.UNIQUE_WORK_NAME)
         } catch (_: Exception) {
             // Best-effort.
         }

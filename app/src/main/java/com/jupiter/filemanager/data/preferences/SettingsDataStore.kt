@@ -77,6 +77,7 @@ class SettingsDataStore @Inject constructor(
         val ANALYTICS_OPT_IN = booleanPreferencesKey("analytics_opt_in")
         val PRO_UNLOCKED = booleanPreferencesKey("pro_unlocked")
         val INDEXING_ENABLED = booleanPreferencesKey("indexing_enabled")
+        val DEDUP_CHECKPOINT_ID = longPreferencesKey("dedup_checkpoint_id")
     }
 
     /** Current theme mode; defaults to [ThemeMode.SYSTEM]. */
@@ -267,6 +268,23 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setIndexingEnabled(value: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.INDEXING_ENABLED] = value }
+    }
+
+    /**
+     * High-water mark MediaStore `_id` up to which the duplicate-reconciler has already examined
+     * newly-arrived files. 0 = no baseline yet (the reconciler establishes one WITHOUT alerting,
+     * so the existing library is never retro-alerted). Only ever advances.
+     */
+    val dedupCheckpointId: Flow<Long> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.DEDUP_CHECKPOINT_ID] ?: 0L }
+
+    suspend fun setDedupCheckpointId(value: Long) {
+        dataStore.edit { prefs ->
+            val current = prefs[Keys.DEDUP_CHECKPOINT_ID] ?: 0L
+            // Monotonic: never move the checkpoint backwards (guards concurrent runs).
+            if (value > current) prefs[Keys.DEDUP_CHECKPOINT_ID] = value
+        }
     }
 
     /**

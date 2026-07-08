@@ -41,7 +41,7 @@ import javax.inject.Singleton
 class MediaStoreIndexSource @Inject constructor(
     @ApplicationContext private val context: Context,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
-) {
+) : NewFileSource {
 
     /**
      * Returns the number of files MediaStore knows about on the external volume, used
@@ -115,6 +115,82 @@ class MediaStoreIndexSource @Inject constructor(
             }
         }
         emitted
+    }
+
+    /**
+     * One newly-observed file from a MediaStore delta query: the [FileItem] plus its MediaStore
+     * `_id`, which the reconciler uses as a strictly-monotonic, unique checkpoint key.
+     */
+    data class NewFile(val item: FileItem, val id: Long)
+
+    /**
+     * The highest MediaStore `_id` currently observable, or 0 when empty/unreadable. `_id` is the
+     * SQLite rowid — strictly increasing per insert — so it is used to establish the initial
+     * reconciler baseline WITHOUT alerting on the existing library. Sorts by the plain `_ID`
+     * column (portable; no SQL functions, which the Android 11+ query validator can reject).
+     */
+    override suspend fun maxObservedId(): Long = withContext(dispatcher) {
+        runCatching {
+            context.contentResolver.query(
+                COLLECTION,
+                arrayOf(MediaStore.Files.FileColumns._ID),
+                null,
+                null,
+                "${MediaStore.Files.FileColumns._ID} DESC",
+            )?.use { c ->
+                val idIdx = c.getColumnIndex(MediaStore.Files.FileColumns._ID)
+                if (c.moveToFirst() && idIdx >= 0) c.getLong(idIdx) else 0L
+            } ?: 0L
+        }.getOrDefault(0L)
+    }
+
+    /**
+     * Files whose MediaStore `_id` is strictly greater than [sinceId] — i.e. everything INSERTED
+     * since the reconciler's last checkpoint — id-ascending so the checkpoint advances
+     * monotonically and GAP-FREE. Capped at [limit] per call (the reconciler loops until drained).
+     * Never throws.
+     *
+     * Keys on `_ID` rather than `date_added`: `_id` is unique and strictly increasing, so — unlike
+     * a 1-second-granularity date — no two files ever tie, and a bulk import of hundreds of files
+     * in one second paginates cleanly with `_id > checkpoint` (no straddle-the-page skip). A newly
+     * downloaded/captured/received/copied file always gets a fresh higher `_id`. Plain columns
+     * only in selection/sort (portable across Android 10-15; the Android 11+ MediaStore validator
+     * rejects SQL functions / `LIMIT`-in-sort). This is the robust replacement for trusting a
+     * ContentObserver to carry the exact new file.
+     */
+    override suspend fun queryNewSince(sinceId: Long, limit: Int): List<NewFile> = withContext(dispatcher) {
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.DATA,
+        )
+        val selection = "${MediaStore.Files.FileColumns._ID} > ?"
+        val args = arrayOf(sinceId.toString())
+        val order = "${MediaStore.Files.FileColumns._ID} ASC"
+
+        runCatching {
+            context.contentResolver.query(COLLECTION, projection, selection, args, order)
+        }.getOrNull()?.use { c ->
+            val idIdx = c.getColumnIndex(MediaStore.Files.FileColumns._ID)
+            val nameIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val sizeIdx = c.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+            val dateIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
+            val mimeIdx = c.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
+            val dataIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+            val out = ArrayList<NewFile>(minOf(limit, 128))
+            while (c.moveToNext() && out.size < limit) {
+                currentCoroutineContext().ensureActive()
+                val item = runCatching {
+                    mapRow(c, nameIdx, sizeIdx, dateIdx, mimeIdx, dataIdx)
+                }.getOrNull() ?: continue
+                val id = if (idIdx >= 0 && !c.isNull(idIdx)) c.getLong(idIdx) else continue
+                out.add(NewFile(item, id))
+            }
+            out
+        } ?: emptyList()
     }
 
     private fun mapRow(

@@ -145,6 +145,9 @@ class MainActivity : FragmentActivity() {
                     // Keep the perceptual-fingerprint backfill converging (KEEP: no-op when
                     // one is already queued/running or nothing is missing).
                     indexingScheduler.ensurePerceptualBackfill()
+                    // Catch up duplicate detection on files that arrived while the app was
+                    // dead — the real-time observer can't see those. Cheap when nothing is new.
+                    indexingScheduler.reconcileDedupNow()
                 }
             }
         }

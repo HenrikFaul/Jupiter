@@ -33,6 +33,9 @@ class IndexRefreshKickWorker @AssistedInject constructor(
         runCatching {
             if (settings.indexingEnabled.first()) {
                 indexingScheduler.ensureIndexed()
+                // Also catch up duplicate detection on the periodic cadence, so a file added
+                // while the app stayed closed for days is still flagged.
+                indexingScheduler.reconcileDedupNow()
             }
         }
         return Result.success()

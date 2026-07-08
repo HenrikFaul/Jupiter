@@ -2,11 +2,15 @@ package com.jupiter.filemanager.di
 
 import android.content.Context
 import androidx.room.Room
+import com.jupiter.filemanager.data.index.DedupCheckpointStore
 import com.jupiter.filemanager.data.index.FileIndexDao
 import com.jupiter.filemanager.data.index.FileIndexDatabase
 import com.jupiter.filemanager.data.index.FileIndexRepositoryImpl
 import com.jupiter.filemanager.data.index.IndexStateDao
 import com.jupiter.filemanager.data.index.IndexStateRepositoryImpl
+import com.jupiter.filemanager.data.index.MediaStoreIndexSource
+import com.jupiter.filemanager.data.index.NewFileSource
+import com.jupiter.filemanager.data.index.SettingsDedupCheckpointStore
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import dagger.Binds
@@ -63,4 +67,12 @@ abstract class IndexBindingsModule {
     abstract fun bindIndexStateRepository(
         impl: IndexStateRepositoryImpl,
     ): IndexStateRepository
+
+    @Binds
+    abstract fun bindNewFileSource(impl: MediaStoreIndexSource): NewFileSource
+
+    @Binds
+    abstract fun bindDedupCheckpointStore(
+        impl: SettingsDedupCheckpointStore,
+    ): DedupCheckpointStore
 }
