@@ -444,3 +444,15 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `app/build.gradle.kts`: `versionName` → 0.13.0.
 ### Planned next
 - Régi lomtár auto-ürítés; scan-szűrők (méret/típus/dátum/mappa-scope); perceptuális near-duplicate (kép dHash).
+
+## [jupiter:0.37.0] - 2026-07-08
+### Fixed
+- **Perceptuális near-dup most már valóban jelez a meglévő könyvtár ellen is** (data/index): a hiba az volt, hogy a `findNearDuplicateImages` CSAK a már ujjlenyomatolt sorokkal hasonlított, így egy hónapok óta a telefonon lévő, még nem backfillelt EREDETI kép láthatatlan volt → az újonnan letöltött/újratömörített másolat sosem talált egyezést. A `DuplicateDetector` most a near-összehasonlítás ELŐTT igény szerint (on-demand) ujjlenyomatol minden még hiányzó képet (kötegelt, megszakítható, perzisztált — az első képérkezés fizet egyszer, utána ingyen), így a felhasználó "ugyanaz a nő két képen" esete végre SIMILAR riasztást ad.
+- **Duplikált fájl megnyitása nem ír többé "Not found" errort** (data/index): a Samsung `Android/.Trash/com.sec.android.app.myfiles/...` kuka-útvonalak (és a `.trashed`/`.thumbnails`) most már kizártak az indexelésből (MediaStore + IndexingWorker, kis-nagybetű-független szegmens-egyezés). Emellett a dedup-felületek (`findContentDuplicates`, `findNearDuplicateImages`, `duplicateGroups`) olvasáskor kiszűrik és a lomtárból/eltűnt fájlok sorait törlik az indexből, így egy riasztás vagy duplikátum-lista SOSEM mutat kuka-beli vagy már nem létező fájlra (a stale index olvasáskor öngyógyul).
+- **App-storage lista azonnal frissül uninstall után** (feature/apps): az `AppStorageScreen` most minden RESUME-kor újralekérdez (az első resume-ot az init load már fedi, azt kihagyja), így a rendszer uninstall-párbeszédből visszatérve a most eltávolított app rögtön eltűnik a listából (a lekérdezés csak a jelenleg telepített csomagokat sorolja).
+### Changed
+- `app/build.gradle.kts`: `versionName` → 0.37.0.
+### Verification
+- `DuplicateDetectorImageTest` (Robolectric NATIVE graphics): egy METAADAT-ONLY (ujjlenyomat nélküli) eredeti ellen egy más formátumú+felbontású másolat SIMILAR riasztást vált ki, és az eredeti utána ujjlenyomatolt; egy fordított (más) kép NEM ad riasztást. `DedupResultPruningTest`: kuka-beli és eltűnt duplikátum nem jelenik meg és törlődik az indexből, míg egy élő duplikátum továbbra is megjelenik.
+### Regression guard
+- A meglévő `DuplicateDetectorTest` (EXACT), `PerceptualHashSourceTest`, reconciler/fusion tesztek változatlanul futnak; a dedup pontszám/tier/explainability réteg érintetlen.

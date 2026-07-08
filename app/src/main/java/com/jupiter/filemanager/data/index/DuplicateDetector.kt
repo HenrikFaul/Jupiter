@@ -20,6 +20,8 @@ import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -127,6 +129,12 @@ class DuplicateDetector @Inject constructor(
                 val hash = perceptualHashSource.compute(item.path) ?: return@withContext null
                 indexRepository.putPerceptualHash(item.path, hash)
                 if (hash == PerceptualHash.UNHASHABLE) return@withContext null
+                // Ensure every already-indexed image carries a fingerprint BEFORE comparing, so a
+                // months-old original the background backfill has not yet reached is actually in
+                // the comparison set. Without this, findNearDuplicateImages only sees rows already
+                // fingerprinted, so the most common case — a freshly downloaded/recompressed copy
+                // of an un-backfilled original — silently never matched (the reported bug).
+                ensureImagesFingerprinted()
                 val similar = indexRepository.findNearDuplicateImages(
                     path = item.path,
                     hash = hash,
@@ -154,6 +162,38 @@ class DuplicateDetector @Inject constructor(
             }
             null
         }.getOrNull()
+    }
+
+    /**
+     * Fingerprints every already-indexed image that still lacks a perceptual hash, so the
+     * near-duplicate comparison set is COMPLETE — an original that arrived before the feature
+     * shipped (or that the periodic backfill has not yet reached) is what a newly-downloaded copy
+     * gets compared against. Drains the whole "missing fingerprint" work list in bounded batches;
+     * progress is persisted per row, so the first image arrival pays a one-time cost and every
+     * later arrival finds nothing to do (a single cheap empty-list query). Cancellable; a decode
+     * failure is marked [PerceptualHash.UNHASHABLE] so the list always shrinks and a corrupt image
+     * can never loop forever. Honours cancellation; per-file failures are isolated (compute never
+     * throws; the store is guarded) so one bad row can't abort the pass.
+     */
+    private suspend fun ensureImagesFingerprinted() {
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val batch = indexRepository.imagesNeedingPerceptualHash(FINGERPRINT_BATCH)
+            if (batch.isEmpty()) return
+            var stored = 0
+            for (image in batch) {
+                currentCoroutineContext().ensureActive()
+                val fingerprint = perceptualHashSource.compute(image.path)
+                    ?: PerceptualHash.UNHASHABLE
+                if (runCatching { indexRepository.putPerceptualHash(image.path, fingerprint) }.isSuccess) {
+                    stored++
+                }
+            }
+            // Termination guarantee: every row is marked (hash or UNHASHABLE), so a non-empty batch
+            // normally shrinks the backlog. If NOTHING could be stored (persistent write failure),
+            // the same batch would return forever — stop instead of spinning.
+            if (stored == 0) return
+        }
     }
 
     private fun emit(alert: DuplicateAlert): DuplicateAlert {
@@ -222,5 +262,8 @@ class DuplicateDetector @Inject constructor(
     private companion object {
         const val CHANNEL_ID = "jupiter_duplicate_alerts"
         const val SIMILAR_ID_SALT = 0x5A5A5A5A
+
+        /** Rows fingerprinted per batch while draining the perceptual-hash backlog on demand. */
+        const val FINGERPRINT_BATCH = 100
     }
 }

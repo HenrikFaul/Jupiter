@@ -226,12 +226,43 @@ class FileIndexRepositoryImpl @Inject constructor(
                 hashForEntry(entry) // computes and caches as a side effect
             }
 
-            dao.byHash(hash)
-                .asSequence()
-                .filter { it.path != item.path }
-                .map(::toFileItem)
-                .toList()
+            existingOrPruned(
+                dao.byHash(hash)
+                    .asSequence()
+                    .filter { it.path != item.path }
+                    .map(::toFileItem)
+                    .toList(),
+            )
         }
+
+    /**
+     * Keeps only [items] whose file is still present on disk AND not in a trash/recycle-bin
+     * staging dir, pruning every rejected row from the index. A duplicate alert (or the
+     * duplicates list) must never point at a file that has been moved to the trash or deleted:
+     * tapping it opened the preview to a "Not found: …/Android/.Trash/…" error. Vanished rows
+     * are also swept here so a stale index self-heals the moment it is consulted.
+     */
+    private suspend fun existingOrPruned(items: List<FileItem>): List<FileItem> {
+        if (items.isEmpty()) return items
+        val alive = ArrayList<FileItem>(items.size)
+        for (fileItem in items) {
+            val usable = !isExcludedResultPath(fileItem.path) &&
+                runCatching { File(fileItem.path).isFile }.getOrDefault(false)
+            if (usable) alive.add(fileItem) else dao.deleteByPath(fileItem.path)
+        }
+        return alive
+    }
+
+    /**
+     * True when [path] lives in a trash/recycle-bin/thumbnail staging directory that must never
+     * be surfaced as a duplicate. Mirrors the indexing exclusions (case-insensitive, full-segment)
+     * so rows that were indexed BEFORE those exclusions were added are still filtered out at read
+     * time — without waiting for the next full survey to sweep them.
+     */
+    private fun isExcludedResultPath(path: String): Boolean {
+        val lower = path.lowercase()
+        return EXCLUDED_RESULT_SEGMENTS.any { lower.contains("/$it/") || lower.endsWith("/$it") }
+    }
 
     /**
      * Streams the file at [path] through a chunked SHA-1 digest. Cancellable and
@@ -310,7 +341,7 @@ class FileIndexRepositoryImpl @Inject constructor(
             .map { it.path }
             .toList()
         if (nearPaths.isEmpty()) return@withContext emptyList()
-        dao.entriesForPaths(nearPaths).map(::toFileItem)
+        existingOrPruned(dao.entriesForPaths(nearPaths).map(::toFileItem))
     }
 
     override suspend fun imagesNeedingPerceptualHash(limit: Int): List<FileItem> =
@@ -364,6 +395,12 @@ class FileIndexRepositoryImpl @Inject constructor(
                 val byHash = LinkedHashMap<String, MutableList<FileIndexEntry>>()
                 for (entry in candidates) {
                     currentCoroutineContext().ensureActive()
+                    // Trash/recycle-bin rows are byte-identical to their originals but must not be
+                    // offered for deletion (opening one errors) — prune and skip them.
+                    if (isExcludedResultPath(entry.path)) {
+                        dao.deleteByPath(entry.path)
+                        continue
+                    }
                     val hash = hashForEntry(entry) ?: continue
                     byHash.getOrPut(hash) { mutableListOf() }.add(entry)
                 }
@@ -473,5 +510,12 @@ class FileIndexRepositoryImpl @Inject constructor(
 
         /** Lowercase hex alphabet used by [toHexString]. */
         val HEX_DIGITS = "0123456789abcdef".toCharArray()
+
+        /**
+         * Path segments (lowercased, full-segment matched) whose files must never be surfaced as
+         * duplicates: trash/recycle-bin staging and thumbnail caches. Kept in sync with the
+         * indexing sources' exclusions so pre-existing rows are filtered at read time too.
+         */
+        val EXCLUDED_RESULT_SEGMENTS = listOf(".trash", ".trashed", ".thumbnails")
     }
 }

@@ -20,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 /**
  * Robolectric-backed Room tests for the index life-cycle. These run under the JVM
@@ -321,26 +322,38 @@ class IndexStateMachineTest {
      */
     @Test
     fun findNearDuplicateImagesMatchesWithinThresholdOnly() = runTest(dispatcher) {
-        repo.upsert(
-            listOf(
-                file("/s/a.jpg", size = 5_000L),
-                file("/s/b.png", size = 6_000L),
-                file("/s/c.jpg", size = 7_000L),
-                file("/s/broken.jpg", size = 8_000L),
-            ),
-        )
-        val base = 0b1111L
-        repo.putPerceptualHash("/s/a.jpg", base)
-        repo.putPerceptualHash("/s/b.png", base xor 0b11L) // distance 2 → near
-        repo.putPerceptualHash("/s/c.jpg", base.inv()) // distance 64 → far
-        repo.putPerceptualHash("/s/broken.jpg", PerceptualHash.UNHASHABLE)
+        // Real on-disk files: findNearDuplicateImages now prunes results whose file has
+        // vanished (or sits in a trash dir), so a duplicate alert never points at a
+        // deleted/trashed file — the comparison set must physically exist.
+        val dir = java.nio.file.Files.createTempDirectory("jupiter-near").toFile()
+        try {
+            val a = File(dir, "a.jpg").apply { writeText("a") }
+            val b = File(dir, "b.png").apply { writeText("b") }
+            val c = File(dir, "c.jpg").apply { writeText("c") }
+            val broken = File(dir, "broken.jpg").apply { writeText("x") }
+            repo.upsert(
+                listOf(
+                    file(a.absolutePath, size = 5_000L),
+                    file(b.absolutePath, size = 6_000L),
+                    file(c.absolutePath, size = 7_000L),
+                    file(broken.absolutePath, size = 8_000L),
+                ),
+            )
+            val base = 0b1111L
+            repo.putPerceptualHash(a.absolutePath, base)
+            repo.putPerceptualHash(b.absolutePath, base xor 0b11L) // distance 2 → near
+            repo.putPerceptualHash(c.absolutePath, base.inv()) // distance 64 → far
+            repo.putPerceptualHash(broken.absolutePath, PerceptualHash.UNHASHABLE)
 
-        val near = repo.findNearDuplicateImages(
-            path = "/s/a.jpg",
-            hash = base,
-            threshold = PerceptualHash.DEFAULT_NEAR_THRESHOLD,
-        )
-        assertEquals(listOf("/s/b.png"), near.map { it.path })
+            val near = repo.findNearDuplicateImages(
+                path = a.absolutePath,
+                hash = base,
+                threshold = PerceptualHash.DEFAULT_NEAR_THRESHOLD,
+            )
+            assertEquals(listOf(b.absolutePath), near.map { it.path })
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     /**

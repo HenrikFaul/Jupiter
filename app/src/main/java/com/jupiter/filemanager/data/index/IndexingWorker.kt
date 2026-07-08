@@ -238,7 +238,9 @@ class IndexingWorker @AssistedInject constructor(
      * accidentally excluding files that merely contain the token in their name.
      */
     private fun isExcluded(file: File): Boolean {
-        val path = file.absolutePath
+        // Case-insensitive segment match: vendor trash/cache dirs vary in case
+        // (e.g. Samsung's `Android/.Trash`), and the excluded segments are lowercased below.
+        val path = file.absolutePath.lowercase()
         return EXCLUDED_SEGMENTS.any { segment ->
             path.contains("/$segment/") || path.endsWith("/$segment")
         }
@@ -274,11 +276,15 @@ class IndexingWorker @AssistedInject constructor(
          * Path segments never worth indexing: sandboxed app data/obb (usually
          * inaccessible and noisy) and thumbnail/trash caches.
          */
+        // Lowercased — matched case-insensitively by [isExcluded].
         private val EXCLUDED_SEGMENTS: List<String> = listOf(
-            "Android/data",
-            "Android/obb",
+            "android/data",
+            "android/obb",
             ".thumbnails",
             ".trashed",
+            // Recycle-bin/trash staging (e.g. Samsung `Android/.Trash`): volatile paths that
+            // vanish when the bin is emptied, so indexing them yields dead "duplicate" entries.
+            ".trash",
         )
     }
 }
