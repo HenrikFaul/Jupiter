@@ -1,53 +1,27 @@
 package com.jupiter.filemanager.data.index
 
-import android.Manifest
-import android.app.Application
-import android.content.Context
-import androidx.room.Room
-import androidx.test.core.app.ApplicationProvider
-import com.jupiter.filemanager.data.permission.StorageAccessManager
+import com.jupiter.filemanager.data.permission.StorageAccessGate
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows
-import org.robolectric.annotation.Config
-import java.io.File
 
 /**
- * Robolectric end-to-end proof of the ACTUAL fix: a file that "arrived while the app was dead" is
- * caught by the checkpoint reconciler and flagged as a duplicate — the exact scenario the
- * real-time observer alone could never handle.
- *
- * Uses the REAL [DuplicateDetector] over an in-memory Room index and REAL files on disk, the REAL
- * [StorageAccessManager] (with legacy storage permissions granted via Robolectric), a scripted
- * [NewFileSource], and an in-memory checkpoint store. The detection logic is not mocked.
- *
- * Runs under SDK 28 so `hasAllFilesAccess()` resolves via the legacy READ/WRITE grant (granted
- * below) — a stable Robolectric path that needs no All-Files-Access shadow.
+ * Pure-JVM tests for [DedupReconciler]'s checkpoint/paging/baseline logic, against recording
+ * fakes for every collaborator. No Room, no files, no SharedFlow timing — so the reconciler's
+ * contract (catch up files newer than the checkpoint, advance gap-free, never poison the
+ * baseline, respect the gates) is proven deterministically. Detection correctness itself lives
+ * in [DuplicateDetectorTest].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], application = Application::class)
 class DedupReconcilerTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
-    private lateinit var db: FileIndexDatabase
-    private lateinit var repo: FileIndexRepositoryImpl
-    private lateinit var detector: DuplicateDetector
-    private lateinit var storageAccess: StorageAccessManager
-    private lateinit var tempDir: File
 
-    /** In-memory, controllable checkpoint store. */
     private class FakeCheckpointStore(var enabled: Boolean = true, var checkpoint: Long = 0L) :
         DedupCheckpointStore {
         override suspend fun isIndexingEnabled() = enabled
@@ -57,117 +31,112 @@ class DedupReconcilerTest {
         }
     }
 
-    /** Scripted delta source keyed on `_id`. */
     private class FakeNewFileSource(
         val maxId: Long,
-        val newFiles: List<MediaStoreIndexSource.NewFile> = emptyList(),
+        val files: List<MediaStoreIndexSource.NewFile> = emptyList(),
     ) : NewFileSource {
         override suspend fun maxObservedId() = maxId
         override suspend fun queryNewSince(sinceId: Long, limit: Int) =
-            newFiles.filter { it.id > sinceId }.sortedBy { it.id }.take(limit)
+            files.filter { it.id > sinceId }.sortedBy { it.id }.take(limit)
     }
 
-    @Before
-    fun setUp() {
-        val ctx = ApplicationProvider.getApplicationContext<Context>()
-        Shadows.shadowOf(ctx as Application).grantPermissions(
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        )
-        db = Room.inMemoryDatabaseBuilder(ctx, FileIndexDatabase::class.java)
-            .allowMainThreadQueries().build()
-        repo = FileIndexRepositoryImpl(db.fileIndexDao(), dispatcher)
-        detector = DuplicateDetector(ctx, repo, PerceptualHashSource(), dispatcher)
-        storageAccess = StorageAccessManager(ctx)
-        tempDir = java.nio.file.Files.createTempDirectory("jupiter-reconcile").toFile()
+    /** Records every file handed to the detector. */
+    private class RecordingInspector : ArrivalInspector {
+        val seen = mutableListOf<FileItem>()
+        override suspend fun onFileArrived(item: FileItem): DuplicateAlert? {
+            seen.add(item)
+            return null
+        }
     }
 
-    @After
-    fun tearDown() {
-        db.close()
-        tempDir.deleteRecursively()
+    private class FakeGate(val granted: Boolean) : StorageAccessGate {
+        override fun hasFullAccess() = granted
     }
 
-    private fun item(file: File) = FileItem(
-        path = file.absolutePath,
-        name = file.name,
-        isDirectory = false,
-        sizeBytes = file.length(),
-        lastModified = file.lastModified(),
-        type = FileType.OTHER,
-        extension = file.extension,
+    private fun file(id: Long) = MediaStoreIndexSource.NewFile(
+        FileItem(
+            path = "/storage/emulated/0/Download/file$id.bin",
+            name = "file$id.bin",
+            isDirectory = false,
+            sizeBytes = 100L,
+            lastModified = 1L,
+            type = FileType.OTHER,
+            extension = "bin",
+        ),
+        id = id,
     )
 
     @Test
-    fun fileArrivingWhileAppWasClosedIsCaughtByReconciler() = runTest(dispatcher) {
-        // An original already on the device, indexed by a past survey (METADATA ONLY, no hash).
-        val payload = ByteArray(9000) { (it % 251).toByte() }
-        val original = File(tempDir, "photo.jpg").apply { writeBytes(payload) }
-        repo.indexFile(item(original))
+    fun `first run establishes baseline without inspecting the existing library`() = runTest(dispatcher) {
+        val store = FakeCheckpointStore(checkpoint = 0L)
+        val inspector = RecordingInspector()
+        val r = DedupReconciler(FakeNewFileSource(maxId = 5_000L), inspector, store, FakeGate(true), dispatcher)
 
-        // A byte-identical copy that landed while the app was dead (e.g. re-downloaded).
-        val copy = File(tempDir, "photo (1).jpg").apply { writeBytes(payload) }
-
-        val store = FakeCheckpointStore(enabled = true, checkpoint = 0L)
-        val source = FakeNewFileSource(
-            maxId = 5_000L,
-            newFiles = listOf(MediaStoreIndexSource.NewFile(item(copy), id = 5_001L)),
-        )
-        val reconciler = DedupReconciler(source, detector, store, storageAccess, dispatcher)
-
-        val alerts = mutableListOf<DuplicateAlert>()
-        val collectJob = launch { detector.observeDuplicateAlerts().collect { alerts.add(it) } }
-
-        // First run establishes the baseline WITHOUT alerting on the existing library.
-        val first = reconciler.reconcile()
-        assertEquals("baseline run inspects nothing", 0, first)
-        assertEquals("checkpoint set to the current max id", 5_000L, store.checkpoint)
-        assertTrue("no alerts on baseline", alerts.isEmpty())
-
-        // Second run: the copy has a higher id than the checkpoint → inspected and flagged.
-        val second = reconciler.reconcile()
-        assertEquals("the newly-arrived copy is inspected", 1, second)
-        assertEquals("checkpoint advanced past the copy", 5_001L, store.checkpoint)
-
-        assertEquals("exactly one duplicate alert fired", 1, alerts.size)
-        val alert = alerts.single()
-        assertEquals(DuplicateKind.EXACT, alert.kind)
-        assertEquals(copy.absolutePath, alert.newFile.path)
-        assertTrue(
-            "the alert points at the pre-existing original",
-            alert.existing.any { it.path == original.absolutePath },
-        )
-
-        // Third run: nothing newer than the checkpoint → no work, no re-alert.
-        val third = reconciler.reconcile()
-        assertEquals(0, third)
-        assertEquals("no duplicate re-alert for the same file", 1, alerts.size)
-
-        collectJob.cancel()
+        assertEquals(0, r.reconcile())
+        assertEquals("checkpoint set to current max id", 5_000L, store.checkpoint)
+        assertTrue("nothing inspected on baseline", inspector.seen.isEmpty())
     }
 
     @Test
-    fun reconcilerDoesNothingWhenIndexingDisabled() = runTest(dispatcher) {
+    fun `files newer than the checkpoint are inspected and the checkpoint advances`() = runTest(dispatcher) {
+        val store = FakeCheckpointStore(checkpoint = 5_000L)
+        val inspector = RecordingInspector()
+        val source = FakeNewFileSource(maxId = 5_002L, files = listOf(file(5_001L), file(5_002L)))
+        val r = DedupReconciler(source, inspector, store, FakeGate(true), dispatcher)
+
+        assertEquals(2, r.reconcile())
+        assertEquals(listOf(5_001L, 5_002L), inspector.seen.map { it.name.removePrefix("file").removeSuffix(".bin").toLong() })
+        assertEquals(5_002L, store.checkpoint)
+
+        // Nothing new on a second pass → no work, no re-inspection.
+        inspector.seen.clear()
+        assertEquals(0, r.reconcile())
+        assertTrue(inspector.seen.isEmpty())
+    }
+
+    /** Gap-free pagination: 350 files across two BATCH_SIZE(200) pages are ALL inspected. */
+    @Test
+    fun `bulk arrival spanning multiple batches is fully paginated with no gap`() = runTest(dispatcher) {
+        val store = FakeCheckpointStore(checkpoint = 100L)
+        val inspector = RecordingInspector()
+        val ids = (101L..450L).toList()
+        val source = FakeNewFileSource(maxId = 450L, files = ids.map { file(it) })
+        val r = DedupReconciler(source, inspector, store, FakeGate(true), dispatcher)
+
+        assertEquals(350, r.reconcile())
+        assertEquals(350, inspector.seen.size)
+        assertEquals(450L, store.checkpoint)
+    }
+
+    @Test
+    fun `does nothing when indexing is disabled`() = runTest(dispatcher) {
         val store = FakeCheckpointStore(enabled = false, checkpoint = 0L)
-        val source = FakeNewFileSource(maxId = 5_000L)
-        val reconciler = DedupReconciler(source, detector, store, storageAccess, dispatcher)
+        val inspector = RecordingInspector()
+        val r = DedupReconciler(FakeNewFileSource(maxId = 5_000L), inspector, store, FakeGate(true), dispatcher)
 
-        assertEquals(0, reconciler.reconcile())
-        assertEquals("checkpoint untouched when disabled", 0L, store.checkpoint)
+        assertEquals(0, r.reconcile())
+        assertEquals(0L, store.checkpoint)
+        assertTrue(inspector.seen.isEmpty())
     }
 
-    /**
-     * The baseline-poisoning fix: when MediaStore reports no id (empty, or not yet readable), the
-     * checkpoint must STAY 0 — never be pinned to a low value — so the whole library is not
-     * later re-alerted as "new".
-     */
     @Test
-    fun emptyOrUnreadableMediaStoreDoesNotPoisonTheBaseline() = runTest(dispatcher) {
-        val store = FakeCheckpointStore(enabled = true, checkpoint = 0L)
-        val source = FakeNewFileSource(maxId = 0L) // 0 = empty / unreadable
-        val reconciler = DedupReconciler(source, detector, store, storageAccess, dispatcher)
+    fun `does nothing when storage access is not granted`() = runTest(dispatcher) {
+        val store = FakeCheckpointStore(checkpoint = 0L)
+        val inspector = RecordingInspector()
+        val r = DedupReconciler(FakeNewFileSource(maxId = 5_000L), inspector, store, FakeGate(granted = false), dispatcher)
 
-        assertEquals(0, reconciler.reconcile())
-        assertEquals("no bogus baseline pinned", 0L, store.checkpoint)
+        assertEquals(0, r.reconcile())
+        assertEquals("no baseline pinned before access", 0L, store.checkpoint)
+        assertTrue(inspector.seen.isEmpty())
+    }
+
+    /** Baseline-poisoning fix: an empty/unreadable MediaStore (max id 0) must NOT pin a baseline. */
+    @Test
+    fun `empty or unreadable MediaStore does not poison the baseline`() = runTest(dispatcher) {
+        val store = FakeCheckpointStore(checkpoint = 0L)
+        val r = DedupReconciler(FakeNewFileSource(maxId = 0L), RecordingInspector(), store, FakeGate(true), dispatcher)
+
+        assertEquals(0, r.reconcile())
+        assertEquals("checkpoint stays 0, not pinned to 1", 0L, store.checkpoint)
     }
 }

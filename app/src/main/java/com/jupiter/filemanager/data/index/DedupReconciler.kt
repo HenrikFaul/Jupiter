@@ -1,6 +1,6 @@
 package com.jupiter.filemanager.data.index
 
-import com.jupiter.filemanager.data.permission.StorageAccessManager
+import com.jupiter.filemanager.data.permission.StorageAccessGate
 import com.jupiter.filemanager.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
@@ -35,9 +35,9 @@ import javax.inject.Singleton
 @Singleton
 class DedupReconciler @Inject constructor(
     private val newFileSource: NewFileSource,
-    private val duplicateDetector: DuplicateDetector,
+    private val arrivalInspector: ArrivalInspector,
     private val checkpointStore: DedupCheckpointStore,
-    private val storageAccess: StorageAccessManager,
+    private val storageAccess: StorageAccessGate,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) {
 
@@ -60,7 +60,7 @@ class DedupReconciler @Inject constructor(
         if (!checkpointStore.isIndexingEnabled()) return 0
         // Without broad storage access MediaStore returns nothing/throws; skip entirely so we
         // never establish a bogus baseline before the user has granted access.
-        if (!storageAccess.hasAllFilesAccess()) return 0
+        if (!storageAccess.hasFullAccess()) return 0
 
         val checkpoint = checkpointStore.getCheckpointId()
         if (checkpoint <= 0L) {
@@ -83,7 +83,7 @@ class DedupReconciler @Inject constructor(
             var batchMax = since
             for (newFile in batch) {
                 currentCoroutineContext().ensureActive()
-                duplicateDetector.onFileArrived(newFile.item)
+                arrivalInspector.onFileArrived(newFile.item)
                 inspected++
                 batchMax = maxOf(batchMax, newFile.id) // ids are unique + strictly increasing
             }

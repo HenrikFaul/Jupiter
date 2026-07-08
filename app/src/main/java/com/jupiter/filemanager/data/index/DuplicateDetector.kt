@@ -41,6 +41,16 @@ data class DuplicateAlert(
 )
 
 /**
+ * Inspects one newly-arrived file for duplicates. Seam over [DuplicateDetector] so the
+ * [DedupReconciler] can be unit-tested against a recording fake — no Room, no files, no
+ * SharedFlow-collection timing.
+ */
+interface ArrivalInspector {
+    /** Inspects [item]; returns the alert it produced, or null when unique/not comparable. */
+    suspend fun onFileArrived(item: FileItem): DuplicateAlert?
+}
+
+/**
  * The single authority that decides whether a newly-arrived file duplicates something already
  * on the device, and surfaces it (notification + a UI-observable [Flow]).
  *
@@ -63,7 +73,7 @@ class DuplicateDetector @Inject constructor(
     private val indexRepository: FileIndexRepository,
     private val perceptualHashSource: PerceptualHashSource,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
-) {
+) : ArrivalInspector {
 
     private val _alerts = MutableSharedFlow<DuplicateAlert>(extraBufferCapacity = 32)
 
@@ -79,7 +89,7 @@ class DuplicateDetector @Inject constructor(
      * Returns the alert it produced, or null when the file is unique / not comparable.
      * Never throws.
      */
-    suspend fun onFileArrived(item: FileItem): DuplicateAlert? = withContext(dispatcher) {
+    override suspend fun onFileArrived(item: FileItem): DuplicateAlert? = withContext(dispatcher) {
         runCatching {
             if (item.isDirectory) return@withContext null
             // Always index first: even a unique file must be comparable against FUTURE arrivals.

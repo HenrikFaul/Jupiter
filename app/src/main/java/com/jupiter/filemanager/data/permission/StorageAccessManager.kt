@@ -25,6 +25,14 @@ import javax.inject.Singleton
 enum class StorageAccessState { FULL_ACCESS, SCOPED_ONLY, NONE }
 
 /**
+ * Minimal seam over [StorageAccessManager.hasAllFilesAccess] so background components (e.g. the
+ * dedup reconciler) can gate on broad storage access and still be unit-tested with a simple fake.
+ */
+interface StorageAccessGate {
+    fun hasFullAccess(): Boolean
+}
+
+/**
  * Centralizes detection and request of storage permissions across Android versions.
  *
  * On Android R (API 30) and above we rely on "All files access"
@@ -35,7 +43,10 @@ enum class StorageAccessState { FULL_ACCESS, SCOPED_ONLY, NONE }
 @Singleton
 class StorageAccessManager @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : StorageAccessGate {
+
+    /** [StorageAccessGate] implementation — full access == All-Files-Access (R+) / legacy grant. */
+    override fun hasFullAccess(): Boolean = hasAllFilesAccess()
 
     /**
      * Legacy runtime permissions used on pre-R devices. Empty on R+ where
