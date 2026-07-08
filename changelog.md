@@ -470,3 +470,19 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `StructuralFingerprintSourceTest` (tiszta JVM): újraformázott kód near, független kód far, bináris tartalom EMPTY; azonos tagok más tömörítéssel egyenlő fingerprint, más tagok különböznek, nem-ZIP UNHASHABLE. `DuplicateDetectorStructuralTest` (Robolectric + Room): metaadat-only (ujjlenyomat nélküli) kód-eredeti ellen újraformázott másolat → SIMILAR; újracsomagolt archívum → SIMILAR; független kód/archívum → nincs riasztás.
 ### Known issues / backlog
 - Videó/PDF/audió near-dup extraktorok és on-device embeddingek továbbra sem szállítottak — ezek eszköz-szintű média/ML-dekódolást igényelnek, amit az emulátor nélküli CI nem tud őszintén igazolni; nem állítjuk késznek. A fusion scorer + tierek + magyarázat már készen fogadja őket.
+
+## [jupiter:0.39.0] - 2026-07-08
+### Added
+- **Videó near-duplikátum** (data/index): `MediaMetadataRetriever`-rel a videó közepéhez közeli reprezentatív keyframe → dHash (`BitmapDHash`), a `structuralHash` oszlopban tárolva, VIDEO típuson belül Hamming ≤ 10 összevetéssel. Egy újrakódolt/újratömörített másolat ugyanarról a felvételről "hasonló" riasztást ad.
+- **PDF near-duplikátum** (data/index): `PdfRenderer`-rel az első oldal renderelése (fehér háttér, arány-tartó, ≤320px) → dHash, PDF típuson belül Hamming ≤ 8. Ugyanaz a dokumentum újra-exportálva/szkennelve más felbontáson egyezik.
+- **Audió near-duplikátum** (data/index): `MediaExtractor` + `MediaCodec` PCM-dekódolás (≤12 s), 64 ablakos hangosság-burkológörbe → 64-bites ujjlenyomat (relatív energia → hangerő-független), AUDIO típuson belül Hamming ≤ 10. Egy újrakódolt felvétel egyezik.
+- **`MediaFingerprintSource` seam** + `AndroidMediaFingerprintSource` (valós dekóderek) + Hilt `@Binds`. A dekódolás csak eszközön fut (valós kodekek kellenek); a pipeline-huzalozás fake-kel CI-ben bizonyított.
+- Közös `BitmapDHash` (bitmap → dHash) a kép/videó/PDF perceptuális ujjlenyomathoz — a `PerceptualHashSource` most ezt használja (DRY, egy helyen validált).
+### Changed
+- `DuplicateDetector`: VIDEO/PDF/AUDIO ágak az exact + kép + szöveg/archívum után, közös `mediaNearCheck` helperrel; az on-demand `ensureStructuralFingerprinted` most a média típusokat is ujjlenyomatolja. A `structuralHash` backfill-hatóköre kibővült VIDEO/PDF/AUDIO-ra.
+- `docs/DEDUP_ARCHITECTURE.md`: a videó/PDF/audió rétegek "shipped/live (device-verified)"-re jelölve; egyetlen hátralévő extraktor az on-device embedding.
+- `app/build.gradle.kts`: `versionName` → 0.39.0.
+### Verification
+- `DuplicateDetectorMediaTest` (Robolectric + Room, scriptelt `FakeMediaFingerprintSource`): metaadat-only (ujjlenyomat nélküli) videó/PDF/audió-eredeti + küszöbön belüli másolat → SIMILAR; küszöbön kívüli → nincs; két dekódolhatatlan (UNHASHABLE) fájl sosem egyezik. `StructuralFingerprintSourceTest`, `DuplicateDetectorStructuralTest`, `PerceptualHashSourceTest` (refaktor után is) változatlanul zöld.
+### Known issues / backlog
+- A valós média-dekódolás (`MediaMetadataRetriever`/`PdfRenderer`/`MediaCodec`) helyessége csak eszközön igazolható — az emulátor nélküli CI-ben nincs valós kodek, ezért ott a pipeline-t fake-kel bizonyítjuk, a dekódert device-on teszteld. A videó jelenleg egyetlen reprezentatív keyframe-et használ (temporális több-frame ujjlenyomat későbbi finomítás). On-device szemantikus embeddingek továbbra is backlog.

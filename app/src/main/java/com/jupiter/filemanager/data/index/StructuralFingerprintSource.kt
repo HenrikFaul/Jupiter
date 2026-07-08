@@ -23,6 +23,15 @@ object StructuralHash {
 
     /** Text/code SimHash near-duplicate threshold (Hamming distance of 64). */
     const val TEXT_NEAR_THRESHOLD: Int = TextSimHash.DEFAULT_NEAR_THRESHOLD
+
+    /**
+     * Perceptual (dHash) near thresholds for the media layers (Hamming of 64). Video/PDF reuse the
+     * image dHash scale; a slightly looser video bound absorbs re-encode/keyframe jitter. Audio is
+     * a loudness-envelope hash, so its threshold is tuned independently.
+     */
+    const val VIDEO_NEAR_THRESHOLD: Int = 10
+    const val PDF_NEAR_THRESHOLD: Int = 8
+    const val AUDIO_NEAR_THRESHOLD: Int = 10
 }
 
 /**

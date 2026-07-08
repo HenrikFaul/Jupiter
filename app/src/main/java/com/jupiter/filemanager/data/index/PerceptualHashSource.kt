@@ -2,7 +2,6 @@ package com.jupiter.filemanager.data.index
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,29 +35,9 @@ class PerceptualHashSource @Inject constructor() {
             val decoded = BitmapFactory.decodeFile(path, options)
                 ?: return PerceptualHash.UNHASHABLE
 
-            val scaled = Bitmap.createScaledBitmap(
-                decoded,
-                PerceptualHash.GRID_WIDTH,
-                PerceptualHash.GRID_HEIGHT,
-                /* filter = */ true,
-            )
-            if (scaled !== decoded) decoded.recycle()
-
-            val gray = IntArray(PerceptualHash.GRID_SIZE)
-            var i = 0
-            for (y in 0 until PerceptualHash.GRID_HEIGHT) {
-                for (x in 0 until PerceptualHash.GRID_WIDTH) {
-                    val pixel = scaled.getPixel(x, y)
-                    // Rec. 601 luma weights.
-                    gray[i++] = (
-                        Color.red(pixel) * 299 +
-                            Color.green(pixel) * 587 +
-                            Color.blue(pixel) * 114
-                        ) / 1000
-                }
-            }
-            scaled.recycle()
-            PerceptualHash.fromLuminanceGrid(gray)
+            val hash = BitmapDHash.of(decoded) // shared bitmap→dHash reduction
+            decoded.recycle()
+            hash
         } catch (oom: OutOfMemoryError) {
             // Pathological image; mark unhashable rather than retrying it forever.
             PerceptualHash.UNHASHABLE

@@ -100,9 +100,27 @@ interface FileIndexRepository {
     suspend fun findSameArchiveContents(path: String, treeHash: Long): List<FileItem>
 
     /**
-     * Next batch of indexed TEXT/CODE + ARCHIVE/APK files that still lack a structural fingerprint,
-     * for the on-demand/background backfill. The caller marks every returned row (hash or sentinel),
-     * so repeated calls always make progress.
+     * Returns indexed VIDEO files whose representative-keyframe dHash is within [threshold] Hamming
+     * distance of [hash] — a re-encoded/recompressed copy of the same footage. Existence-pruned.
+     */
+    suspend fun findNearDuplicateVideo(path: String, hash: Long, threshold: Int): List<FileItem>
+
+    /**
+     * Returns indexed PDF files whose rendered-page dHash is within [threshold] Hamming distance of
+     * [hash] — the same document re-exported or scanned at another resolution. Existence-pruned.
+     */
+    suspend fun findNearDuplicatePdf(path: String, hash: Long, threshold: Int): List<FileItem>
+
+    /**
+     * Returns indexed AUDIO files whose loudness-envelope fingerprint is within [threshold] Hamming
+     * distance of [hash] — a re-encoded copy of the same recording. Existence-pruned.
+     */
+    suspend fun findNearDuplicateAudio(path: String, hash: Long, threshold: Int): List<FileItem>
+
+    /**
+     * Next batch of indexed files that still lack a structural fingerprint (TEXT/CODE, ARCHIVE/APK,
+     * VIDEO, PDF, AUDIO), for the on-demand/background backfill. The caller marks every returned row
+     * (hash or sentinel), so repeated calls always make progress.
      */
     suspend fun filesNeedingStructuralHash(limit: Int): List<FileItem>
 
