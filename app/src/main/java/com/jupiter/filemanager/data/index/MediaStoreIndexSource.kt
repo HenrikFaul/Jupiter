@@ -256,6 +256,12 @@ class MediaStoreIndexSource @Inject constructor(
             "android/obb",
             ".thumbnails",
             ".trashed",
+            // Recycle-bin/trash staging dirs whose entries are files pending deletion — their
+            // on-disk paths are volatile and often already gone. Samsung's My Files parks
+            // deleted files under `Android/.Trash/com.sec.android.app.myfiles/...` (capital
+            // `.Trash`; matched case-insensitively here). Indexing them surfaced "duplicates"
+            // that opened to a "Not found" error the moment the trash was emptied.
+            ".trash",
         )
     }
 }

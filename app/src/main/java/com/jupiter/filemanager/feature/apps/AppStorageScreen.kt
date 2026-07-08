@@ -84,11 +84,14 @@ fun AppStorageScreen(
     // The app whose action sheet is open, or null when none is.
     var selectedApp by remember { mutableStateOf<AppStorageInfo?>(null) }
 
-    // Re-query when returning to the screen (e.g. after granting Usage-access in Settings).
+    // Re-query every time the screen RESUMES — the first resume is already covered by the
+    // ViewModel's init load, so skip it, but every later resume reloads. This catches returning
+    // from the system uninstall dialog (so a just-uninstalled app drops off the list immediately,
+    // since the query enumerates only currently-installed packages) as well as granting
+    // Usage-access in Settings.
+    var firstResume by remember { mutableStateOf(true) }
     LifecycleResumeEffect(Unit) {
-        if (uiState.permissionRequired && viewModel.hasUsageAccess()) {
-            viewModel.load()
-        }
+        if (firstResume) firstResume = false else viewModel.load()
         onPauseOrDispose {}
     }
 
