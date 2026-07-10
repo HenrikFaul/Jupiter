@@ -261,12 +261,8 @@ class FileRepositoryImpl @Inject constructor(
      * caches. Keeps the browse-time self-heal consistent with the survey so index-served
      * duplicate/large-file lists never surface files a live scan would skip.
      */
-    private fun isIndexableDir(path: String): Boolean {
-        val lower = path.lowercase()
-        return INDEX_EXCLUDED_SEGMENTS.none { segment ->
-            lower.contains("/$segment/") || lower.endsWith("/$segment")
-        }
-    }
+    private fun isIndexableDir(path: String): Boolean =
+        !com.jupiter.filemanager.core.util.StorageExclusions.isExcluded(path)
 
     // region Sorting & filtering ----------------------------------------------
 
@@ -340,16 +336,4 @@ class FileRepositoryImpl @Inject constructor(
 
     // endregion
 
-    private companion object {
-        /**
-         * Lowercased path segments the browse-time index self-heal skips, mirroring
-         * [com.jupiter.filemanager.data.index.IndexingWorker]'s survey exclusions.
-         */
-        val INDEX_EXCLUDED_SEGMENTS = listOf(
-            "android/data",
-            "android/obb",
-            ".thumbnails",
-            ".trashed",
-        )
-    }
 }

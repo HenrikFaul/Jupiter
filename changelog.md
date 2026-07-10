@@ -514,3 +514,14 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `app/build.gradle.kts`: `versionName` → 0.42.0.
 ### Notes
 - A törlés maga eddig is működött (a fájlok a Lomtárba kerültek), a hiba a lista-állapot felülírása volt egy párhuzamos szkennelés által. A javítás után a törölt csoportok azonnal eltűnnek és eltűnve is maradnak, függetlenül attól, hogy épp fut-e háttér-szkennelés.
+
+## [jupiter:0.43.0] - 2026-07-10
+### Fixed
+- **A Samsung `Android/.Trash/…` (és más kuka/rendszer) fájlok többé nem jelennek meg SEHOL, így nem nyílnak "Not found"-dal** (core/data): a v0.37.0-ban a `.trash` kizárás CSAK az index-forrásokba került be, de a fájlokat több MÁS enumerátor is listázta kizárás nélkül — a **kategória-böngésző** (`MediaStoreCategorySource`: APK-k/Letöltések/Dokumentumok/…), az **albumok** (`AlbumsSource`), a **böngészés-idejű önjavító index** (`FileRepositoryImpl`), és a **tárhely-analitika** (`StorageAnalyticsRepositoryImpl` — ebből hiányzott a `.trash`). Ezek listázták a Samsung MyFiles kukában lévő `.apk`/kép fájlokat, amik megnyitáskor "Not found"-ot adtak.
+- **Egyetlen közös kizárási szabály** (`core/util/StorageExclusions`): minden fájl-felsoroló határon EZT használja (MediaStore kategória/album lekérdezés, index-survey, fájlrendszer-bejárás, analitika, index-olvasás). Teljes, kis-nagybetű-független útvonal-SZEGMENS egyezés (`android/data`, `android/obb`, `.thumbnails`, `.trashed`, `.trash`), így egy fájl, aminek csak a NEVÉBEN szerepel a token (`my.trash.notes`), nem záródik ki tévedésből; a content:// URI-k (scoped storage) nyithatók maradnak.
+- **A már indexelt, elavult kuka-sorok azonnal eltűnnek** a keresésből és a böngészésből is (olvasás-idejű szűrés a `search()`/`observeChildren()`-ben), nem kell megvárni a következő teljes survey-t.
+### Changed
+- `MediaStoreIndexSource`, `IndexingWorker`, `StorageAnalyticsRepositoryImpl`, `FileRepositoryImpl` a saját duplikált kizárási listáikat a közös `StorageExclusions`-re cserélték (egy igazságforrás).
+- `app/build.gradle.kts`: `versionName` → 0.43.0.
+### Verification
+- `StorageExclusionsTest` (tiszta JVM): a valós Samsung `Android/.Trash/com.sec.android.app.myfiles/…/app-debug.apk` útvonal (kis-nagybetűtől függetlenül), valamint `android/data`, `android/obb`, `.thumbnails`, `.trashed` szegmensek KIZÁRVA; szokásos fájlok, a nevükben tokent tartalmazó mappák (`my.trash.notes`), és a content:// URI-k NEM.

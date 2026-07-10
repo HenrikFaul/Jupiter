@@ -415,11 +415,8 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
      * skip (app-private sandboxes and system-managed caches). Matching is done on
      * path segments to avoid false positives on similarly-named user folders.
      */
-    private fun isExcludedPath(path: String): Boolean {
-        if (path.isEmpty()) return false
-        val lower = path.lowercase()
-        return EXCLUDED_SEGMENTS.any { lower.contains(it) }
-    }
+    private fun isExcludedPath(path: String): Boolean =
+        com.jupiter.filemanager.core.util.StorageExclusions.isExcluded(path)
 
     /** True when [file] is an ordinary, readable, non-directory file. */
     private fun isRegularFile(file: File): Boolean = try {
@@ -522,17 +519,6 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
 
         /** Emit a partial overview at least this often (ms) during the walk. */
         const val OVERVIEW_EMIT_MILLIS = 250L
-
-        /**
-         * Lowercased path fragments whose presence marks a file as living in a
-         * heavy/noise directory analytics should skip.
-         */
-        val EXCLUDED_SEGMENTS: List<String> = listOf(
-            "/android/data/",
-            "/android/obb/",
-            "/.thumbnails/",
-            "/.trashed",
-        )
 
         val HEX_DIGITS = "0123456789abcdef".toCharArray()
     }

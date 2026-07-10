@@ -241,27 +241,12 @@ class MediaStoreIndexSource @Inject constructor(
         )
     }
 
-    /** Mirrors [IndexingWorker]'s survey exclusions so both agree on scope. */
-    private fun isExcluded(path: String): Boolean {
-        val lower = path.lowercase()
-        return EXCLUDED_SEGMENTS.any { lower.contains("/$it/") || lower.endsWith("/$it") }
-    }
+    /** Shared exclusion set — the single source of truth used by every enumerator. */
+    private fun isExcluded(path: String): Boolean =
+        com.jupiter.filemanager.core.util.StorageExclusions.isExcluded(path)
 
     private companion object {
         /** The generic files collection: every file MediaStore has scanned, not just media. */
         val COLLECTION = MediaStore.Files.getContentUri("external")
-
-        val EXCLUDED_SEGMENTS = listOf(
-            "android/data",
-            "android/obb",
-            ".thumbnails",
-            ".trashed",
-            // Recycle-bin/trash staging dirs whose entries are files pending deletion — their
-            // on-disk paths are volatile and often already gone. Samsung's My Files parks
-            // deleted files under `Android/.Trash/com.sec.android.app.myfiles/...` (capital
-            // `.Trash`; matched case-insensitively here). Indexing them surfaced "duplicates"
-            // that opened to a "Not found" error the moment the trash was emptied.
-            ".trash",
-        )
     }
 }

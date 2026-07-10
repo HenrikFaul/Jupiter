@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import com.jupiter.filemanager.core.util.StorageExclusions
 import com.jupiter.filemanager.core.util.extensionOf
 import com.jupiter.filemanager.core.util.fileTypeFor
 import com.jupiter.filemanager.di.IoDispatcher
@@ -299,6 +300,10 @@ class MediaStoreCategorySource @Inject constructor(
             idIndex >= 0 -> ContentUris.withAppendedId(request.collection, cursor.getLong(idIndex)).toString()
             else -> return null
         }
+
+        // Never list files inside a vendor recycle bin / app-private / thumbnail dir: MediaStore
+        // indexes e.g. Samsung's `Android/.Trash/…`, but those paths open to "Not found".
+        if (StorageExclusions.isExcluded(path)) return null
 
         val rawName = if (nameIndex >= 0 && !cursor.isNull(nameIndex)) cursor.getString(nameIndex) else null
         val name = when {
