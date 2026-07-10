@@ -54,6 +54,34 @@ class DuplicatesViewModel @Inject constructor(
     /** Tracks deferred probe jobs so a rescan can cancel stale probing. */
     private val probeJobs = mutableListOf<Job>()
 
+    /**
+     * Paths the user deleted this session. A scan (especially the silent background refresh that
+     * runs on open) can still be in flight when a delete happens and, on completion, would set
+     * `groups` back to what it collected BEFORE the delete — resurrecting the just-removed groups.
+     * Every place that publishes groups filters these out, so a deleted file can never reappear.
+     * Cleared on a user-initiated fresh rescan (the index no longer contains the deleted files).
+     */
+    private val deletedPaths = mutableSetOf<String>()
+
+    /**
+     * Publishes [groups] to the UI with the just-deleted paths removed and any group that is no
+     * longer a duplicate (fewer than two copies) dropped. Single funnel so scan-collect,
+     * scan-completion, and delete all stay consistent and a scan can't clobber a delete.
+     */
+    private fun publishGroups(groups: List<DuplicateGroup>, isScanning: Boolean? = null) {
+        val cleaned = if (deletedPaths.isEmpty()) {
+            groups
+        } else {
+            groups
+                .map { g -> g.copy(files = g.files.filter { it.path !in deletedPaths }) }
+                .filter { it.files.size > 1 }
+        }
+        _uiState.value = _uiState.value.copy(
+            groups = cleaned,
+            isScanning = isScanning ?: _uiState.value.isScanning,
+        )
+    }
+
     init {
         // Load the last analysis (in-memory, or the on-disk snapshot that survives a process kill)
         // and render it IMMEDIATELY, then quietly refresh in the background — the fix for the
@@ -107,6 +135,9 @@ class DuplicatesViewModel @Inject constructor(
         }
 
         cancelProbes()
+        // A user-initiated fresh scan trusts the index (which no longer contains files deleted this
+        // session — moveToTrash removed their rows), so the session delete-filter can be reset.
+        if (!silent) deletedPaths.clear()
         // Set the scanning state synchronously (non-silent) so the screen never momentarily
         // renders the "no duplicates" empty state before the flow's onStart fires.
         if (!silent) {
@@ -141,14 +172,15 @@ class DuplicatesViewModel @Inject constructor(
                 }
                 .onCompletion { cause ->
                     if (cause == null) {
-                        val result = collected.toList()
-                        // A silent refresh keeps the old list visible during the scan; swap in the
-                        // fresh result now. A visible scan has been streaming groups already.
-                        _uiState.value = _uiState.value.copy(isScanning = false, groups = result)
-                        scanCache.saveGroups(result)
+                        // publishGroups drops anything deleted while this scan was in flight, so a
+                        // scan finishing AFTER a delete cannot resurrect the removed groups. A silent
+                        // refresh keeps the old list visible during the scan; swap in the fresh
+                        // result now. A visible scan has been streaming groups already.
+                        publishGroups(collected.toList(), isScanning = false)
+                        scanCache.saveGroups(_uiState.value.groups)
                         // Probe quality only after the scan finishes, so probing never
                         // competes with the (CPU/IO-heavy) hashing walk on the IO pool.
-                        probeGroups(result)
+                        probeGroups(_uiState.value.groups)
                     }
                 }
                 .collect { group ->
@@ -157,7 +189,7 @@ class DuplicatesViewModel @Inject constructor(
                         // A visible scan renders content as soon as `groups` is non-empty; a silent
                         // refresh keeps the cached list on screen until it completes (no flicker).
                         if (!silent) {
-                            _uiState.value = _uiState.value.copy(groups = collected.toList())
+                            publishGroups(collected.toList())
                         }
                     }
                 }
@@ -284,24 +316,28 @@ class DuplicatesViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isDeleting = true, errorMessage = null, infoMessage = null)
 
             val (deleted, failed) = withContext(Dispatchers.IO) {
-                val deletedPaths = mutableSetOf<String>()
+                val movedPaths = mutableSetOf<String>()
                 var failures = 0
                 for (item in targets) {
                     if (trashRepository.moveToTrash(item)) {
-                        deletedPaths.add(item.path)
+                        movedPaths.add(item.path)
                     } else {
                         failures++
                     }
                 }
-                deletedPaths to failures
+                movedPaths to failures
             }
 
-            val remainingGroups = _uiState.value.groups
-                .map { group -> group.copy(files = group.files.filter { it.path !in deleted }) }
+            // Remember the deleted paths for the whole session so an in-flight scan finishing later
+            // (e.g. the silent refresh that runs on open — note "Still scanning…") can't re-add the
+            // groups the user just removed. Every group publish filters these out.
+            deletedPaths.addAll(deleted)
+            val cleanedGroups = _uiState.value.groups
+                .map { group -> group.copy(files = group.files.filter { it.path !in deletedPaths }) }
                 .filter { it.files.size > 1 }
             // Keep the cache consistent with what the user now sees, so a re-open shows the
             // post-deletion list instantly rather than the pre-deletion one.
-            scanCache.saveGroups(remainingGroups)
+            scanCache.saveGroups(cleanedGroups)
             scanCache.saveQualities(_uiState.value.qualities - deleted)
 
             val message = when {
@@ -313,7 +349,7 @@ class DuplicatesViewModel @Inject constructor(
 
             _uiState.value = _uiState.value.copy(
                 isDeleting = false,
-                groups = remainingGroups,
+                groups = cleanedGroups,
                 selectedPaths = _uiState.value.selectedPaths - deleted,
                 qualities = _uiState.value.qualities - deleted,
                 errorMessage = if (deleted.isEmpty()) message else null,
