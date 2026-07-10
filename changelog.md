@@ -497,3 +497,12 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `app/build.gradle.kts`: `versionName` → 0.40.0.
 ### Known issues
 - A cache a folyamat élettartamára szól (nem lemezre perzisztált) — teljes app-kill után az első megnyitás újraszkennel; ez tudatos, alacsony kockázatú kompromisszum, a képernyőn-belüli/navigációs újranyitást (a bejelentett esetet) teljesen lefedi.
+
+## [jupiter:0.41.0] - 2026-07-08
+### Fixed
+- **Törlés után NEM kerül random rossz kép a helyére** (feature/cleanup): a duplikátum-sorok mostantól stabil `key(file.path)`-al renderelődnek, így a Compose sosem használja újra egy sor (és a benne lévő Coil `AsyncImage`) node-ját EGY MÁSIK fájlhoz, amikor a lista törlés után átrendeződik. Eddig az újrahasznált `AsyncImage` a korábbi fájl gyorsítótárazott bélyegképét mutatta, ezért úgy tűnt, mintha a törölt kép helyére egy oda nem illő ("random") kép került volna. Ráadásul a Coil `memoryCacheKey`/`diskCacheKey` most fájl-útvonal-alapú (öv+nadrágtartó).
+- **Újranyitás app-kill után is azonnali (lemezre perzisztált cache)** (feature/cleanup): a `DuplicateScanCache` mostantól egy kis lemez-pillanatképet (`filesDir/duplicate_scan_snapshot.tsv`, atomikus temp+rename írás) is ír az utolsó elemzésről, nem csak memóriában tartja. Így teljes folyamat-leállítás (az app bezárása) után is EGYBŐL a mentett listával nyílik a képernyő, majd a háttérben csendben frissül — nincs többé sok-másodperces fehér képernyő a hidegindításnál sem. A ViewModel a betöltést a háttérszálon végzi (a lemezolvasás pár ms), a betöltés alatt loading-állapot van, nem villan fel a "nincs duplikátum".
+### Changed
+- `app/build.gradle.kts`: `versionName` → 0.41.0.
+### Notes
+- Csak a csoportlista perzisztálódik (elég a megjelenítéshez és a törléshez); a média-minőség címkék hidegindításkor újra-probolódnak. Elavult pillanatkép nem okoz kárt: a csendes újraszkennelés korrigálja, és törléskor a fájl létezését a Lomtárba-helyezés újraellenőrzi (ha nincs meg, a forrás érintetlen marad, hibaként jelezve).

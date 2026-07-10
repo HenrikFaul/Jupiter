@@ -55,20 +55,26 @@ class DuplicatesViewModel @Inject constructor(
     private val probeJobs = mutableListOf<Job>()
 
     init {
-        val cached = scanCache.groups
-        if (cached != null) {
-            // Instant open: render the previous analysis immediately (even an empty result =
-            // "no duplicates"), then quietly refresh in the background so it can't go stale.
-            // This is the fix for the multi-second blank-screen wait on every re-open.
-            _uiState.value = _uiState.value.copy(
-                groups = cached,
-                qualities = scanCache.qualities,
-                isScanning = false,
-                permissionRequired = false,
-            )
-            scan(silent = true)
-        } else {
-            scan()
+        // Load the last analysis (in-memory, or the on-disk snapshot that survives a process kill)
+        // and render it IMMEDIATELY, then quietly refresh in the background — the fix for the
+        // multi-second blank-screen wait on every re-open. Only when nothing was ever cached do we
+        // show a full scan. The disk read is off the main thread, so the launch resolves in ms.
+        // Show the loading state synchronously so the "no duplicates" empty view never flashes
+        // during the brief cache read.
+        _uiState.value = _uiState.value.copy(isScanning = true)
+        viewModelScope.launch {
+            val cached = runCatching { scanCache.load() }.getOrNull()
+            if (cached != null) {
+                _uiState.value = _uiState.value.copy(
+                    groups = cached,
+                    qualities = scanCache.qualities,
+                    isScanning = false,
+                    permissionRequired = false,
+                )
+                scan(silent = true)
+            } else {
+                scan()
+            }
         }
     }
 

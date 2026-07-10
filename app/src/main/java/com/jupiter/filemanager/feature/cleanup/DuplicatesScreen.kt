@@ -52,6 +52,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -495,26 +496,33 @@ private fun DuplicateGroupCard(
             }
             val bestQuality = qualities[ranked.firstOrNull()?.path]
             ranked.forEachIndexed { index, file ->
-                val quality = qualities[file.path]
-                DuplicateFileRow(
-                    file = file,
-                    isKept = index == 0,
-                    isSelected = file.path in selectedPaths,
-                    quality = quality,
-                    relativeNote = relativeQualityNote(
-                        isBest = index == 0,
-                        best = bestQuality,
-                        current = quality,
-                    ),
-                    onToggle = { onToggle(file.path) },
-                    onOpen = { onOpenFile(file) },
-                    onCopyPath = { onCopyPath(file.path) },
-                )
-                if (index != ranked.lastIndex) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                // Key each row by its file path so Compose never REUSES a row's node (and its
+                // Coil AsyncImage) for a DIFFERENT file after the list changes — e.g. when a
+                // deleted copy is removed and the rows below shift up. Without this the recycled
+                // AsyncImage kept showing the previous file's cached thumbnail, so a deleted row
+                // appeared to be replaced by an unrelated ("random") image.
+                key(file.path) {
+                    val quality = qualities[file.path]
+                    DuplicateFileRow(
+                        file = file,
+                        isKept = index == 0,
+                        isSelected = file.path in selectedPaths,
+                        quality = quality,
+                        relativeNote = relativeQualityNote(
+                            isBest = index == 0,
+                            best = bestQuality,
+                            current = quality,
+                        ),
+                        onToggle = { onToggle(file.path) },
+                        onOpen = { onOpenFile(file) },
+                        onCopyPath = { onCopyPath(file.path) },
                     )
+                    if (index != ranked.lastIndex) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -567,6 +575,10 @@ private fun DuplicateFileRow(
                         .data(File(file.path))
                         .crossfade(true)
                         .size(96)
+                        // Stable per-path cache keys so a thumbnail is never confused with
+                        // another file's (belt-and-braces alongside the row key() above).
+                        .memoryCacheKey(file.path)
+                        .diskCacheKey(file.path)
                         .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
