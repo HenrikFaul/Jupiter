@@ -506,3 +506,11 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `app/build.gradle.kts`: `versionName` → 0.41.0.
 ### Notes
 - Csak a csoportlista perzisztálódik (elég a megjelenítéshez és a törléshez); a média-minőség címkék hidegindításkor újra-probolódnak. Elavult pillanatkép nem okoz kárt: a csendes újraszkennelés korrigálja, és törléskor a fájl létezését a Lomtárba-helyezés újraellenőrzi (ha nincs meg, a forrás érintetlen marad, hibaként jelezve).
+
+## [jupiter:0.42.0] - 2026-07-10
+### Fixed
+- **Törölt duplikátum-csoportok NEM jelennek meg újra a listában** (feature/cleanup): a valódi ok egy versenyhelyzet volt — a képernyő megnyitásakor futó CSENDES háttér-újraszkennelés ("Still scanning…" a képernyőn) a befejezésekor `groups = eredmény`-t állított be, FELÜLÍRVA a törlés utáni listát azokkal a csoportokkal, amiket a szkennelés még a törlés ELŐTT gyűjtött be. Így a törölt szekciók visszakerültek. Mostantól a ViewModel egy `deletedPaths` halmazban jegyzi a session során törölt útvonalakat, és MINDEN helyen (szkennelés közbeni streamelés, szkennelés befejezése, törlés) kiszűri őket egy közös `publishGroups` funnelen keresztül — így egy futó szkennelés befejezése SOSEM tudja feltámasztani a felhasználó által épp törölt csoportokat. A `deletedPaths` egy felhasználó által indított friss szkennelésnél (Refresh) nullázódik, mert az index onnantól már nem tartalmazza a törölt fájlokat.
+### Changed
+- `app/build.gradle.kts`: `versionName` → 0.42.0.
+### Notes
+- A törlés maga eddig is működött (a fájlok a Lomtárba kerültek), a hiba a lista-állapot felülírása volt egy párhuzamos szkennelés által. A javítás után a törölt csoportok azonnal eltűnnek és eltűnve is maradnak, függetlenül attól, hogy épp fut-e háttér-szkennelés.
