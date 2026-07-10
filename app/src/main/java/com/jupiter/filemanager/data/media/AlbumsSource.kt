@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
+import com.jupiter.filemanager.core.util.StorageExclusions
 import com.jupiter.filemanager.core.util.extensionOf
 import com.jupiter.filemanager.core.util.fileTypeFor
 import com.jupiter.filemanager.di.IoDispatcher
@@ -117,6 +118,15 @@ class AlbumsSource @Inject constructor(
                 if (cursor.isNull(bucketIdIndex)) continue
                 val bucketId = cursor.getString(bucketIdIndex) ?: continue
 
+                // Skip images that live in a recycle-bin/thumbnail dir so a trash bucket never
+                // appears as an album (and its trashed image never becomes a cover).
+                val rowPath = if (dataIndex >= 0 && !cursor.isNull(dataIndex)) {
+                    cursor.getString(dataIndex)
+                } else {
+                    null
+                }
+                if (rowPath != null && StorageExclusions.isExcluded(rowPath)) continue
+
                 val builder = builders.getOrPut(bucketId) {
                     val name = bucketNameIndex
                         .takeIf { it >= 0 && !cursor.isNull(it) }
@@ -207,6 +217,7 @@ class AlbumsSource @Inject constructor(
             idIndex >= 0 -> ContentUris.withAppendedId(collection, cursor.getLong(idIndex)).toString()
             else -> return null
         }
+        if (StorageExclusions.isExcluded(path)) return null
 
         val rawName = if (nameIndex >= 0 && !cursor.isNull(nameIndex)) cursor.getString(nameIndex) else null
         val name = when {

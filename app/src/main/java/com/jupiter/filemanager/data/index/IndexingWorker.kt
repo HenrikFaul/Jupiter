@@ -185,7 +185,8 @@ class IndexingWorker @AssistedInject constructor(
      * [generation]. Entries already in the index (the media majority) are skipped WITHOUT a
      * stat, and each new entry costs a single `stat` via [FileSystemDataSource.toIndexItem],
      * so this is far cheaper than the old full [toFileItem] crawl. Excluded path segments
-     * (see [EXCLUDED_SEGMENTS]) are skipped. Returns the number of entries added. Honours
+     * (see [com.jupiter.filemanager.core.util.StorageExclusions]) are skipped. Returns the number
+     * of entries added. Honours
      * cancellation and publishes indeterminate progress (the tree total is unknown up-front).
      */
     private suspend fun reconcileFilesystem(rootPath: String, generation: Long): Int {
@@ -232,19 +233,9 @@ class IndexingWorker @AssistedInject constructor(
         return total
     }
 
-    /**
-     * True when [file]'s path contains one of the [EXCLUDED_SEGMENTS] as a full path
-     * segment. Matching on delimited segments (rather than raw substring) avoids
-     * accidentally excluding files that merely contain the token in their name.
-     */
-    private fun isExcluded(file: File): Boolean {
-        // Case-insensitive segment match: vendor trash/cache dirs vary in case
-        // (e.g. Samsung's `Android/.Trash`), and the excluded segments are lowercased below.
-        val path = file.absolutePath.lowercase()
-        return EXCLUDED_SEGMENTS.any { segment ->
-            path.contains("/$segment/") || path.endsWith("/$segment")
-        }
-    }
+    /** Skips app-private/thumbnail/vendor-trash dirs via the shared [StorageExclusions] set. */
+    private fun isExcluded(file: File): Boolean =
+        com.jupiter.filemanager.core.util.StorageExclusions.isExcluded(file.absolutePath)
 
     private fun outputOf(count: Int, total: Int): Data =
         Data.Builder()
@@ -271,20 +262,5 @@ class IndexingWorker @AssistedInject constructor(
 
         /** Number of entries buffered before a single batched upsert. */
         private const val BATCH_SIZE: Int = 500
-
-        /**
-         * Path segments never worth indexing: sandboxed app data/obb (usually
-         * inaccessible and noisy) and thumbnail/trash caches.
-         */
-        // Lowercased — matched case-insensitively by [isExcluded].
-        private val EXCLUDED_SEGMENTS: List<String> = listOf(
-            "android/data",
-            "android/obb",
-            ".thumbnails",
-            ".trashed",
-            // Recycle-bin/trash staging (e.g. Samsung `Android/.Trash`): volatile paths that
-            // vanish when the bin is emptied, so indexing them yields dead "duplicate" entries.
-            ".trash",
-        )
     }
 }

@@ -32,13 +32,15 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override fun observeChildren(parentPath: String): Flow<List<FileItem>> =
         dao.childrenOf(parentPath)
-            .map { entries -> entries.map(::toFileItem) }
+            .map { entries -> entries.map(::toFileItem).filterNot { isExcludedResultPath(it.path) } }
             .flowOn(ioDispatcher)
 
     override fun search(query: String): Flow<List<FileItem>> {
         val pattern = "%" + query + "%"
         return dao.searchByName(pattern)
-            .map { entries -> entries.map(::toFileItem) }
+            // Hide any stale recycle-bin/thumbnail rows indexed before the exclusion existed, so
+            // search never surfaces a file that opens to "Not found" (the survey sweeps them later).
+            .map { entries -> entries.map(::toFileItem).filterNot { isExcludedResultPath(it.path) } }
             .flowOn(ioDispatcher)
     }
 
