@@ -200,6 +200,10 @@ fun DuplicatesScreen(
                     LoadingView()
                 }
 
+                state.groups.isEmpty() && state.analyzingPhotos -> {
+                    AnalyzingPhotosView()
+                }
+
                 state.isEmpty -> {
                     EmptyView(
                         title = "No duplicates found",
@@ -220,6 +224,9 @@ fun DuplicatesScreen(
                                 wastedBytes = state.totalWastedBytes,
                                 isScanning = state.isScanning,
                             )
+                        }
+                        if (state.analyzingPhotos) {
+                            item { AnalyzingPhotosBanner() }
                         }
                         item {
                             SizeFilterRow(
@@ -340,6 +347,60 @@ private fun PermissionRequiredView() {
         ) {
             Text("Grant All Files Access")
         }
+    }
+}
+
+/** Full-screen state shown while the photo library is being fingerprinted and no groups exist yet. */
+@Composable
+private fun AnalyzingPhotosView() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "Analyzing your photos…",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = "Comparing your photo library to find visually-similar duplicates (same photo " +
+                "re-saved, resized or re-sent). This runs once and can take a few minutes on a large " +
+                "gallery — matches appear here as they're found.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+        )
+        LinearProgressIndicator(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp)),
+        )
+    }
+}
+
+/** In-list hint that photo analysis is still running, so more similar-photo groups may appear. */
+@Composable
+private fun AnalyzingPhotosBanner() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = "Still analyzing your photo library — more similar photos may appear.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        LinearProgressIndicator(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(3.dp)),
+        )
     }
 }
 

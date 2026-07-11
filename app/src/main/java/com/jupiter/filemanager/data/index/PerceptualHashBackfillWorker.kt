@@ -1,8 +1,14 @@
 package com.jupiter.filemanager.data.index
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
@@ -15,16 +21,18 @@ import kotlinx.coroutines.flow.first
 
 /**
  * Background pass that fingerprints already-indexed IMAGES with a perceptual dHash
- * ([PerceptualHash]), so near-duplicate detection covers the existing library — not just
- * files arriving after the feature shipped.
+ * ([PerceptualHash]), so near-duplicate detection covers the EXISTING library — not just files
+ * arriving after the feature shipped. This is the ONLY proactive bulk writer of `perceptualHash`,
+ * so duplicate-photo detection on a pre-existing gallery depends entirely on it.
  *
- * Cheap per item (bounds decode + subsampled decode + 9×8 scale, a few ms each) but large
- * in volume (tens of thousands of photos), so it runs in bounded batches with cooperative
- * cancellation. Progress is GUARANTEED: every attempted row is marked — with its hash, or
- * with [PerceptualHash.UNHASHABLE] for undecodable files — so the "missing fingerprint"
- * work list always shrinks and a corrupt image can never loop forever. When more work
- * remains after this run's cap, it returns retry so WorkManager reschedules it; the
- * periodic refresh kicker and app-start ensure keep it converging regardless.
+ * It drains the ENTIRE "missing fingerprint" backlog in a single run (no per-run cap) and promotes
+ * itself to a FOREGROUND service for a large backlog, so Doze / background-execution limits can't
+ * throttle it into never finishing — the previous 2,000-per-run cap under WorkManager's exponential
+ * retry backoff took ~20 hours-apart runs to cover a 40k-image library, which meant the duplicate
+ * screen saw an essentially empty fingerprint set for a long time. Progress is GUARANTEED: every
+ * attempted row is marked — with its hash, or [PerceptualHash.UNHASHABLE] for undecodable files — so
+ * the work list always shrinks and a corrupt image can never loop forever. If the OS stops the worker
+ * mid-pass it returns retry and resumes from the remaining backlog.
  */
 @HiltWorker
 class PerceptualHashBackfillWorker @AssistedInject constructor(
@@ -39,14 +47,21 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
         return try {
             if (!settings.indexingEnabled.first()) return Result.success()
 
+            // Peek the backlog. Nothing to do → cheap success (no notification flashes).
+            var batch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
+            if (batch.isEmpty()) return Result.success()
+
+            // A large backlog (first run on an existing gallery) must run to completion, which can
+            // take a few minutes of decoding — promote to a foreground service so the OS lets it.
+            val remaining = runCatching { indexRepository.imagesNeedingPerceptualHashCount() }
+                .getOrDefault(Int.MAX_VALUE)
+            val foreground = remaining >= FOREGROUND_THRESHOLD
+            if (foreground) runCatching { setForeground(foregroundInfo(0, remaining)) }
+
             var processed = 0
-            while (processed < MAX_PER_RUN) {
+            while (batch.isNotEmpty()) {
                 currentCoroutineContext().ensureActive()
                 if (isStopped) return Result.retry()
-
-                val batch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
-                if (batch.isEmpty()) return Result.success()
-
                 for (item in batch) {
                     currentCoroutineContext().ensureActive()
                     if (isStopped) return Result.retry()
@@ -57,13 +72,53 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
                     runCatching { indexRepository.putPerceptualHash(item.path, hash) }
                     processed++
                 }
+                if (foreground) runCatching { setForeground(foregroundInfo(processed, remaining)) }
+                // Cap one execution so it always finishes within the foreground window, then let
+                // WorkManager continue immediately (the first retries use a short backoff, so a big
+                // library still converges in a couple of runs — not the ~20 the old 2k cap needed).
+                if (processed >= MAX_PER_RUN) return Result.retry()
+                batch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
             }
-            // Cap reached with work remaining — reschedule to continue.
-            Result.retry()
+            Result.success()
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
             Result.retry()
+        }
+    }
+
+    override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(0, 0)
+
+    private fun foregroundInfo(done: Int, total: Int): ForegroundInfo {
+        ensureNotificationChannel()
+        val text = if (total > 0) "Analyzing photos for duplicates — $done / $total" else "Analyzing photos…"
+        val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("Jupiter")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setOngoing(true)
+            .setProgress(total.coerceAtLeast(0), done.coerceIn(0, total.coerceAtLeast(0)), total <= 0)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = applicationContext.getSystemService(NotificationManager::class.java)
+            if (manager != null && manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        NOTIFICATION_CHANNEL_ID,
+                        "Photo analysis",
+                        NotificationManager.IMPORTANCE_LOW,
+                    ).apply { setShowBadge(false) },
+                )
+            }
         }
     }
 
@@ -73,7 +128,17 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
 
         private const val BATCH_SIZE = 100
 
-        /** Per-run cap so one execution stays a reasonable background slice (~2k decodes). */
-        private const val MAX_PER_RUN = 2_000
+        /**
+         * Per-run cap so one foreground execution stays well within the OS foreground window (~5 min
+         * of decoding) while still covering all but the largest libraries in one or two runs. Far
+         * larger than the old 2,000 cap, which needed ~20 backoff-spaced runs for a 40k gallery.
+         */
+        private const val MAX_PER_RUN = 20_000
+
+        /** Backlog at/above which the pass runs as a foreground service so it isn't throttled. */
+        private const val FOREGROUND_THRESHOLD = 400
+
+        private const val NOTIFICATION_CHANNEL_ID = "photo-analysis"
+        private const val NOTIFICATION_ID = 4243
     }
 }

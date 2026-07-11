@@ -14,6 +14,8 @@ import com.jupiter.filemanager.domain.repository.TrashRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +71,16 @@ class DuplicatesViewModel @Inject constructor(
     private val deletedPaths = mutableSetOf<String>()
 
     /**
+     * The exact byte-identical groups from the last completed scan, kept so image near-duplicate
+     * groups (which arrive progressively as the photo library is fingerprinted) can be merged in and
+     * re-published without re-running the whole hashing walk.
+     */
+    private var lastExactGroups: List<DuplicateGroup> = emptyList()
+
+    /** Poll job that re-queries image near-dup groups while the photo fingerprint backfill runs. */
+    private var photoAnalysisJob: Job? = null
+
+    /**
      * Publishes [groups] to the UI with the just-deleted paths removed and any group that is no
      * longer a duplicate (fewer than two copies) dropped. Single funnel so scan-collect,
      * scan-completion, and delete all stay consistent and a scan can't clobber a delete.
@@ -85,6 +97,50 @@ class DuplicatesViewModel @Inject constructor(
             groups = cleaned,
             isScanning = isScanning ?: _uiState.value.isScanning,
         )
+    }
+
+    /**
+     * Publishes [lastExactGroups] merged with the image near-duplicate groups available RIGHT NOW,
+     * dropping any image already shown in an exact group so nothing appears twice.
+     */
+    private suspend fun publishMerged(isScanning: Boolean?) {
+        val exact = lastExactGroups
+        val exactPaths = exact.asSequence()
+            .flatMap { it.files.asSequence() }
+            .map { it.path }
+            .toSet()
+        val imageGroups = runCatching {
+            indexRepository.nearDuplicateImageGroups(PerceptualHash.DEFAULT_NEAR_THRESHOLD)
+        }.getOrDefault(emptyList())
+            .map { group -> group.copy(files = group.files.filterNot { it.path in exactPaths }) }
+            .filter { it.files.size > 1 }
+        publishGroups(exact + imageGroups, isScanning = isScanning)
+    }
+
+    /**
+     * While the photo library is still being fingerprinted (the backfill kicked at scan start),
+     * periodically re-query the image near-duplicate groups so newly-fingerprinted photos surface on
+     * their own — no manual rescan. Sets [DuplicatesUiState.analyzingPhotos] so the screen can say the
+     * result isn't final yet. Stops when every image is fingerprinted (or after a safety cap).
+     */
+    private fun trackPhotoAnalysis() {
+        photoAnalysisJob?.cancel()
+        photoAnalysisJob = viewModelScope.launch {
+            var elapsed = 0L
+            while (isActive && elapsed <= PHOTO_ANALYSIS_MAX_MS) {
+                val remaining = runCatching { indexRepository.imagesNeedingPerceptualHashCount() }
+                    .getOrDefault(0)
+                _uiState.value = _uiState.value.copy(analyzingPhotos = remaining > 0)
+                publishMerged(isScanning = _uiState.value.isScanning)
+                scanCache.saveGroups(_uiState.value.groups)
+                if (remaining <= 0) break
+                delay(PHOTO_ANALYSIS_POLL_MS)
+                elapsed += PHOTO_ANALYSIS_POLL_MS
+            }
+            _uiState.value = _uiState.value.copy(analyzingPhotos = false)
+            // Probe quality for any image groups that appeared during analysis.
+            probeGroups(_uiState.value.groups)
+        }
     }
 
     init {
@@ -181,29 +237,19 @@ class DuplicatesViewModel @Inject constructor(
                 }
                 .onCompletion { cause ->
                     if (cause == null) {
-                        // Exact byte-identical groups (all file types) come from the walk above. NOW
-                        // add VISUAL near-duplicate IMAGE groups (same photo re-sized/re-encoded, so
-                        // its bytes — and SHA-1 — differ). This is where the perceptual dHash detector
-                        // finally reaches the cleanup UI instead of only firing arrival notifications.
-                        // Drop any image already shown in an exact group so nothing appears twice.
-                        val exact = collected.toList()
-                        val exactPaths = exact.asSequence()
-                            .flatMap { it.files.asSequence() }
-                            .map { it.path }
-                            .toSet()
-                        val imageGroups = runCatching {
-                            indexRepository.nearDuplicateImageGroups(PerceptualHash.DEFAULT_NEAR_THRESHOLD)
-                        }.getOrDefault(emptyList())
-                            .map { group -> group.copy(files = group.files.filterNot { it.path in exactPaths }) }
-                            .filter { it.files.size > 1 }
-
-                        // publishGroups drops anything deleted while this scan was in flight, so a
-                        // scan finishing AFTER a delete cannot resurrect the removed groups.
-                        publishGroups(exact + imageGroups, isScanning = false)
+                        // Exact byte-identical groups (all file types) come from the walk above.
+                        lastExactGroups = collected.toList()
+                        // Merge in whatever VISUAL near-duplicate IMAGE groups are available now (same
+                        // photo re-sized/re-encoded → different bytes/SHA-1, so only the perceptual
+                        // dHash detector can group them). Coverage grows as the fingerprint backfill
+                        // (kicked at scan start) runs — trackPhotoAnalysis keeps re-publishing until
+                        // the whole library is analyzed, so photo duplicates appear without a rescan.
+                        publishMerged(isScanning = false)
                         scanCache.saveGroups(_uiState.value.groups)
                         // Probe quality only after the scan finishes, so probing never
                         // competes with the (CPU/IO-heavy) hashing walk on the IO pool.
                         probeGroups(_uiState.value.groups)
+                        trackPhotoAnalysis()
                     }
                 }
                 .collect { group ->
@@ -243,10 +289,12 @@ class DuplicatesViewModel @Inject constructor(
         }
     }
 
-    /** Cancels any in-flight deferred probe jobs (e.g. before a rescan). */
+    /** Cancels any in-flight deferred probe jobs AND the photo-analysis poll (e.g. before a rescan). */
     private fun cancelProbes() {
         probeJobs.forEach { it.cancel() }
         probeJobs.clear()
+        photoAnalysisJob?.cancel()
+        photoAnalysisJob = null
     }
 
     /** Toggles selection of a single file path within a duplicate group. */
@@ -384,5 +432,13 @@ class DuplicatesViewModel @Inject constructor(
                 infoMessage = if (deleted.isEmpty()) null else message,
             )
         }
+    }
+
+    private companion object {
+        /** How often to re-query image near-dup groups while the photo backfill runs. */
+        const val PHOTO_ANALYSIS_POLL_MS = 8_000L
+
+        /** Safety cap on the analysis poll so it never runs forever if the backfill stalls. */
+        const val PHOTO_ANALYSIS_MAX_MS = 6L * 60L * 1000L
     }
 }

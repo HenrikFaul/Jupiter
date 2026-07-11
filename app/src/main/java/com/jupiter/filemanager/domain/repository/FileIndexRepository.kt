@@ -190,6 +190,9 @@ interface FileIndexRepository {
      */
     suspend fun nearDuplicateImageGroups(threshold: Int): List<DuplicateGroup>
 
+    /** How many indexed images still lack a perceptual fingerprint (0 = the whole library is covered). */
+    suspend fun imagesNeedingPerceptualHashCount(): Int
+
     /**
      * Precomputes content hashes for every file whose size collides with another
      * (the only files that could be duplicates), so a later [duplicateGroups] call is
