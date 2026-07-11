@@ -583,3 +583,19 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Notes
 - A near-image klaszterezés 2. menete (különböző hashek közti közeli összevonás) egy ~50M összehasonlításos korláttal van bekötve; egy nagyon nagy, teljesen egyedi képkönyvtárnál e fölött csak a pontos-dHash csoportosítás fut (a re-mentett/átméretezett fotók dHash-e jellemzően azonos, így ezt is elkapja). A megjelenő near-image csoportok köre a perceptuális-hash feltöltő előrehaladtával bővül; a takarítás-képernyő minden szkennkor továbbpörgeti azt.
 - A tárhely-analitika (pie) továbbra is egy-kategóriás (bájtonként egy vödör) marad — ez a Home csempéktől szándékosan eltérő nézet; a bejelentett hiba a Home csempéket érintette, az javítva.
+
+## [jupiter:0.48.0] - 2026-07-11
+### Fixed
+- **A képduplikátum-kereső VÉGRE megtalálja a galéria több száz vizuális duplikátumát** (data/index + feature/cleanup): a v0.47-ben bekötött perceptuális (dHash) képcsoportosítás önmagában helyes volt, de a valódi ok a **lefedettség** volt — a near-dup csoportok CSAK ujjlenyomatozott képeket látnak, a meglévő könyvtárat pedig egyedül a `PerceptualHashBackfillWorker` ujjlenyomatozta, ami **futásonként 2000 képre volt korlátozva + exponenciális WorkManager retry-backoff**-fal, így egy ~40 000 képes galéria lefedése ~20 óra-távolságú futást igényelt volt. A takarítás-képernyő pedig AZONNAL, várakozás nélkül kérdezte le a near-dup csoportokat → a gyakorlatilag üres ujjlenyomat-halmaz miatt **0 képcsoport**. Három javítás:
+  1. **A backfill gyorsan, teljesen lefut** (`PerceptualHashBackfillWorker`): egy futásban lemeríti a teljes hiányzó-ujjlenyomat listát (nagy, ~20 000-es futásonkénti kerettel a 2000 helyett), és nagy hátralék esetén **előtér-szolgáltatásként** fut (mint az index-survey), így a Doze/háttér-korlátok nem fojtják meg — egy 40k-s galéria így 1–2 futásban, percek alatt lefedve, nem napok alatt.
+  2. **Skálázható near-összevonás** (`FileIndexRepository.nearDuplicateImageGroups`): a korábbi O(d²) páronkénti (nagy könyvtárnál kihagyott) menetet **LSH sávozás** váltja (8 db 1-bájtos sáv), így a néhány-bites eltérésű újrakódolt/átméretezett másolatok is összeállnak 40k+ képnél is — nem csak a bitre azonos dHash-ek.
+  3. **A takarítás-lista magától frissül** (`DuplicatesViewModel`): a szkennelés után is figyeli a hátralévő ujjlenyomatozást, és ~8 mp-enként újrakérdezi a képcsoportokat, amíg a teljes galéria elemzése be nem fejeződik — kézi újraszkennelés nélkül jönnek elő a fotó-duplikátumok. A képernyő „Analyzing your photos…" jelzést mutat, amíg tart.
+### Changed
+- Új `FileIndexRepository.imagesNeedingPerceptualHashCount()` (elemzési előrehaladás/hátralék), `DuplicatesUiState.analyzingPhotos` mező + „Analyzing photos" nézet/sáv a Duplicate cleanup képernyőn.
+- `app/build.gradle.kts`: `versionName` → 0.48.0.
+### Verification
+- **`NearDuplicateImageGroupTest`** kibővítve: az azonos + 2-bit-eltérésű dHash-ek egy klaszterbe kerülnek, a külön azonos pár külön, a >8-bit-távolságúak magányosak; ÉS egy új eset bizonyítja, hogy az **LSH sávozás elkapja a bájt-határon átnyúló (byte0/byte3/byte7) 3-bites eltérésű** near-párt is, a távoli képet pedig nem.
+- `AppStorageOverviewResolveTest`, `TrashPurgeTest`, `StorageExclusionsTest`, `FileRepositorySearchExclusionTest` változatlanul zöldek.
+### Notes
+- A fotó-elemzés (dekódolás + dHash) valós eszközön fut; a WorkManager előtér-viselkedés device-only. Az elemzés egyszeri költség — a lefutás után az ujjlenyomatok megmaradnak (az azonosság — méret+mtime — változatlanságáig), így a következő megnyitáskor a képcsoportok azonnal ott vannak.
+- Az EGYEZŐ bájtú (SHA-1) képduplikátumok eddig is megjelentek, ha az index tartalmazta őket; a most javított eset a VIZUÁLISAN azonos, de bájtban eltérő (újrakódolt/átméretezett) fotók — ezekre való a perceptuális dHash.

@@ -29,6 +29,9 @@ enum class SizeFilter(val label: String, val minBytes: Long) {
  * @param infoMessage a transient informational message (e.g. after a delete), or null.
  * @param permissionRequired true when the scan was skipped because the app lacks
  *   All-Files-Access; the screen renders an actionable CTA instead of spinning.
+ * @param analyzingPhotos true while the perceptual fingerprint of the photo library is still being
+ *   built in the background — visual (near-duplicate) PHOTO groups keep appearing as it completes,
+ *   so the screen shows a "still analyzing photos" hint instead of implying the result is final.
  */
 data class DuplicatesUiState(
     val isScanning: Boolean = false,
@@ -40,10 +43,11 @@ data class DuplicatesUiState(
     val infoMessage: String? = null,
     val permissionRequired: Boolean = false,
     val sizeFilter: SizeFilter = SizeFilter.ALL,
+    val analyzingPhotos: Boolean = false,
 ) {
     /** True when there are no groups and scanning has finished (and access is granted). */
     val isEmpty: Boolean
-        get() = !isScanning && !permissionRequired && groups.isEmpty()
+        get() = !isScanning && !permissionRequired && !analyzingPhotos && groups.isEmpty()
 
     /** Groups that pass the active [sizeFilter] (by their largest copy) — what the list renders. */
     val visibleGroups: List<DuplicateGroup>

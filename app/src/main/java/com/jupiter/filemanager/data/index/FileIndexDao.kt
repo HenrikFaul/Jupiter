@@ -137,6 +137,13 @@ interface FileIndexDao {
     )
     suspend fun imagesMissingPerceptualHash(imageTypeName: String, limit: Int): List<FileIndexEntry>
 
+    /** How many image rows still need a perceptual fingerprint (backfill progress denominator). */
+    @Query(
+        "SELECT COUNT(*) FROM file_index WHERE perceptualHash IS NULL AND isDirectory = 0 " +
+            "AND typeName = :imageTypeName",
+    )
+    suspend fun countImagesMissingPerceptualHash(imageTypeName: String): Int
+
     /**
      * Stores a text/archive structural fingerprint. Targeted UPDATE for the same reason as
      * [updateHash]: it must never disturb a concurrent survey's generation stamp.

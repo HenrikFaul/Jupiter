@@ -445,6 +445,10 @@ class FileIndexRepositoryImpl @Inject constructor(
             dao.imagesMissingPerceptualHash(FileType.IMAGE.name, limit).map(::toFileItem)
         }
 
+    override suspend fun imagesNeedingPerceptualHashCount(): Int = withContext(ioDispatcher) {
+        dao.countImagesMissingPerceptualHash(FileType.IMAGE.name)
+    }
+
     override suspend fun clear() = withContext(ioDispatcher) {
         dao.clear()
     }
@@ -562,18 +566,40 @@ class FileIndexRepositoryImpl @Inject constructor(
                 if (prev != null) union(i, prev)
             }
 
-            // Pass 2 — merge DISTINCT hashes within [threshold] Hamming distance (catches near copies
-            // whose hash is a few bits off). O(d²) over distinct hashes only; bounded so a huge
-            // all-unique library never spins (it falls back to the exact grouping from pass 1).
+            // Pass 2 — near-merge via LSH banding, so near copies whose dHash is a few bits off also
+            // group (a re-encode/resize can shift 1–3 bits). Split the 64-bit hash into 8 one-byte
+            // bands; two hashes within [threshold] Hamming distance necessarily share ≥1 band
+            // UNCHANGED whenever fewer than 8 bits differ (pigeonhole across 8 bands) — which real
+            // near-dups always are. Only same-band candidates are compared, so the work is ~n per
+            // band instead of the n² that made a 40k-image library skip this step entirely. A
+            // comparison budget backstops any pathological skew, and already-unioned pairs are
+            // skipped (identical-hash copies were merged in pass 1).
             if (threshold > 0) {
-                val reps = firstOfHash.entries.toList()
-                val d = reps.size
-                if (d.toLong() * d <= MAX_NEAR_PAIR_COMPARISONS) {
-                    for (a in 0 until d) {
+                var budget = MAX_NEAR_PAIR_COMPARISONS
+                bands@ for (band in 0 until 8) {
+                    val shift = band * 8
+                    val buckets = HashMap<Int, MutableList<Int>>()
+                    for (i in 0 until n) {
+                        val key = ((entries[i].perceptualHash ushr shift) and 0xFFL).toInt()
+                        buckets.getOrPut(key) { ArrayList() }.add(i)
+                    }
+                    for (bucket in buckets.values) {
+                        if (bucket.size < 2) continue
                         currentCoroutineContext().ensureActive()
-                        for (b in (a + 1) until d) {
-                            if (PerceptualHash.isNear(reps[a].key, reps[b].key, threshold)) {
-                                union(reps[a].value, reps[b].value)
+                        for (a in bucket.indices) {
+                            val ia = bucket[a]
+                            for (b in (a + 1) until bucket.size) {
+                                if (budget-- <= 0L) break@bands
+                                val ib = bucket[b]
+                                if (find(ia) == find(ib)) continue // already same cluster
+                                if (PerceptualHash.isNear(
+                                        entries[ia].perceptualHash,
+                                        entries[ib].perceptualHash,
+                                        threshold,
+                                    )
+                                ) {
+                                    union(ia, ib)
+                                }
                             }
                         }
                     }
@@ -691,11 +717,11 @@ class FileIndexRepositoryImpl @Inject constructor(
         const val DEFAULT_HASH_BUFFER = 64 * 1024
 
         /**
-         * Cap on the O(d²) near-image merge (d = distinct perceptual hashes): ~50M cheap XOR/bitcount
-         * comparisons (well under a second). Above this the near pass is skipped and only the exact
-         * dHash grouping (pass 1) applies, so a very large all-unique library never stalls the scan.
+         * Budget on the LSH near-image merge's candidate comparisons (cheap XOR/bitcount each).
+         * LSH keeps the real count far below this; the budget only backstops a pathologically skewed
+         * hash distribution, after which pass-1 exact-dHash grouping still stands. ~200M ≈ a second.
          */
-        const val MAX_NEAR_PAIR_COMPARISONS = 50_000_000L
+        const val MAX_NEAR_PAIR_COMPARISONS = 200_000_000L
 
         /**
          * Files below this size never trigger a duplicate ALERT: empty/near-empty files
