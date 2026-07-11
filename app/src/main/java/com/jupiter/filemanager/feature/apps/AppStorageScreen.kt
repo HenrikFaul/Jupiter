@@ -31,10 +31,10 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,6 +61,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.domain.model.AppStorageInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -124,7 +127,8 @@ fun AppStorageScreen(
             // grant prompt is gone the instant access is confirmed, even though the walk is ongoing.
             // Gated on isLoading so a scan that legitimately finds no apps falls through to the
             // (empty) content instead of spinning forever.
-            overview == null || (uiState.isLoading && overview.apps.isEmpty()) -> ScanningView(modifier)
+            overview == null || (uiState.isLoading && overview.apps.isEmpty()) ->
+                ScanningView(overview, modifier)
             else -> AppStorageContent(
                 overview = overview,
                 scanning = uiState.isLoading,
@@ -294,7 +298,7 @@ private fun AppStorageContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (scanning) {
-            item(key = "scanning") { ScanningBanner(appsSoFar = overview.apps.size) }
+            item(key = "scanning") { ScanningBanner(overview) }
         }
         item(key = "total") {
             Card(
@@ -349,9 +353,13 @@ private fun AppRow(app: AppStorageInfo, fractionOfMax: Float, onClick: () -> Uni
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val context = LocalContext.current
-            // The app's launcher icon (resolved lazily; only visible rows compose).
-            val icon = remember(app.packageName) {
-                runCatching { context.packageManager.getApplicationIcon(app.packageName) }.getOrNull()
+            // The app's launcher icon, resolved OFF the main thread (getApplicationIcon decodes a
+            // drawable — doing it on the composition thread janks the frame when the list first
+            // appears). Starts null (shows the Android fallback) and swaps in when ready.
+            val icon by produceState<android.graphics.drawable.Drawable?>(null, app.packageName) {
+                value = withContext(Dispatchers.IO) {
+                    runCatching { context.packageManager.getApplicationIcon(app.packageName) }.getOrNull()
+                }
             }
             val fallback = rememberVectorPainter(Icons.Filled.Android)
             AsyncImage(
@@ -450,48 +458,76 @@ private fun AppPrivacyExplainer() {
 
 /**
  * Shown from the moment access is confirmed until the first apps arrive — makes the several-second
- * per-app walk legible ("Scanning…") instead of leaving the grant prompt or a blank screen up.
+ * per-app scan legible ("Scanning…" + a determinate progress bar) instead of leaving the grant
+ * prompt or a blank screen up. Falls back to an indeterminate bar until the package total is known.
  */
 @Composable
-private fun ScanningView(modifier: Modifier) {
+private fun ScanningView(overview: com.jupiter.filemanager.domain.model.AppStorageOverview?, modifier: Modifier) {
+    val total = overview?.totalCount ?: 0
+    val scanned = overview?.scannedCount ?: 0
     Column(
         modifier = modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
         Text(
             text = "Scanning app storage…",
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 16.dp),
         )
         Text(
             text = "Measuring how much space each installed app uses. The biggest apps appear first.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
         )
+        if (total > 0) {
+            LinearProgressIndicator(
+                progress = { overview?.progress ?: 0f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp)),
+            )
+            Text(
+                text = "$scanned / $total apps",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)))
+        }
     }
 }
 
 /** Compact in-list indicator that the scan is still running while partial results are shown. */
 @Composable
-private fun ScanningBanner(appsSoFar: Int) {
-    Row(
+private fun ScanningBanner(overview: com.jupiter.filemanager.domain.model.AppStorageOverview) {
+    val total = overview.totalCount
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-        Spacer(Modifier.width(12.dp))
         Text(
-            text = "Scanning… $appsSoFar apps so far",
+            text = if (total > 0) {
+                "Scanning… ${overview.scannedCount} / $total apps (${(overview.progress * 100).toInt()}%)"
+            } else {
+                "Scanning…"
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(6.dp))
+        if (total > 0) {
+            LinearProgressIndicator(
+                progress = { overview.progress },
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp)),
+            )
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp)))
+        }
     }
 }
 

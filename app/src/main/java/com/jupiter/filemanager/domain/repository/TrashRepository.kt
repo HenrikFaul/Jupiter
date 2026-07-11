@@ -44,4 +44,11 @@ interface TrashRepository {
 
     /** Permanently empties the entire Recycle Bin. */
     suspend fun emptyAll(): AppResult<Unit>
+
+    /**
+     * Permanently deletes every item trashed strictly before [cutoffMillis] (epoch millis) — the
+     * retention/auto-delete sweep. Returns the number of items purged. Never throws; an item whose
+     * payload can't be removed is left in place (and not counted).
+     */
+    suspend fun purgeOlderThan(cutoffMillis: Long): Int
 }

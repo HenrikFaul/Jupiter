@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,7 @@ import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.Bookmark
 import com.jupiter.filemanager.domain.model.FileItem
+import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageVolumeInfo
 import com.jupiter.filemanager.ui.components.SectionHeader
@@ -125,6 +128,26 @@ fun HomeScreen(
                     onOpenPath = onOpenPath,
                     onNavigate = onNavigate,
                 )
+            }
+
+            // Category tiles: a colourful icon grid, each showing the category's total size; tapping
+            // one opens that category's file list. Only shown once the storage overview has loaded.
+            if (uiState.categories.isNotEmpty()) {
+                item(key = "categories_header") {
+                    SectionHeader(
+                        title = "Categories",
+                        actionLabel = "Storage",
+                        onAction = { onNavigate(Destination.StorageAnalytics.route) },
+                    )
+                }
+                item(key = "categories_grid") {
+                    CategoryGrid(
+                        categories = uiState.categories,
+                        onOpenCategory = { category ->
+                            onNavigate(Destination.CategoryBrowse.create(category))
+                        },
+                    )
+                }
             }
 
             // Storage overview.
@@ -589,7 +612,6 @@ private fun iconForShortcut(id: String): ImageVector = when (id) {
     else -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 
-@Suppress("unused")
 private fun iconForCategory(category: StorageCategory): ImageVector = when (category) {
     StorageCategory.IMAGES -> Icons.Filled.Image
     StorageCategory.VIDEOS -> Icons.Filled.Videocam
@@ -599,4 +621,119 @@ private fun iconForCategory(category: StorageCategory): ImageVector = when (cate
     StorageCategory.APPS -> Icons.Filled.PhoneAndroid
     StorageCategory.DOWNLOADS -> Icons.Filled.Download
     StorageCategory.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
+}
+
+/** Per-category accent colour for the tile icon badge (mirrors the storage-analytics breakdown). */
+private fun colorForCategory(category: StorageCategory): Color = when (category) {
+    StorageCategory.IMAGES -> Color(0xFF42A5F5)    // blue
+    StorageCategory.VIDEOS -> Color(0xFFEF5350)    // red
+    StorageCategory.AUDIO -> Color(0xFFAB47BC)     // purple
+    StorageCategory.DOCUMENTS -> Color(0xFF26A69A) // teal
+    StorageCategory.ARCHIVES -> Color(0xFFFFA726)  // orange
+    StorageCategory.APPS -> Color(0xFF66BB6A)      // green
+    StorageCategory.DOWNLOADS -> Color(0xFF5C6BC0) // indigo
+    StorageCategory.OTHER -> Color(0xFF8D6E63)     // brown
+}
+
+private fun labelForCategory(category: StorageCategory): String = when (category) {
+    StorageCategory.IMAGES -> "Photos"
+    StorageCategory.VIDEOS -> "Videos"
+    StorageCategory.AUDIO -> "Audio"
+    StorageCategory.DOCUMENTS -> "Documents"
+    StorageCategory.ARCHIVES -> "Archives"
+    StorageCategory.APPS -> "APKs"
+    StorageCategory.DOWNLOADS -> "Downloads"
+    StorageCategory.OTHER -> "Other"
+}
+
+/** The order categories appear in the Home grid (Other is omitted — it is the analytics catch-all). */
+private val CATEGORY_TILE_ORDER = listOf(
+    StorageCategory.IMAGES,
+    StorageCategory.VIDEOS,
+    StorageCategory.AUDIO,
+    StorageCategory.DOCUMENTS,
+    StorageCategory.APPS,
+    StorageCategory.ARCHIVES,
+    StorageCategory.DOWNLOADS,
+)
+
+/**
+ * A colourful 4-column grid of category tiles (Photos / Videos / Audio / Documents / APKs /
+ * Archives / Downloads), each showing the category's total size. Laid out as fixed rows (it lives
+ * inside the Home [LazyColumn], so it must not scroll itself). Empty trailing cells are padded so
+ * every tile keeps an equal width.
+ */
+@Composable
+private fun CategoryGrid(
+    categories: List<CategoryUsage>,
+    onOpenCategory: (StorageCategory) -> Unit,
+) {
+    val byCategory = categories.associateBy { it.category }
+    val tiles = CATEGORY_TILE_ORDER.mapNotNull { byCategory[it] }
+    if (tiles.isEmpty()) return
+    val columns = 4
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        tiles.chunked(columns).forEach { rowTiles ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                rowTiles.forEach { usage ->
+                    CategoryTile(
+                        usage = usage,
+                        onClick = { onOpenCategory(usage.category) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                // Pad the last row so tiles keep an equal width instead of stretching.
+                repeat(columns - rowTiles.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+/** One category tile: a colour-tinted icon badge above the label and total size. */
+@Composable
+private fun CategoryTile(
+    usage: CategoryUsage,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = colorForCategory(usage.category)
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(accent.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = iconForCategory(usage.category),
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(26.dp),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = labelForCategory(usage.category),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = formatBytes(usage.sizeBytes),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

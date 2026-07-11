@@ -41,4 +41,8 @@ interface TrashDao {
     /** Returns every trash row as a one-shot snapshot (used when emptying). */
     @Query("SELECT * FROM trash")
     suspend fun getAll(): List<TrashEntry>
+
+    /** Returns rows trashed strictly before [cutoff] (epoch millis) — the auto-delete purge set. */
+    @Query("SELECT * FROM trash WHERE deletedAt < :cutoff")
+    suspend fun getOlderThan(cutoff: Long): List<TrashEntry>
 }

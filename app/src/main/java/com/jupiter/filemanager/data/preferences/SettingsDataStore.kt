@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -78,6 +79,7 @@ class SettingsDataStore @Inject constructor(
         val PRO_UNLOCKED = booleanPreferencesKey("pro_unlocked")
         val INDEXING_ENABLED = booleanPreferencesKey("indexing_enabled")
         val DEDUP_CHECKPOINT_ID = longPreferencesKey("dedup_checkpoint_id")
+        val TRASH_AUTO_DELETE_DAYS = intPreferencesKey("trash_auto_delete_days")
     }
 
     /** Current theme mode; defaults to [ThemeMode.SYSTEM]. */
@@ -268,6 +270,19 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setIndexingEnabled(value: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.INDEXING_ENABLED] = value }
+    }
+
+    /**
+     * Number of days after which items in the Recycle Bin are permanently deleted automatically.
+     * 0 = OFF (never auto-delete; the default, so nothing is lost without an explicit opt-in). A
+     * daily background worker ([com.jupiter.filemanager.data.trash.TrashPurgeWorker]) enforces it.
+     */
+    val trashAutoDeleteDays: Flow<Int> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.TRASH_AUTO_DELETE_DAYS] ?: 0 }
+
+    suspend fun setTrashAutoDeleteDays(value: Int) {
+        dataStore.edit { prefs -> prefs[Keys.TRASH_AUTO_DELETE_DAYS] = value.coerceAtLeast(0) }
     }
 
     /**

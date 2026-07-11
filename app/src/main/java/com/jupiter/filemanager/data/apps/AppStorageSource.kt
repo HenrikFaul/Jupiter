@@ -12,11 +12,17 @@ import com.jupiter.filemanager.domain.model.AppStorageInfo
 import com.jupiter.filemanager.domain.model.AppStorageOverview
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -90,68 +96,100 @@ class AppStorageSource @Inject constructor(
      *
      * Emission contract:
      * 1. If Usage-access is missing → a single `permissionRequired = true` frame.
-     * 2. Otherwise an immediate empty `scanning = true` frame so the UI can drop the grant prompt
-     *    and show "Scanning…" AT ONCE (the grant can lag, and querying 700+ packages is slow — the
-     *    old single-shot [query] left the prompt on screen for 9–15 s).
-     * 3. A `scanning = true` frame after the first [FIRST_BATCH] apps, then every [EMIT_EVERY] more,
-     *    each carrying the apps gathered so far sorted by size — the list fills progressively.
+     * 2. Otherwise an immediate empty `scanning = true` frame (with the total package count) so the
+     *    UI can drop the grant prompt, show "Scanning…" and a determinate progress bar AT ONCE.
+     * 3. A `scanning = true` frame after the first [FIRST_BATCH] packages, then every [EMIT_EVERY]
+     *    more, each carrying the apps gathered so far (size-sorted) and the scanned/total counts so
+     *    the progress bar advances and the list fills.
      * 4. A final `scanning = false` frame with the complete, sorted result.
      *
-     * Each partial is sorted by size so the biggest consumers bubble to the top as they are found.
+     * The per-package stat is a binder round-trip to the system; measured SEQUENTIALLY that is the
+     * 9–15 s the user saw. Here the packages are measured with bounded PARALLELISM
+     * ([SCAN_CONCURRENCY] at a time), which cuts the wall-clock several-fold, and steady progress
+     * emissions keep the UI actively recomposing (so the result appears on its own, without needing
+     * a touch to force a frame). Each partial is size-sorted so the biggest consumers surface first.
      */
-    fun queryStream(): Flow<AppStorageOverview> = flow {
+    fun queryStream(): Flow<AppStorageOverview> = channelFlow {
         if (!hasUsageAccess()) {
-            emit(AppStorageOverview(permissionRequired = true))
-            return@flow
+            send(AppStorageOverview(permissionRequired = true))
+            return@channelFlow
         }
         val stats = context.getSystemService(Context.STORAGE_STATS_SERVICE) as? StorageStatsManager
         if (stats == null) {
-            emit(AppStorageOverview(permissionRequired = false))
-            return@flow
+            send(AppStorageOverview(permissionRequired = false))
+            return@channelFlow
         }
         val packageManager = context.packageManager
         val installed = runCatching {
             packageManager.getInstalledApplications(0)
         }.getOrDefault(emptyList())
         val user = Process.myUserHandle()
+        val total = installed.size
 
-        // Immediate frame: leaves the grant prompt and shows "Scanning…" without waiting for the walk.
-        emit(AppStorageOverview(permissionRequired = false, scanning = true))
+        // Immediate frame: leaves the grant prompt and shows "Scanning… 0/N" without waiting.
+        send(AppStorageOverview(permissionRequired = false, scanning = true, scannedCount = 0, totalCount = total))
 
-        val apps = ArrayList<AppStorageInfo>(installed.size)
-        var lastEmittedAt = 0
-        for (info in installed) {
-            currentCoroutineContext().ensureActive()
-            val uuid = info.storageUuid ?: StorageManager.UUID_DEFAULT
-            val stat = runCatching {
-                stats.queryStatsForPackage(uuid, info.packageName, user)
-            }.getOrNull() ?: continue
+        val apps = ArrayList<AppStorageInfo>(total)
+        val lock = Any()
+        var processed = 0
+        val semaphore = Semaphore(SCAN_CONCURRENCY)
 
-            val label = runCatching { packageManager.getApplicationLabel(info).toString() }
-                .getOrDefault(info.packageName)
-            apps.add(
-                AppStorageInfo(
-                    packageName = info.packageName,
-                    label = label,
-                    appBytes = stat.appBytes,
-                    dataBytes = stat.dataBytes,
-                    cacheBytes = stat.cacheBytes,
-                    isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
-                ),
-            )
-            // Publish the first handful right away, then in batches, so the user sees the list grow.
-            val reachedFirstBatch = apps.size == FIRST_BATCH
-            val reachedNextBatch = apps.size - lastEmittedAt >= EMIT_EVERY
-            if (reachedFirstBatch || reachedNextBatch) {
-                lastEmittedAt = apps.size
-                emit(snapshot(apps, scanning = true))
+        // Measure every package with bounded parallelism; publish a progress snapshot at the first
+        // batch and then every EMIT_EVERY packages. The shared list, counter, and emission all happen
+        // under [lock] so progress is consistent and delivered in monotonic order across workers.
+        coroutineScope {
+            for (info in installed) {
+                launch {
+                    semaphore.withPermit {
+                        currentCoroutineContext().ensureActive()
+                        val uuid = info.storageUuid ?: StorageManager.UUID_DEFAULT
+                        val stat = runCatching {
+                            stats.queryStatsForPackage(uuid, info.packageName, user)
+                        }.getOrNull()
+                        val item = if (stat != null) {
+                            val label = runCatching { packageManager.getApplicationLabel(info).toString() }
+                                .getOrDefault(info.packageName)
+                            AppStorageInfo(
+                                packageName = info.packageName,
+                                label = label,
+                                appBytes = stat.appBytes,
+                                dataBytes = stat.dataBytes,
+                                cacheBytes = stat.cacheBytes,
+                                isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
+                            )
+                        } else {
+                            null
+                        }
+                        // Emit under [lock] so progress frames are delivered in monotonic scanned
+                        // order (parallel workers otherwise race and the bar could jump backwards).
+                        // trySend never suspends, so holding the lock across it is safe.
+                        synchronized(lock) {
+                            if (item != null) apps.add(item)
+                            processed++
+                            if (processed == FIRST_BATCH || processed % EMIT_EVERY == 0) {
+                                trySend(snapshot(apps, scanning = true, scanned = processed, total = total))
+                            }
+                        }
+                    }
+                }
             }
         }
-        emit(snapshot(apps, scanning = false))
-    }.flowOn(dispatcher)
+        // Authoritative final frame (guaranteed delivery via suspending send).
+        val finalApps = synchronized(lock) { apps.toList() }
+        send(snapshot(finalApps, scanning = false, scanned = total, total = total))
+    }
+        // Conflate progress frames: only the latest partial matters, so a slow collector never lags
+        // behind the scan (and never backs up the producer). The final frame is a suspending send.
+        .buffer(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        .flowOn(dispatcher)
 
-    /** Builds an overview from a COPY of the accumulated apps, sorted by size descending. */
-    private fun snapshot(apps: List<AppStorageInfo>, scanning: Boolean): AppStorageOverview {
+    /** Builds an overview from a snapshot COPY of the accumulated apps, sorted by size descending. */
+    private fun snapshot(
+        apps: List<AppStorageInfo>,
+        scanning: Boolean,
+        scanned: Int,
+        total: Int,
+    ): AppStorageOverview {
         val sorted = apps.sortedByDescending { it.totalBytes }
         return AppStorageOverview(
             apps = sorted,
@@ -159,14 +197,19 @@ class AppStorageSource @Inject constructor(
             cacheBytes = sorted.sumOf { it.cacheBytes },
             permissionRequired = false,
             scanning = scanning,
+            scannedCount = scanned,
+            totalCount = total,
         )
     }
 
     private companion object {
-        /** Emit the very first apps as soon as this many are gathered, so the list appears fast. */
+        /** Emit the very first apps as soon as this many are measured, so the list appears fast. */
         const val FIRST_BATCH = 5
 
-        /** After the first batch, publish an updated snapshot every this-many more apps. */
-        const val EMIT_EVERY = 25
+        /** After the first batch, publish an updated snapshot every this-many more packages. */
+        const val EMIT_EVERY = 15
+
+        /** Concurrent per-package stat binder calls — cuts a 700-app scan from ~10 s to a second or two. */
+        const val SCAN_CONCURRENCY = 8
     }
 }
