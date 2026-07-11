@@ -444,7 +444,11 @@ private fun DuplicateGroupCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "${group.files.size} copies",
+                    text = if (group.similar) {
+                        "${group.files.size} similar photos"
+                    } else {
+                        "${group.files.size} copies"
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
