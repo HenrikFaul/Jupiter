@@ -100,13 +100,29 @@ class CleanupViewModel @Inject constructor(
     fun scan() = runScan(preferIndex = true)
 
     /**
-     * User-initiated full rescan: forces a fresh filesystem walk (bypassing the index
-     * for ground-truth results) and kicks off a background index rebuild so subsequent
-     * opens are instant and up to date.
+     * User-initiated full rescan through ONE authoritative pipeline: restart the index survey
+     * (the single ground-truth walk — MediaStore seed + filesystem reconciliation + stale sweep),
+     * wait for it to finish, then serve the results from the fresh index.
+     *
+     * Previously this ALSO ran a second, parallel live filesystem walk
+     * (`runScan(preferIndex = false)`) — two concurrent full-storage scans doing the same work,
+     * whose results could disagree with the index being rebuilt next to them.
      */
     fun rescan() {
         indexingScheduler.rebuildNow()
-        runScan(preferIndex = false)
+        _uiState.update { it.copy(isScanning = true, error = null) }
+        viewModelScope.launch {
+            // Await THIS rebuild: the REPLACE enqueue first becomes visible as a non-finished
+            // WorkInfo, then finishes. The visibility wait is bounded so a missed emission can
+            // never hang the screen — worst case we just read whatever index state exists.
+            val started = kotlinx.coroutines.withTimeoutOrNull(REBUILD_VISIBLE_TIMEOUT_MS) {
+                indexingScheduler.observeStatus().first { it != null && !it.state.isFinished }
+            }
+            if (started != null) {
+                indexingScheduler.observeStatus().first { it == null || it.state.isFinished }
+            }
+            runScan(preferIndex = true)
+        }
     }
 
     private fun runScan(preferIndex: Boolean) {
@@ -332,5 +348,8 @@ class CleanupViewModel @Inject constructor(
     private companion object {
         /** Minimum size, in bytes, for a file to be reported as a "large file" (100 MB). */
         const val LARGE_FILE_THRESHOLD_BYTES: Long = 100L * 1024L * 1024L
+
+        /** How long [rescan] waits for the freshly-enqueued rebuild to become observable. */
+        const val REBUILD_VISIBLE_TIMEOUT_MS: Long = 5_000L
     }
 }

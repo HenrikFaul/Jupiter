@@ -18,7 +18,17 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "file_index",
-    indices = [Index("parentPath"), Index("name")],
+    indices = [
+        Index("parentPath"),
+        Index("name"),
+        // Hot dedup/analytics query columns — without these, collidingSizes/filesOfSize/byHash/
+        // largeFiles and the generation sweep full-scan a 100k-row table on every call.
+        Index("sizeBytes"),
+        Index("contentHash"),
+        Index("perceptualHash"),
+        Index("lastSeenGeneration"),
+        Index("typeName"),
+    ],
 )
 data class FileIndexEntry(
     @PrimaryKey val path: String,
@@ -52,4 +62,21 @@ data class FileIndexEntry(
      * (never retried, never matched). See [StructuralFingerprintSource].
      */
     val structuralHash: Long? = null,
+    /**
+     * Cheap head+tail pre-filter hash (SHA-1 over the first and last 64 KiB), computed lazily for
+     * same-size duplicate candidates so the expensive full-content hash only runs on files whose
+     * quick hash already collides. Null = not computed yet.
+     */
+    val quickHash: String? = null,
+    /**
+     * DCT perceptual hash ([PerceptualHash.pHashFromLuminanceGrid]) — the second layer of the
+     * stacked image fingerprint. Null on rows fingerprinted before this layer existed (the
+     * comparison falls back to dHash-only); [PerceptualHash.UNHASHABLE] = undecodable.
+     */
+    val phash: Long? = null,
+    /**
+     * Average hash ([PerceptualHash.aHashFromLuminanceGrid]) — the third stacked layer.
+     * Same null/UNHASHABLE semantics as [phash].
+     */
+    val ahash: Long? = null,
 )

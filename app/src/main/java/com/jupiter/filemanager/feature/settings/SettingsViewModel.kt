@@ -39,6 +39,7 @@ class SettingsViewModel @Inject constructor(
     private val indexStateRepository: IndexStateRepository,
     private val indexingScheduler: IndexingScheduler,
     private val trashScheduler: TrashScheduler,
+    private val downloadIndexObserver: com.jupiter.filemanager.data.index.DownloadIndexObserver,
 ) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -165,12 +166,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settings.setIndexingEnabled(value)
             if (value) {
+                // Re-enable the whole pipeline: live delta observer + rebuild + periodic refresh.
+                runCatching { downloadIndexObserver.start() }
                 indexingScheduler.rebuildNow()
                 indexingScheduler.schedulePeriodicRefresh()
             } else {
-                // Disabling means STOP: cancel any running survey, clear the cached rows, and
-                // reset the life-cycle state to EMPTY so the index is not considered complete
+                // Disabling means STOP EVERYTHING: tear down the live MediaStore observer (it used
+                // to keep firing after disable), cancel any running survey, clear the cached rows,
+                // and reset the life-cycle state to EMPTY so the index is not considered complete
                 // and startup does not silently re-enable it (JupiterApp also checks enabled).
+                runCatching { downloadIndexObserver.stop() }
                 indexingScheduler.cancel()
                 runCatching { indexRepository.clear() }
                 runCatching { indexStateRepository.reset() }
