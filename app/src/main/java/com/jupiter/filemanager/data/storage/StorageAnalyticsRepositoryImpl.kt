@@ -178,6 +178,11 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
         for (file in dataSource.walkTopDown(rootPath)) {
             currentCoroutineContext().ensureActive()
 
+            // Skip vendor recycle-bin / app-private / thumbnail files (Samsung `Android/.Trash/…`):
+            // they open to "Not found". The index fast path above already excludes them; this live
+            // walk must match its siblings (findDuplicates, storageOverview) so the Cleanup
+            // Large-files list never surfaces one when the index isn't usable.
+            if (isExcludedPath(safePath(file))) continue
             if (!isRegularFile(file)) continue
             if (safeLength(file) < minSizeBytes) continue
 

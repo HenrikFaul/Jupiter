@@ -117,11 +117,17 @@ fun AppStorageScreen(
         val modifier = Modifier
             .fillMaxSize()
             .padding(innerPadding)
+        val overview = uiState.overview
         when {
             uiState.permissionRequired -> UsageAccessRequired(modifier)
-            uiState.isLoading && uiState.overview == null -> LoadingView(modifier)
+            // Nothing to show yet (before the first apps arrive): a clear "Scanning…" view so the
+            // grant prompt is gone the instant access is confirmed, even though the walk is ongoing.
+            // Gated on isLoading so a scan that legitimately finds no apps falls through to the
+            // (empty) content instead of spinning forever.
+            overview == null || (uiState.isLoading && overview.apps.isEmpty()) -> ScanningView(modifier)
             else -> AppStorageContent(
-                overview = uiState.overview,
+                overview = overview,
+                scanning = uiState.isLoading,
                 onAppClick = { selectedApp = it },
                 modifier = modifier,
             )
@@ -277,6 +283,7 @@ private fun SheetAction(
 @Composable
 private fun AppStorageContent(
     overview: com.jupiter.filemanager.domain.model.AppStorageOverview?,
+    scanning: Boolean,
     onAppClick: (AppStorageInfo) -> Unit,
     modifier: Modifier,
 ) {
@@ -286,6 +293,9 @@ private fun AppStorageContent(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (scanning) {
+            item(key = "scanning") { ScanningBanner(appsSoFar = overview.apps.size) }
+        }
         item(key = "total") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -438,10 +448,50 @@ private fun AppPrivacyExplainer() {
     }
 }
 
+/**
+ * Shown from the moment access is confirmed until the first apps arrive — makes the several-second
+ * per-app walk legible ("Scanning…") instead of leaving the grant prompt or a blank screen up.
+ */
 @Composable
-private fun LoadingView(modifier: Modifier) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+private fun ScanningView(modifier: Modifier) {
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         CircularProgressIndicator()
+        Text(
+            text = "Scanning app storage…",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 16.dp),
+        )
+        Text(
+            text = "Measuring how much space each installed app uses. The biggest apps appear first.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/** Compact in-list indicator that the scan is still running while partial results are shown. */
+@Composable
+private fun ScanningBanner(appsSoFar: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = "Scanning… $appsSoFar apps so far",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

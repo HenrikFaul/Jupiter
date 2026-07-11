@@ -42,10 +42,15 @@ data class AppStorageInfo(
  * @property cacheBytes sum of clearable caches across the listed apps.
  * @property permissionRequired true when Usage-access has not been granted, so no stats
  *   could be read; the screen should prompt the user to grant it.
+ * @property scanning true while this is a PARTIAL result emitted mid-scan (the per-app query
+ *   walks every installed package and takes several seconds on a full device); the screen shows
+ *   the apps gathered so far plus a "Scanning…" indicator instead of a blank prompt. False on the
+ *   final, complete emission.
  */
 data class AppStorageOverview(
     val apps: List<AppStorageInfo> = emptyList(),
     val totalBytes: Long = 0L,
     val cacheBytes: Long = 0L,
     val permissionRequired: Boolean = false,
+    val scanning: Boolean = false,
 )
