@@ -78,34 +78,27 @@ class AppStorageViewModel @Inject constructor(
     /**
      * (Re)loads per-app storage. Safe to call repeatedly (init, retry, on-resume).
      *
-     * When access is already held, the grant prompt is dropped SYNCHRONOUSLY (before the scan even
-     * starts) and a "Scanning…" state is shown, so the user never stares at "Grant Usage access"
-     * for the ~10 s the per-app walk takes. Results then stream in: the first apps appear almost
-     * immediately and the list grows until the scan completes.
+     * When access is already held, a "Scanning…" state is shown SYNCHRONOUSLY (before the scan even
+     * starts) so the user never stares at "Grant Usage access" for the ~10 s the per-app walk takes;
+     * results then stream in. When access is NOT held, the grant prompt is shown immediately (no
+     * misleading "Scanning…" flash) — `hasUsageAccess()` is the same authoritative check the stream
+     * makes, so we can commit to it now instead of waiting a frame for the stream's first emission.
      */
     fun load() {
         val granted = source.hasUsageAccess()
         _uiState.update {
             it.copy(
-                isLoading = true,
-                // Leave the grant prompt at once when we already know access is granted; otherwise
-                // keep whatever the last scan reported (the stream will set it authoritatively).
-                permissionRequired = if (granted) false else it.permissionRequired,
+                isLoading = granted,        // only claim "scanning" when we will actually scan
+                permissionRequired = !granted,
             )
         }
         scanJob?.cancel()
         scanJob = viewModelScope.launch {
             source.queryStream().collect { overview ->
                 _uiState.update { current ->
-                    // On a REFRESH (we already have apps), don't blank the list back to the scan
-                    // view for the initial empty "scanning" frame — keep the old apps on screen with
-                    // the scanning indicator until fresh results arrive. A first-ever scan (no apps
-                    // yet) still shows the dedicated "Scanning…" view.
-                    val keepPrevious = overview.scanning && overview.apps.isEmpty() &&
-                        current.overview?.apps?.isNotEmpty() == true
                     current.copy(
                         isLoading = overview.scanning,
-                        overview = if (keepPrevious) current.overview else overview,
+                        overview = resolveOverview(current.overview, overview),
                         permissionRequired = overview.permissionRequired,
                     )
                 }
@@ -121,4 +114,26 @@ class AppStorageViewModel @Inject constructor(
         const val ACCESS_POLL_ATTEMPTS = 12
         const val ACCESS_POLL_INTERVAL_MS = 250L
     }
+}
+
+/**
+ * Decides which overview to show as a streaming scan emits [incoming] over an existing [current].
+ *
+ * A FIRST-EVER scan (no apps yet) adopts every partial so the list visibly fills. But a RELOAD of an
+ * already-populated screen (Refresh button / screen resume) must NOT downsize the full list to the
+ * first small partial batch and then regrow it — that made the list and its headline total visibly
+ * collapse from N apps to 5 and climb back on every refresh. So while a reload is still scanning we
+ * keep the existing full list on screen (with the scanning banner) and swap only once the fresh scan
+ * is COMPLETE (`!incoming.scanning`) — or immediately if the incoming frame is the authoritative
+ * permission-required frame.
+ *
+ * Top-level + internal so it is unit-testable in pure JVM without constructing the ViewModel.
+ */
+internal fun resolveOverview(
+    current: AppStorageOverview?,
+    incoming: AppStorageOverview,
+): AppStorageOverview {
+    val reloadingPopulated = current?.apps?.isNotEmpty() == true
+    val adoptIncoming = !reloadingPopulated || !incoming.scanning || incoming.permissionRequired
+    return if (adoptIncoming) incoming else current!!
 }
