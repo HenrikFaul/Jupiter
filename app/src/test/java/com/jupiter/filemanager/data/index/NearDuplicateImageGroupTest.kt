@@ -98,10 +98,10 @@ class NearDuplicateImageGroupTest {
 
     @Test
     fun lshBandingCatchesNearHashesWhoseDifferingBitsSpanDifferentBytes() = runTest(dispatcher) {
-        // 3 differing bits placed in THREE different bytes (0, 3, 7). A naive 8-band pigeonhole still
+        // 3 differing bits placed in THREE different bytes (0, 3, 6). A naive 8-band pigeonhole still
         // leaves 5 bands identical, so LSH must surface the pair; total Hamming = 3 ≤ threshold.
         val base = image("base.jpg", sizeBytes = 200, hash = 0x0L)
-        val near = image("near.jpg", sizeBytes = 100, hash = 0x8000000001000001L) // bits in byte7, byte3, byte0
+        val near = image("near.jpg", sizeBytes = 100, hash = 0x0080000001000001L) // bits in byte6, byte3, byte0
         // An unrelated far image that must stay out.
         image("far.jpg", sizeBytes = 100, hash = 0x0F0F0F0F0F0F0F0FL)
 
