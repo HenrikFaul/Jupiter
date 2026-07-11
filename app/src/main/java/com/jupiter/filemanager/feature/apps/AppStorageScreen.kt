@@ -91,7 +91,9 @@ fun AppStorageScreen(
     // Usage-access in Settings.
     var firstResume by remember { mutableStateOf(true) }
     LifecycleResumeEffect(Unit) {
-        if (firstResume) firstResume = false else viewModel.load()
+        // onResume() polls for a just-granted Usage-access (which can lag the return from Settings)
+        // and then loads, so the scan starts on its own without leaving and re-entering the screen.
+        if (firstResume) firstResume = false else viewModel.onResume()
         onPauseOrDispose {}
     }
 

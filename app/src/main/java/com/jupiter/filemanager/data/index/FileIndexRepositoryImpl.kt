@@ -464,11 +464,26 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun largeFiles(minSizeBytes: Long, limit: Int): List<FileItem> =
         withContext(ioDispatcher) {
-            dao.largeFiles(minSizeBytes, limit).map(::toFileItem)
+            // Never surface trash/recycle-bin rows (e.g. Samsung `Android/.Trash/…`) in the
+            // Large-files list — opening one errors with "Not found". Prune stale rows on sight.
+            existingSkippingExcluded(dao.largeFiles(minSizeBytes, limit).map(::toFileItem))
         }
 
     override suspend fun allFiles(): List<FileItem> = withContext(ioDispatcher) {
-        dao.allFiles().map(::toFileItem)
+        dao.allFiles().map(::toFileItem).filterNot { isExcludedResultPath(it.path) }
+    }
+
+    /**
+     * Filters out (and prunes) rows in a trash/thumbnail dir. Unlike [existingOrPruned] this does
+     * NOT stat every file (the large-files list can be long and on-disk checks would be costly); it
+     * only drops the excluded-segment paths, which are the ones that open to "Not found".
+     */
+    private suspend fun existingSkippingExcluded(items: List<FileItem>): List<FileItem> {
+        val kept = ArrayList<FileItem>(items.size)
+        for (item in items) {
+            if (isExcludedResultPath(item.path)) dao.deleteByPath(item.path) else kept.add(item)
+        }
+        return kept
     }
 
     override suspend fun indexedPaths(): Set<String> = withContext(ioDispatcher) {

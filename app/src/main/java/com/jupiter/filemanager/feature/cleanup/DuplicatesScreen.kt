@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +22,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.FolderOff
@@ -37,6 +38,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -139,12 +141,6 @@ fun DuplicatesScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.selectDuplicatesKeepingBest() }) {
-                        Icon(
-                            imageVector = Icons.Outlined.AutoAwesome,
-                            contentDescription = "Keep best copy in each group",
-                        )
-                    }
                     // Toggle: select every extra copy when nothing is selected, otherwise clear the
                     // whole selection. One button does both (the ✓✓ used to only ever select).
                     val hasSelection = state.selectedCount > 0
@@ -226,12 +222,12 @@ fun DuplicatesScreen(
                             )
                         }
                         item {
-                            KeepBestBanner(
-                                enabled = !state.isDeleting,
-                                onKeepBest = { viewModel.selectDuplicatesKeepingBest() },
+                            SizeFilterRow(
+                                selected = state.sizeFilter,
+                                onSelect = viewModel::setSizeFilter,
                             )
                         }
-                        items(state.groups, key = { it.hash }) { group ->
+                        items(state.visibleGroups, key = { it.hash }) { group ->
                             DuplicateGroupCard(
                                 group = group,
                                 selectedPaths = state.selectedPaths,
@@ -396,56 +392,28 @@ private fun SummaryCard(
 }
 
 /**
- * Prominent one-tap action that selects every duplicate copy while keeping the
- * best copy in each group. The user can then review the selection and remove the
- * rest with the existing delete flow. This absorbs the former "Smart Merge".
+ * A row of size filters that narrow the visible duplicate groups by their largest copy — so the
+ * user can focus on the space-worth duplicates (multi-MB photos / multi-GB videos) and ignore the
+ * many tiny few-KB images. A group matches when any of its copies is at least the selected size.
  */
 @Composable
-private fun KeepBestBanner(
-    enabled: Boolean,
-    onKeepBest: () -> Unit,
+private fun SizeFilterRow(
+    selected: SizeFilter,
+    onSelect: (SizeFilter) -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(24.dp),
+        SizeFilter.entries.forEach { filter ->
+            FilterChip(
+                selected = filter == selected,
+                onClick = { onSelect(filter) },
+                label = { Text(filter.label) },
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Keep the best copy",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-                Text(
-                    text = "Auto-select every duplicate and keep the highest-quality copy in each group.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Button(
-                onClick = onKeepBest,
-                enabled = enabled,
-            ) {
-                Text("Keep best")
-            }
         }
     }
 }

@@ -525,3 +525,16 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `app/build.gradle.kts`: `versionName` → 0.43.0.
 ### Verification
 - `StorageExclusionsTest` (tiszta JVM): a valós Samsung `Android/.Trash/com.sec.android.app.myfiles/…/app-debug.apk` útvonal (kis-nagybetűtől függetlenül), valamint `android/data`, `android/obb`, `.thumbnails`, `.trashed` szegmensek KIZÁRVA; szokásos fájlok, a nevükben tokent tartalmazó mappák (`my.trash.notes`), és a content:// URI-k NEM.
+
+## [jupiter:0.44.0] - 2026-07-10
+### Fixed
+- **App storage: az engedély megadása után KILÉPÉS/BELÉPÉS nélkül azonnal indul a scan** (feature/apps): a Usage-access megadása után visszatérve az `AppOpsManager` állapota egy pillanatot késhet, ezért a képernyő a "Grant Usage access" promptnál maradt, amíg a felhasználó ki-be nem lépett. A ViewModel `onResume()`-ja most ~3 másodpercig POLLOZZA a hozzáférést (250 ms-onként), és amint megjelenik, magától betölt és elindítja a scannelést — re-entry nélkül.
+- **Cleanup → Large files: a fájlok megnyitása nem fut "Not found"-ra** (data/index): a Large-files lista (index-alapú `largeFiles()` és az `allFiles()`) mostantól kiszűri a kuka/thumbnail (Samsung `Android/.Trash/…`) sorokat (és törli azokat az indexből), így nem lehet rájuk kattintva "Not found"-ot kapni.
+### Changed
+- **Duplikátumok képernyő letisztítva** (feature/cleanup): a felesleges **"Keep best"** gomb (és a hozzá tartozó ✨ AI-jellegű ikon) törölve — a ✓✓ kapcsoló (összes kijelölése ↔ kijelölés törlése) már úgyis lefedi. Helyette **méret-szűrő** chip-sor: `All sizes / ≥100 KB / ≥1 MB / ≥10 MB / ≥100 MB` — egy csoport akkor látszik, ha legalább az egyik példánya eléri a méretet, így a sok pár-kilobájtos kép elrejthető és a több-megás/gigás duplikátumokra lehet fókuszálni.
+- **AI-jelölő ikonok és az "Explain with AI" eltávolítva a takarítás-felületekről** (feature/cleanup): a Cleanup hubból az "Explain with AI" gomb + AI-magyarázó kártya, valamint a Duplikátumok és az index-státusz kártya ✨ (AutoAwesome) ikonjai törölve.
+- `app/build.gradle.kts`: `versionName` → 0.44.0.
+### Verification
+- `DuplicatesUiStateSizeFilterTest` (tiszta JVM): a méret-szűrő a legnagyobb példány alapján szűri a csoportokat (All → mind; ≥1 MB elrejti az 50 KB-os csoportot; ≥100 MB csak a 200 MB-os példányt tartalmazó csoportot hagyja). `StorageExclusionsTest` változatlanul zöld (a Large-files szűrés ugyanazt a kizárást használja).
+### Notes
+- Az App-storage poll viselkedése (AppOps grant-késleltetés) valós eszközön igazolható; a méret-szűrő és a listatisztítás Compose-UI, amit szintén eszközön látsz.
