@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOff
@@ -41,7 +40,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -167,7 +165,6 @@ fun CleanupScreen(
                 largeFiles = uiState.largeFiles,
                 duplicateGroups = uiState.duplicateGroups,
                 selectedForDeletion = uiState.selectedForDeletion,
-                aiExplanation = uiState.aiExplanation,
                 inlineError = uiState.error,
                 fromIndex = uiState.fromIndex,
                 indexedCount = uiState.indexedCount,
@@ -175,7 +172,6 @@ fun CleanupScreen(
                 onOpenFile = onOpenFile,
                 onScan = viewModel::scan,
                 onRescan = viewModel::rescan,
-                onExplainWithAi = viewModel::explainWithAi,
             )
         }
     }
@@ -205,7 +201,6 @@ private fun CleanupContent(
     largeFiles: List<FileItem>,
     duplicateGroups: List<DuplicateGroup>,
     selectedForDeletion: Set<String>,
-    aiExplanation: String?,
     inlineError: String?,
     fromIndex: Boolean,
     indexedCount: Int,
@@ -213,7 +208,6 @@ private fun CleanupContent(
     onOpenFile: (FileItem) -> Unit,
     onScan: () -> Unit,
     onRescan: () -> Unit,
-    onExplainWithAi: () -> Unit,
 ) {
     val hasScanned = overview != null || isScanning ||
         largeFiles.isNotEmpty() || duplicateGroups.isNotEmpty()
@@ -278,11 +272,7 @@ private fun CleanupContent(
 
         if (overview != null) {
             item(key = "breakdown") {
-                StorageBreakdownCard(
-                    overview = overview,
-                    aiExplanation = aiExplanation,
-                    onExplainWithAi = onExplainWithAi,
-                )
+                StorageBreakdownCard(overview = overview)
             }
         }
 
@@ -391,13 +381,6 @@ private fun IndexStatusCard(indexedCount: Int, onRescan: () -> Unit) {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Filled.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Instant results from your file index",
@@ -598,12 +581,10 @@ private fun PermissionRequiredView(modifier: Modifier = Modifier) {
     }
 }
 
-/** Card showing the per-category storage breakdown bars and the optional AI card. */
+/** Card showing the per-category storage breakdown bars. */
 @Composable
 private fun StorageBreakdownCard(
     overview: StorageOverview,
-    aiExplanation: String?,
-    onExplainWithAi: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -630,11 +611,6 @@ private fun StorageBreakdownCard(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
-
-            AiExplanationSection(
-                aiExplanation = aiExplanation,
-                onExplainWithAi = onExplainWithAi,
-            )
         }
     }
 }
@@ -676,52 +652,6 @@ private fun CategoryBar(
                     .clip(RoundedCornerShape(4.dp))
                     .background(colorForCategory(usage.category)),
             )
-        }
-    }
-}
-
-/** Optional AI explanation block embedded in the breakdown card. */
-@Composable
-private fun AiExplanationSection(
-    aiExplanation: String?,
-    onExplainWithAi: () -> Unit,
-) {
-    if (aiExplanation != null) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            ),
-        ) {
-            Row(modifier = Modifier.padding(12.dp)) {
-                Icon(
-                    imageVector = Icons.Filled.AutoAwesome,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = aiExplanation,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-        }
-    } else {
-        OutlinedButton(
-            onClick = onExplainWithAi,
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.AutoAwesome,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "Explain with AI")
         }
     }
 }

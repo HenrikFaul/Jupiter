@@ -282,6 +282,11 @@ class DuplicatesViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(selectedPaths = emptySet())
     }
 
+    /** Sets the minimum-size filter that narrows the visible duplicate groups. */
+    fun setSizeFilter(filter: SizeFilter) {
+        _uiState.value = _uiState.value.copy(sizeFilter = filter)
+    }
+
     /** Dismisses any transient error or info message. */
     fun dismissMessage() {
         _uiState.value = _uiState.value.copy(errorMessage = null, infoMessage = null)

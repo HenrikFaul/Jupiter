@@ -4,6 +4,19 @@ import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.MediaQuality
 
 /**
+ * Minimum-size filter for the duplicate list. A group is shown when at least one of its copies is
+ * at least [minBytes], so the user can focus on the space-worth duplicates (multi-MB photos /
+ * multi-GB videos) and hide the many tiny few-KB images.
+ */
+enum class SizeFilter(val label: String, val minBytes: Long) {
+    ALL("All sizes", 0L),
+    KB_100("≥ 100 KB", 100L * 1024),
+    MB_1("≥ 1 MB", 1L * 1024 * 1024),
+    MB_10("≥ 10 MB", 10L * 1024 * 1024),
+    MB_100("≥ 100 MB", 100L * 1024 * 1024),
+}
+
+/**
  * Immutable UI state for the Duplicates screen.
  *
  * @param isScanning whether a duplicate scan is currently in progress.
@@ -26,10 +39,19 @@ data class DuplicatesUiState(
     val errorMessage: String? = null,
     val infoMessage: String? = null,
     val permissionRequired: Boolean = false,
+    val sizeFilter: SizeFilter = SizeFilter.ALL,
 ) {
     /** True when there are no groups and scanning has finished (and access is granted). */
     val isEmpty: Boolean
         get() = !isScanning && !permissionRequired && groups.isEmpty()
+
+    /** Groups that pass the active [sizeFilter] (by their largest copy) — what the list renders. */
+    val visibleGroups: List<DuplicateGroup>
+        get() = if (sizeFilter == SizeFilter.ALL) {
+            groups
+        } else {
+            groups.filter { group -> group.files.any { it.sizeBytes >= sizeFilter.minBytes } }
+        }
 
     /** Total bytes wasted across every discovered duplicate group. */
     val totalWastedBytes: Long
