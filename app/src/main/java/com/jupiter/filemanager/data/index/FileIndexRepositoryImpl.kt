@@ -60,14 +60,22 @@ class FileIndexRepositoryImpl @Inject constructor(
             val existing = dao.childEntries(parentPath).associateBy { it.path }
             val entries = items.map { item ->
                 val prior = existing[item.path]
-                val identityKept = !item.isDirectory && prior != null &&
-                    prior.sizeBytes == item.sizeBytes && prior.lastModified == item.lastModified
+                // Second-precision identity (IndexPathRewrite.identityUnchanged): MediaStore and
+                // filesystem mtimes differ only in sub-second rounding for an untouched file, and
+                // exact equality here used to wipe every cached fingerprint on ordinary re-browse.
+                val identityKept = prior != null && IndexPathRewrite.identityUnchanged(
+                    item.isDirectory, prior.sizeBytes, prior.lastModified,
+                    item.sizeBytes, item.lastModified,
+                )
                 toEntry(item, now).copy(
                     contentHash = if (identityKept) prior?.contentHash else null,
                     // Same-content rule as the content hash: the perceptual fingerprint
                     // survives while identity is unchanged, else it is recomputed.
                     perceptualHash = if (identityKept) prior?.perceptualHash else null,
                     structuralHash = if (identityKept) prior?.structuralHash else null,
+                    phash = if (identityKept) prior?.phash else null,
+                    ahash = if (identityKept) prior?.ahash else null,
+                    quickHash = if (identityKept) prior?.quickHash else null,
                 )
             }
             dao.upsertAll(entries)
@@ -111,6 +119,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                 // backfill to re-decode the whole photo library.
                 perceptualHash = if (identityKept) prior?.perceptualHash else null,
                 structuralHash = if (identityKept) prior?.structuralHash else null,
+                phash = if (identityKept) prior?.phash else null,
+                ahash = if (identityKept) prior?.ahash else null,
+                quickHash = if (identityKept) prior?.quickHash else null,
                 lastSeenGeneration = generation ?: prior?.lastSeenGeneration ?: 0L,
             )
         }
@@ -119,13 +130,16 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun indexFile(item: FileItem) = withContext(ioDispatcher) {
         val now = System.currentTimeMillis()
-        // Preserve known hashes only when the file's identity (size + mtime) is
-        // unchanged; otherwise clear them so they will be recomputed lazily.
+        // Preserve known hashes only when the file's identity (size + second-precision mtime)
+        // is unchanged; otherwise clear them so they will be recomputed lazily.
         val unchanged = if (item.isDirectory) {
             null
         } else {
             dao.getByPath(item.path)?.takeIf {
-                it.sizeBytes == item.sizeBytes && it.lastModified == item.lastModified
+                IndexPathRewrite.identityUnchanged(
+                    item.isDirectory, it.sizeBytes, it.lastModified,
+                    item.sizeBytes, item.lastModified,
+                )
             }
         }
         dao.upsertAll(
@@ -134,6 +148,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                     contentHash = unchanged?.contentHash,
                     perceptualHash = unchanged?.perceptualHash,
                     structuralHash = unchanged?.structuralHash,
+                    phash = unchanged?.phash,
+                    ahash = unchanged?.ahash,
+                    quickHash = unchanged?.quickHash,
                 ),
             ),
         )
@@ -190,6 +207,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                         contentHash = if (identityKept) entry.contentHash else null,
                         perceptualHash = if (identityKept) entry.perceptualHash else null,
                         structuralHash = if (identityKept) entry.structuralHash else null,
+                        phash = if (identityKept) entry.phash else null,
+                        ahash = if (identityKept) entry.ahash else null,
+                        quickHash = if (identityKept) entry.quickHash else null,
                     )
                 } else {
                     entry.copy(
@@ -331,6 +351,15 @@ class FileIndexRepositoryImpl @Inject constructor(
         dao.updatePerceptualHash(path, hash)
     }
 
+    override suspend fun putPerceptualFingerprint(
+        path: String,
+        dhash: Long,
+        phash: Long,
+        ahash: Long,
+    ) = withContext(ioDispatcher) {
+        dao.updatePerceptualFingerprint(path = path, dhash = dhash, phash = phash, ahash = ahash)
+    }
+
     override suspend fun putStructuralHash(path: String, hash: Long) = withContext(ioDispatcher) {
         dao.updateStructuralHash(path, hash)
     }
@@ -461,10 +490,7 @@ class FileIndexRepositoryImpl @Inject constructor(
             .flowOn(ioDispatcher)
 
     // --- Index-backed analytics ----------------------------------------------
-
-    override suspend fun isPopulated(): Boolean = withContext(ioDispatcher) {
-        dao.fileCount() > 0
-    }
+    // (Completeness is IndexStateRepository's job — no row-count "isPopulated" here.)
 
     override suspend fun largeFiles(minSizeBytes: Long, limit: Int): List<FileItem> =
         withContext(ioDispatcher) {
@@ -507,7 +533,12 @@ class FileIndexRepositoryImpl @Inject constructor(
                 val candidates = dao.filesOfSize(size)
                 if (candidates.size < 2) continue
 
-                val byHash = LinkedHashMap<String, MutableList<FileIndexEntry>>()
+                // CASCADE stage 2 — QUICK HASH pre-filter: same-size candidates are first split by
+                // a cheap head+tail hash (128 KiB of IO per file max, persisted in `quickHash`), so
+                // the expensive full-content hash below only ever runs on files whose quick hash
+                // ALREADY collides. Two big same-size-but-different files (common for videos/DB
+                // files) now cost two short reads instead of two full-file reads.
+                val byQuick = LinkedHashMap<String, MutableList<FileIndexEntry>>()
                 for (entry in candidates) {
                     currentCoroutineContext().ensureActive()
                     // Trash/recycle-bin rows are byte-identical to their originals but must not be
@@ -516,8 +547,19 @@ class FileIndexRepositoryImpl @Inject constructor(
                         dao.deleteByPath(entry.path)
                         continue
                     }
-                    val hash = hashForEntry(entry) ?: continue
-                    byHash.getOrPut(hash) { mutableListOf() }.add(entry)
+                    val quick = quickHashForEntry(entry) ?: continue
+                    byQuick.getOrPut(quick) { mutableListOf() }.add(entry)
+                }
+
+                // CASCADE stage 3 — STRONG full-content hash, only within quick-hash collisions.
+                val byHash = LinkedHashMap<String, MutableList<FileIndexEntry>>()
+                for (quickGroup in byQuick.values) {
+                    if (quickGroup.size < 2) continue
+                    for (entry in quickGroup) {
+                        currentCoroutineContext().ensureActive()
+                        val hash = hashForEntry(entry) ?: continue
+                        byHash.getOrPut(hash) { mutableListOf() }.add(entry)
+                    }
                 }
                 for ((hash, group) in byHash) {
                     if (group.size < 2) continue
@@ -526,6 +568,54 @@ class FileIndexRepositoryImpl @Inject constructor(
             }
             groups
         }
+
+    /**
+     * Returns the head+tail quick hash for [entry], reusing the stored value while the file's
+     * identity (size + second-precision mtime) is unchanged, else computing and persisting it.
+     * SHA-1 over the first and last [QUICK_HASH_WINDOW] bytes — a pre-FILTER only (grouping is
+     * always confirmed by the full-content hash), so collision strength is irrelevant here.
+     * Null when the file vanished or cannot be read.
+     */
+    private suspend fun quickHashForEntry(entry: FileIndexEntry): String? {
+        val file = File(entry.path)
+        val currentSize = runCatching { if (file.isFile) file.length() else -1L }.getOrDefault(-1L)
+        if (currentSize < 0L) return null
+        val currentMtime = runCatching { file.lastModified() }.getOrDefault(0L)
+        val identityUnchanged = currentSize == entry.sizeBytes &&
+            currentMtime / 1000 == entry.lastModified / 1000
+        if (identityUnchanged && entry.quickHash != null) return entry.quickHash
+
+        val computed = computeQuickHash(file) ?: return null
+        runCatching { dao.updateQuickHash(entry.path, computed) }
+        return computed
+    }
+
+    /** SHA-1 over the first and last [QUICK_HASH_WINDOW] bytes of [file] (whole file if smaller). */
+    private suspend fun computeQuickHash(file: File): String? {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-1")
+            val length = file.length()
+            java.io.RandomAccessFile(file, "r").use { raf ->
+                val head = ByteArray(minOf(QUICK_HASH_WINDOW.toLong(), length).toInt())
+                raf.readFully(head)
+                digest.update(head)
+                currentCoroutineContext().ensureActive()
+                if (length > QUICK_HASH_WINDOW * 2L) {
+                    raf.seek(length - QUICK_HASH_WINDOW)
+                    val tail = ByteArray(QUICK_HASH_WINDOW)
+                    raf.readFully(tail)
+                    digest.update(tail)
+                }
+            }
+            // Prefix with the length so equal head+tail of different-length files never collide
+            // (defensive only — callers group within one size bucket anyway).
+            "$length:" + digest.digest().toHexString()
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     override suspend fun nearDuplicateImageGroups(threshold: Int): List<DuplicateGroup> =
         withContext(ioDispatcher) {
@@ -592,10 +682,15 @@ class FileIndexRepositoryImpl @Inject constructor(
                                 if (budget-- <= 0L) break@bands
                                 val ib = bucket[b]
                                 if (find(ia) == find(ib)) continue // already same cluster
-                                if (PerceptualHash.isNear(
-                                        entries[ia].perceptualHash,
-                                        entries[ib].perceptualHash,
-                                        threshold,
+                                // STACKED verification: a near-dHash candidate only merges when
+                                // the weighted dHash+pHash+aHash score agrees (falls back to
+                                // dHash-only for legacy rows without the extra layers) — no
+                                // single hash family decides a match.
+                                if (PerceptualHash.isVisuallySimilar(
+                                        entries[ia].perceptualHash, entries[ib].perceptualHash,
+                                        entries[ia].phash, entries[ib].phash,
+                                        entries[ia].ahash, entries[ib].ahash,
+                                        dhashThreshold = threshold,
                                     )
                                 ) {
                                     union(ia, ib)
@@ -661,8 +756,10 @@ class FileIndexRepositoryImpl @Inject constructor(
         if (currentSize < 0L) return null // vanished or not a regular file → never group
         val currentMtime = runCatching { file.lastModified() }.getOrDefault(0L)
 
+        // Second-precision mtime: MediaStore-seeded rows carry whole seconds while the live stat
+        // reports millis — exact equality would treat every such row as modified and re-hash it.
         val identityUnchanged = currentSize == entry.sizeBytes &&
-            currentMtime == entry.lastModified
+            currentMtime / 1000 == entry.lastModified / 1000
         if (identityUnchanged) {
             entry.contentHash?.let { return it }
         }
@@ -715,6 +812,9 @@ class FileIndexRepositoryImpl @Inject constructor(
     private companion object {
         /** 64 KiB read window for streamed hashing. */
         const val DEFAULT_HASH_BUFFER = 64 * 1024
+
+        /** Head and tail window (each) of the quick pre-filter hash: 64 KiB + 64 KiB per file. */
+        const val QUICK_HASH_WINDOW = 64 * 1024
 
         /**
          * Budget on the LSH near-image merge's candidate comparisons (cheap XOR/bitcount each).

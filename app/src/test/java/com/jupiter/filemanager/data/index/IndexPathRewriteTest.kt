@@ -70,12 +70,26 @@ class IndexPathRewriteTest {
 
     @Test
     fun `identityUnchanged only preserves hashes for unchanged files`() {
-        assertTrue(IndexPathRewrite.identityUnchanged(false, 100L, 5L, 100L, 5L))
-        assertFalse("size changed -> re-hash",
-            IndexPathRewrite.identityUnchanged(false, 100L, 5L, 200L, 5L))
-        assertFalse("mtime changed -> re-hash",
-            IndexPathRewrite.identityUnchanged(false, 100L, 5L, 100L, 6L))
-        assertFalse("directories never carry a hash",
-            IndexPathRewrite.identityUnchanged(true, 0L, 5L, 0L, 5L))
+        val t = 1_700_000_000_000L // whole-second epoch millis (MediaStore style)
+        assertTrue(IndexPathRewrite.identityUnchanged(false, 100L, t, 100L, t))
+        assertFalse(
+            "size changed -> re-hash",
+            IndexPathRewrite.identityUnchanged(false, 100L, t, 200L, t),
+        )
+        // Mtimes are compared at SECOND precision: MediaStore reports whole seconds while a
+        // filesystem stat reports raw millis, so a sub-second rounding difference on the SAME
+        // untouched file must NOT invalidate the cached hashes (it used to wipe them all).
+        assertTrue(
+            "sub-second rounding is NOT a modification",
+            IndexPathRewrite.identityUnchanged(false, 100L, t, 100L, t + 777L),
+        )
+        assertFalse(
+            "a real (>= 1 s) mtime change -> re-hash",
+            IndexPathRewrite.identityUnchanged(false, 100L, t, 100L, t + 2_000L),
+        )
+        assertFalse(
+            "directories never carry a hash",
+            IndexPathRewrite.identityUnchanged(true, 0L, t, 0L, t),
+        )
     }
 }

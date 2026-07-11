@@ -89,10 +89,14 @@ interface FileIndexDao {
     /**
      * Returns the cached content hash for [path] only when size and mtime are
      * unchanged from what was indexed, so callers can reuse it without rehashing.
+     * Mtime is compared at SECOND precision: MediaStore reports whole seconds while a
+     * filesystem stat reports millis, and treating that rounding as "changed" silently
+     * invalidated perfectly good hashes.
      */
     @Query(
         "SELECT contentHash FROM file_index " +
-            "WHERE path = :path AND sizeBytes = :sizeBytes AND lastModified = :lastModified",
+            "WHERE path = :path AND sizeBytes = :sizeBytes " +
+            "AND lastModified / 1000 = :lastModified / 1000",
     )
     suspend fun hashIfUnchanged(path: String, sizeBytes: Long, lastModified: Long): String?
 
@@ -122,25 +126,50 @@ interface FileIndexDao {
     @Query("UPDATE file_index SET perceptualHash = :hash WHERE path = :path")
     suspend fun updatePerceptualHash(path: String, hash: Long)
 
-    /** Path + perceptual hash of every fingerprinted file (comparison set for near-dups). */
+    /**
+     * Stores the FULL stacked perceptual fingerprint (dHash + pHash + aHash) in one targeted
+     * UPDATE — same generation-stamp-preserving rationale as [updateHash].
+     */
     @Query(
-        "SELECT path, perceptualHash FROM file_index " +
+        "UPDATE file_index SET perceptualHash = :dhash, phash = :phash, ahash = :ahash " +
+            "WHERE path = :path",
+    )
+    suspend fun updatePerceptualFingerprint(path: String, dhash: Long, phash: Long, ahash: Long)
+
+    /**
+     * Stores the lazy head+tail quick hash. Targeted UPDATE; never touches the generation stamp.
+     */
+    @Query("UPDATE file_index SET quickHash = :quickHash WHERE path = :path")
+    suspend fun updateQuickHash(path: String, quickHash: String)
+
+    /**
+     * Path + all stacked perceptual layers of every fingerprinted file (comparison set for
+     * near-dups). phash/ahash may be null on rows fingerprinted before those layers existed;
+     * the comparison falls back to dHash-only for them.
+     */
+    @Query(
+        "SELECT path, perceptualHash, phash, ahash FROM file_index " +
             "WHERE perceptualHash IS NOT NULL AND perceptualHash != :unhashable " +
             "AND isDirectory = 0",
     )
     suspend fun allPerceptualHashes(unhashable: Long): List<PathPerceptualHash>
 
-    /** Image rows that still need a perceptual fingerprint (backfill work list). */
+    /**
+     * Image rows that still need (any layer of) the perceptual fingerprint — the backfill work
+     * list. Includes legacy dHash-only rows (phash IS NULL) so the library upgrades to the full
+     * stack; rows already marked UNHASHABLE are excluded (phash is stamped together with dhash,
+     * so an unhashable row never reappears here).
+     */
     @Query(
-        "SELECT * FROM file_index WHERE perceptualHash IS NULL AND isDirectory = 0 " +
-            "AND typeName = :imageTypeName LIMIT :limit",
+        "SELECT * FROM file_index WHERE (perceptualHash IS NULL OR phash IS NULL) " +
+            "AND isDirectory = 0 AND typeName = :imageTypeName LIMIT :limit",
     )
     suspend fun imagesMissingPerceptualHash(imageTypeName: String, limit: Int): List<FileIndexEntry>
 
     /** How many image rows still need a perceptual fingerprint (backfill progress denominator). */
     @Query(
-        "SELECT COUNT(*) FROM file_index WHERE perceptualHash IS NULL AND isDirectory = 0 " +
-            "AND typeName = :imageTypeName",
+        "SELECT COUNT(*) FROM file_index WHERE (perceptualHash IS NULL OR phash IS NULL) " +
+            "AND isDirectory = 0 AND typeName = :imageTypeName",
     )
     suspend fun countImagesMissingPerceptualHash(imageTypeName: String): Int
 
@@ -279,6 +308,10 @@ interface FileIndexDao {
 data class PathPerceptualHash(
     val path: String,
     val perceptualHash: Long,
+    /** DCT pHash layer; null on rows fingerprinted before the stacked layers existed. */
+    val phash: Long? = null,
+    /** Average-hash layer; same null semantics as [phash]. */
+    val ahash: Long? = null,
 )
 
 /**

@@ -20,12 +20,19 @@ import javax.inject.Singleton
 @Singleton
 class PerceptualHashSource @Inject constructor() {
 
-    fun compute(path: String): Long? {
+    fun compute(path: String): Long? = computeAll(path)?.dhash
+
+    /**
+     * Decodes [path] ONCE and returns the full stacked fingerprint (dHash + pHash + aHash).
+     * [PerceptualFingerprint.UNHASHABLE] for undecodable files (persist, never retry);
+     * null only for transient failures worth retrying later.
+     */
+    fun computeAll(path: String): PerceptualFingerprint? {
         return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(path, bounds)
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                return PerceptualHash.UNHASHABLE
+                return PerceptualFingerprint.UNHASHABLE
             }
 
             val options = BitmapFactory.Options().apply {
@@ -33,14 +40,14 @@ class PerceptualHashSource @Inject constructor() {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             val decoded = BitmapFactory.decodeFile(path, options)
-                ?: return PerceptualHash.UNHASHABLE
+                ?: return PerceptualFingerprint.UNHASHABLE
 
-            val hash = BitmapDHash.of(decoded) // shared bitmap→dHash reduction
+            val fingerprint = BitmapPerceptual.of(decoded) // one decode → all three layers
             decoded.recycle()
-            hash
+            fingerprint
         } catch (oom: OutOfMemoryError) {
             // Pathological image; mark unhashable rather than retrying it forever.
-            PerceptualHash.UNHASHABLE
+            PerceptualFingerprint.UNHASHABLE
         } catch (_: Exception) {
             null
         }

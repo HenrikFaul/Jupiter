@@ -66,4 +66,146 @@ object PerceptualHash {
         if (a == UNHASHABLE || b == UNHASHABLE) return false
         return hammingDistance(a, b) <= threshold
     }
+
+    // ------------------------------------------------------------------
+    // Stacked perceptual layer: aHash + pHash on top of the dHash above.
+    // One hash family alone has characteristic blind spots (dHash: smooth
+    // gradients; aHash: brightness-preserving edits; pHash: none of the cheap
+    // failure modes but costlier). Combining all three makes the match
+    // decision robust — no single hash, no single pass.
+    // ------------------------------------------------------------------
+
+    /** aHash operates on an 8×8 grid (64 samples). */
+    const val AHASH_GRID = 8
+    const val AHASH_SIZE = AHASH_GRID * AHASH_GRID
+
+    /** pHash reduces a 32×32 grid via DCT to its top-left 8×8 low-frequency block. */
+    const val PHASH_GRID = 32
+    const val PHASH_SIZE = PHASH_GRID * PHASH_GRID
+
+    /**
+     * Average hash: bit i is set when sample i is above the grid mean. Cheap and robust to
+     * re-compression; blind to brightness-preserving edits (which dHash/pHash catch).
+     * Input: row-major 8×8 luminance grid (0–255).
+     */
+    fun aHashFromLuminanceGrid(gray: IntArray): Long {
+        require(gray.size == AHASH_SIZE) { "expected $AHASH_SIZE samples, got ${gray.size}" }
+        var sum = 0L
+        for (v in gray) sum += v
+        val mean = sum / AHASH_SIZE
+        var hash = 0L
+        for (i in 0 until AHASH_SIZE) {
+            if (gray[i] > mean) hash = hash or (1L shl i)
+        }
+        return hash
+    }
+
+    /**
+     * DCT perceptual hash: 32×32 luminance grid → 2-D DCT-II → keep the top-left 8×8
+     * low-frequency block, bit set when the coefficient is above the MEDIAN of that block
+     * (DC term excluded — it only encodes overall brightness). The classic pHash — the most
+     * edit-robust of the three layers. Input: row-major 32×32 luminance grid (0–255).
+     */
+    fun pHashFromLuminanceGrid(gray: IntArray): Long {
+        require(gray.size == PHASH_SIZE) { "expected $PHASH_SIZE samples, got ${gray.size}" }
+        val n = PHASH_GRID
+        // Separable 2-D DCT-II: rows then columns; only the first 8 output rows/cols are
+        // computed, keeping this ~8/32 of a full transform.
+        val rowPass = Array(n) { DoubleArray(AHASH_GRID) }
+        for (y in 0 until n) {
+            for (u in 0 until AHASH_GRID) {
+                var acc = 0.0
+                for (x in 0 until n) {
+                    acc += gray[y * n + x] * kotlin.math.cos((2 * x + 1) * u * Math.PI / (2.0 * n))
+                }
+                rowPass[y][u] = acc
+            }
+        }
+        val coeffs = DoubleArray(AHASH_SIZE)
+        for (v in 0 until AHASH_GRID) {
+            for (u in 0 until AHASH_GRID) {
+                var acc = 0.0
+                for (y in 0 until n) {
+                    acc += rowPass[y][u] * kotlin.math.cos((2 * y + 1) * v * Math.PI / (2.0 * n))
+                }
+                coeffs[v * AHASH_GRID + u] = acc
+            }
+        }
+        val sorted = coeffs.copyOfRange(1, AHASH_SIZE).sortedArray()
+        val median = (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0
+        var hash = 0L
+        for (i in 1 until AHASH_SIZE) {
+            if (coeffs[i] > median) hash = hash or (1L shl i)
+        }
+        return hash
+    }
+
+    /** Relative weights of the three layers in [combinedScore] (pHash trusted most). */
+    const val WEIGHT_DHASH = 0.35
+    const val WEIGHT_PHASH = 0.45
+    const val WEIGHT_AHASH = 0.20
+
+    /**
+     * STRONG-duplicate ceiling for [combinedScore]: matches this close are the same picture
+     * with high confidence (typical re-encodes score 0–3).
+     */
+    const val STRICT_SCORE_THRESHOLD = 5.0
+
+    /**
+     * NEAR-duplicate ceiling for [combinedScore]: matches between strict and relaxed are
+     * surfaced for review, never auto-acted on. Unrelated images average ~30.
+     */
+    const val RELAXED_SCORE_THRESHOLD = 10.0
+
+    /**
+     * Weighted Hamming score across the three layers — lower is more similar:
+     * `w1*dHashDist + w2*pHashDist + w3*aHashDist`.
+     */
+    fun combinedScore(dDist: Int, pDist: Int, aDist: Int): Double =
+        WEIGHT_DHASH * dDist + WEIGHT_PHASH * pDist + WEIGHT_AHASH * aDist
+
+    /**
+     * Stacked match decision for two images: true when the weighted score is within
+     * [RELAXED_SCORE_THRESHOLD]. Falls back to the dHash-only [isNear] when either side
+     * lacks the extra layers (rows fingerprinted before they existed) — never a regression
+     * against the previous dHash-only behaviour.
+     */
+    fun isVisuallySimilar(
+        dA: Long, dB: Long,
+        pA: Long?, pB: Long?,
+        aA: Long?, aB: Long?,
+        dhashThreshold: Int = DEFAULT_NEAR_THRESHOLD,
+    ): Boolean {
+        if (dA == UNHASHABLE || dB == UNHASHABLE) return false
+        if (pA == null || pB == null || aA == null || aB == null ||
+            pA == UNHASHABLE || pB == UNHASHABLE || aA == UNHASHABLE || aB == UNHASHABLE
+        ) {
+            return hammingDistance(dA, dB) <= dhashThreshold
+        }
+        val score = combinedScore(
+            hammingDistance(dA, dB),
+            hammingDistance(pA, pB),
+            hammingDistance(aA, aB),
+        )
+        return score <= RELAXED_SCORE_THRESHOLD
+    }
+}
+
+/**
+ * The full stacked perceptual fingerprint of one image — all three layers from a single decode.
+ * [PerceptualHash.UNHASHABLE] in every layer means "tried, undecodable" (never retried).
+ */
+data class PerceptualFingerprint(
+    val dhash: Long,
+    val phash: Long,
+    val ahash: Long,
+) {
+    companion object {
+        /** Fingerprint stored for undecodable files so they are never retried or matched. */
+        val UNHASHABLE = PerceptualFingerprint(
+            PerceptualHash.UNHASHABLE,
+            PerceptualHash.UNHASHABLE,
+            PerceptualHash.UNHASHABLE,
+        )
+    }
 }

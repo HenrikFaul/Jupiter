@@ -72,9 +72,6 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
-        // Best-effort: a failure to register the observer must never crash startup.
-        runCatching { downloadIndexObserver.start() }
-
         // Recycle-Bin retention: schedule the daily auto-delete sweep. The worker no-ops when the
         // "auto-delete after N days" setting is OFF (the default), so keeping it scheduled is safe.
         runCatching { trashScheduler.schedulePeriodicPurge() }
@@ -87,6 +84,12 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
         appScope.launch {
             runCatching {
                 val enabled = settings.indexingEnabled.first()
+                // The live MediaStore delta observer is part of the indexing pipeline — it only
+                // starts when indexing is enabled (and Settings tears it down on disable), so
+                // "indexing off" really means nothing observes, schedules, or writes.
+                if (enabled) {
+                    runCatching { downloadIndexObserver.start() }
+                }
                 if (enabled && !indexStateRepository.isMetadataComplete()) {
                     indexingScheduler.ensureIndexed()
                 }

@@ -66,10 +66,13 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
                     currentCoroutineContext().ensureActive()
                     if (isStopped) return Result.retry()
                     // null = transient failure → try again on a later run; otherwise mark
-                    // (real hash or UNHASHABLE) so this row leaves the work list.
-                    val hash = perceptualHashSource.compute(item.path)
-                        ?: PerceptualHash.UNHASHABLE
-                    runCatching { indexRepository.putPerceptualHash(item.path, hash) }
+                    // (real fingerprint or UNHASHABLE in all layers) so this row leaves the
+                    // work list. One decode produces all three stacked hashes.
+                    val fp = perceptualHashSource.computeAll(item.path)
+                        ?: PerceptualFingerprint.UNHASHABLE
+                    runCatching {
+                        indexRepository.putPerceptualFingerprint(item.path, fp.dhash, fp.phash, fp.ahash)
+                    }
                     processed++
                 }
                 if (foreground) runCatching { setForeground(foregroundInfo(processed, remaining)) }

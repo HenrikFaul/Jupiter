@@ -41,6 +41,14 @@ object IndexPathRewrite {
     /**
      * True when an already-indexed file identity is unchanged, so its cached content
      * hash may be safely preserved across a re-index. Directories never carry a hash.
+     *
+     * Mtimes are compared at SECOND precision: MediaStore reports whole seconds
+     * (`DATE_MODIFIED` × 1000) while a filesystem stat reports raw millis, so the SAME
+     * untouched file arrives with two "different" mtimes depending on which enumerator
+     * indexed it. Exact equality treated that rounding as a modification and silently
+     * WIPED the cached content/perceptual/structural fingerprints on every re-index —
+     * forcing whole-library re-hashing/re-decoding. A real edit always moves the mtime
+     * by at least a second in practice, and the size check backstops the rest.
      */
     fun identityUnchanged(
         isDirectory: Boolean,
@@ -48,5 +56,5 @@ object IndexPathRewrite {
         oldMtime: Long,
         newSize: Long,
         newMtime: Long,
-    ): Boolean = !isDirectory && oldSize == newSize && oldMtime == newMtime
+    ): Boolean = !isDirectory && oldSize == newSize && oldMtime / 1000 == newMtime / 1000
 }

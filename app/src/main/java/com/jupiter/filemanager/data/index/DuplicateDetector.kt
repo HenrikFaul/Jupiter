@@ -128,8 +128,9 @@ class DuplicateDetector @Inject constructor(
             // 2) SIMILAR picture (images only): fingerprint + near-dHash lookup, fused through the
             // perceptual layer so the alert carries a confidence tier + explanation.
             if (item.type == FileType.IMAGE) {
-                val hash = perceptualHashSource.compute(item.path) ?: return@withContext null
-                indexRepository.putPerceptualHash(item.path, hash)
+                val fp = perceptualHashSource.computeAll(item.path) ?: return@withContext null
+                indexRepository.putPerceptualFingerprint(item.path, fp.dhash, fp.phash, fp.ahash)
+                val hash = fp.dhash
                 if (hash == PerceptualHash.UNHASHABLE) return@withContext null
                 // Ensure every already-indexed image carries a fingerprint BEFORE comparing, so a
                 // months-old original the background backfill has not yet reached is actually in
@@ -352,11 +353,12 @@ class DuplicateDetector @Inject constructor(
             var stored = 0
             for (image in batch) {
                 currentCoroutineContext().ensureActive()
-                val fingerprint = perceptualHashSource.compute(image.path)
-                    ?: PerceptualHash.UNHASHABLE
-                if (runCatching { indexRepository.putPerceptualHash(image.path, fingerprint) }.isSuccess) {
-                    stored++
-                }
+                val fp = perceptualHashSource.computeAll(image.path)
+                    ?: PerceptualFingerprint.UNHASHABLE
+                val ok = runCatching {
+                    indexRepository.putPerceptualFingerprint(image.path, fp.dhash, fp.phash, fp.ahash)
+                }.isSuccess
+                if (ok) stored++
             }
             // Termination guarantee: every row is marked (hash or UNHASHABLE), so a non-empty batch
             // normally shrinks the backlog. If NOTHING could be stored (persistent write failure),

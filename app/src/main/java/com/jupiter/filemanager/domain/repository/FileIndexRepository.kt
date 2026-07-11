@@ -146,13 +146,9 @@ interface FileIndexRepository {
     fun stats(): Flow<IndexStats>
 
     // --- Index-backed analytics (avoids re-walking storage on every open) --------
-
-    /**
-     * True once the background survey has indexed at least one file. Read paths use
-     * this to decide whether they can serve instant results from the index instead of
-     * performing a fresh deep scan.
-     */
-    suspend fun isPopulated(): Boolean
+    // NOTE deliberately NO row-count "isPopulated" here: completeness is a STATE
+    // (IndexStateRepository.metadataStatus == COMPLETE / isUsable), never a row count —
+    // a partial 500-row index must never be treated as an authoritative survey.
 
     /**
      * The largest indexed files (>= [minSizeBytes]), biggest first, capped at [limit].
@@ -192,6 +188,14 @@ interface FileIndexRepository {
 
     /** How many indexed images still lack a perceptual fingerprint (0 = the whole library is covered). */
     suspend fun imagesNeedingPerceptualHashCount(): Int
+
+    /**
+     * Stores the full STACKED perceptual fingerprint of one image in a single targeted update:
+     * [dhash] (difference hash), [phash] (DCT hash) and [ahash] (average hash) — the three layers
+     * combined by the near-duplicate comparison so no single hash family's blind spot decides a
+     * match. All three come from one decode.
+     */
+    suspend fun putPerceptualFingerprint(path: String, dhash: Long, phash: Long, ahash: Long)
 
     /**
      * Precomputes content hashes for every file whose size collides with another
