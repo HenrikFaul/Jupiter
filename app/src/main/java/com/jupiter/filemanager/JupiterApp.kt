@@ -9,6 +9,7 @@ import coil.decode.VideoFrameDecoder
 import com.jupiter.filemanager.data.index.DownloadIndexObserver
 import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
+import com.jupiter.filemanager.data.trash.TrashScheduler
 import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +56,10 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
     @Inject
     lateinit var indexingScheduler: IndexingScheduler
 
+    /** Schedules the daily Recycle-Bin auto-delete (retention) sweep. */
+    @Inject
+    lateinit var trashScheduler: TrashScheduler
+
     /** User preference for whether indexing is enabled at all. */
     @Inject
     lateinit var settings: SettingsDataStore
@@ -69,6 +74,10 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
         super.onCreate()
         // Best-effort: a failure to register the observer must never crash startup.
         runCatching { downloadIndexObserver.start() }
+
+        // Recycle-Bin retention: schedule the daily auto-delete sweep. The worker no-ops when the
+        // "auto-delete after N days" setting is OFF (the default), so keeping it scheduled is safe.
+        runCatching { trashScheduler.schedulePeriodicPurge() }
 
         // Desktop-app-style indexing: build the survey in the background only when indexing
         // is ENABLED and the last survey did NOT reach COMPLETE. Completeness is a Room state

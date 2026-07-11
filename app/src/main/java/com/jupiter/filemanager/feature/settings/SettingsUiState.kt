@@ -35,6 +35,8 @@ data class SettingsUiState(
     // spinner. [indexProgressTotal] is 0 until the worker publishes its first estimate.
     val indexProgressCurrent: Int = 0,
     val indexProgressTotal: Int = 0,
+    // Recycle Bin: days after which trashed items are auto-deleted (0 = OFF, the default).
+    val trashAutoDeleteDays: Int = 0,
 ) {
     /** Percentage [0,100] of the current index build, or null when unknown/not running. */
     val indexProgressPercent: Int?

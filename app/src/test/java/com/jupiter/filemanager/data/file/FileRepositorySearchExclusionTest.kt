@@ -117,5 +117,6 @@ class FileRepositorySearchExclusionTest {
         override suspend fun restore(id: String): AppResult<Unit> = AppResult.Success(Unit)
         override suspend fun deletePermanently(id: String): AppResult<Unit> = AppResult.Success(Unit)
         override suspend fun emptyAll(): AppResult<Unit> = AppResult.Success(Unit)
+        override suspend fun purgeOlderThan(cutoffMillis: Long): Int = 0
     }
 }

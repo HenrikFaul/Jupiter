@@ -3,11 +3,13 @@ package com.jupiter.filemanager.feature.trash
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.repository.TrashRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -29,6 +31,7 @@ import javax.inject.Inject
 @HiltViewModel
 class TrashViewModel @Inject constructor(
     private val trashRepository: TrashRepository,
+    private val settings: SettingsDataStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TrashUiState())
@@ -74,12 +77,17 @@ class TrashViewModel @Inject constructor(
 
     private fun observeTrash() {
         viewModelScope.launch {
-            trashRepository.observeTrash().collect { items ->
-                _uiState.value = _uiState.value.copy(
-                    items = items,
-                    isLoading = false,
-                )
-            }
+            combine(
+                trashRepository.observeTrash(),
+                settings.trashAutoDeleteDays,
+            ) { items, autoDeleteDays -> items to autoDeleteDays }
+                .collect { (items, autoDeleteDays) ->
+                    _uiState.value = _uiState.value.copy(
+                        items = items,
+                        isLoading = false,
+                        autoDeleteDays = autoDeleteDays,
+                    )
+                }
         }
     }
 }

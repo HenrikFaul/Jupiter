@@ -46,6 +46,10 @@ data class AppStorageInfo(
  *   walks every installed package and takes several seconds on a full device); the screen shows
  *   the apps gathered so far plus a "Scanning…" indicator instead of a blank prompt. False on the
  *   final, complete emission.
+ * @property scannedCount how many installed packages have been measured so far (for a determinate
+ *   progress indicator). Equals [totalCount] on the final emission.
+ * @property totalCount how many installed packages the scan will measure in total (the progress
+ *   denominator); 0 before it is known.
  */
 data class AppStorageOverview(
     val apps: List<AppStorageInfo> = emptyList(),
@@ -53,4 +57,10 @@ data class AppStorageOverview(
     val cacheBytes: Long = 0L,
     val permissionRequired: Boolean = false,
     val scanning: Boolean = false,
-)
+    val scannedCount: Int = 0,
+    val totalCount: Int = 0,
+) {
+    /** Scan progress in [0f, 1f]; 0 until the total is known. */
+    val progress: Float
+        get() = if (totalCount <= 0) 0f else (scannedCount.toFloat() / totalCount.toFloat()).coerceIn(0f, 1f)
+}

@@ -139,6 +139,7 @@ fun TrashScreen(
                     items(items = uiState.items, key = { it.id }) { item ->
                         TrashItemCard(
                             item = item,
+                            autoDeleteDays = uiState.autoDeleteDays,
                             enabled = !uiState.busy,
                             onRestore = { viewModel.restore(item.id) },
                             onDeletePermanently = { viewModel.deletePermanently(item.id) },
@@ -184,6 +185,9 @@ fun TrashScreen(
     }
 }
 
+/** Milliseconds in a day, for the auto-delete countdown. */
+private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
+
 /**
  * A card describing a single [TrashItem]: an icon, its name, size and when it was
  * deleted, its original location, and the Restore / Delete-permanently actions.
@@ -191,6 +195,7 @@ fun TrashScreen(
 @Composable
 private fun TrashItemCard(
     item: TrashItem,
+    autoDeleteDays: Int,
     enabled: Boolean,
     onRestore: () -> Unit,
     onDeletePermanently: () -> Unit,
@@ -247,6 +252,22 @@ private fun TrashItemCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (autoDeleteDays > 0) {
+                        val elapsedDays =
+                            ((System.currentTimeMillis() - item.deletedAt) / DAY_MILLIS).toInt()
+                        val remaining = (autoDeleteDays - elapsedDays).coerceAtLeast(0)
+                        Text(
+                            text = if (remaining <= 0) {
+                                "Auto-deletes soon"
+                            } else {
+                                "Auto-deletes in $remaining day" + if (remaining == 1) "" else "s"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
 

@@ -6,6 +6,7 @@ import androidx.work.WorkInfo
 import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.index.IndexingWorker
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
+import com.jupiter.filemanager.data.trash.TrashScheduler
 import com.jupiter.filemanager.domain.model.IndexStats
 import com.jupiter.filemanager.domain.model.ThemeMode
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
@@ -37,6 +38,7 @@ class SettingsViewModel @Inject constructor(
     private val indexRepository: FileIndexRepository,
     private val indexStateRepository: IndexStateRepository,
     private val indexingScheduler: IndexingScheduler,
+    private val trashScheduler: TrashScheduler,
 ) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -52,6 +54,7 @@ class SettingsViewModel @Inject constructor(
         settings.indexingEnabled,
         indexRepository.stats(),
         indexingScheduler.observeStatus(),
+        settings.trashAutoDeleteDays,
     ) { values ->
         val stats = values[10] as IndexStats
         val workInfo = values[11] as WorkInfo?
@@ -75,6 +78,7 @@ class SettingsViewModel @Inject constructor(
             indexing = running || workInfo?.state == WorkInfo.State.ENQUEUED,
             indexProgressCurrent = indexedSoFar,
             indexProgressTotal = indexTotal,
+            trashAutoDeleteDays = values[12] as Int,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -180,5 +184,17 @@ class SettingsViewModel @Inject constructor(
      */
     fun rebuildIndex() {
         indexingScheduler.rebuildNow()
+    }
+
+    /**
+     * Persists the Recycle-Bin auto-delete retention window (in days; 0 = OFF, never auto-delete).
+     * When a positive window is chosen we run a purge PROMPTLY (not just on the daily cadence) so a
+     * newly-set/shortened window takes effect right away — items already past it are cleared now.
+     */
+    fun setTrashAutoDeleteDays(days: Int) {
+        viewModelScope.launch {
+            settings.setTrashAutoDeleteDays(days)
+            if (days > 0) trashScheduler.purgeNow()
+        }
     }
 }

@@ -238,6 +238,20 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            SettingsSectionHeader(title = "Recycle Bin")
+            SettingsNavigationRow(
+                icon = Icons.Filled.DeleteSweep,
+                title = "Open Recycle Bin",
+                subtitle = "Restore or permanently remove trashed files",
+                onClick = { onOpenRoute(Destination.Trash.route) },
+            )
+            TrashAutoDeleteSelector(
+                selectedDays = uiState.trashAutoDeleteDays,
+                onSelected = viewModel::setTrashAutoDeleteDays,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             SettingsSectionHeader(title = "Indexing")
             SettingsSwitchRow(
                 icon = Icons.Filled.Bolt,
@@ -399,6 +413,71 @@ private fun ThemeModeRow(
             selected = selected,
             onClick = null,
         )
+    }
+}
+
+/** The Recycle-Bin retention windows offered in Settings (label, days; 0 = never auto-delete). */
+private val TRASH_AUTO_DELETE_OPTIONS: List<Pair<String, Int>> = listOf(
+    "Never" to 0,
+    "After 7 days" to 7,
+    "After 15 days" to 15,
+    "After 30 days" to 30,
+    "After 60 days" to 60,
+)
+
+/**
+ * Radio selector for how long items stay in the Recycle Bin before being auto-deleted. "Never" (the
+ * default) means nothing is ever removed automatically — items only leave the bin when the user
+ * restores or empties them.
+ */
+@Composable
+private fun TrashAutoDeleteSelector(
+    selectedDays: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.DeleteSweep,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                text = "Auto-delete trashed items",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 16.dp),
+            )
+        }
+        Column(modifier = Modifier.selectableGroup()) {
+            TRASH_AUTO_DELETE_OPTIONS.forEach { (label, days) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectableModifier(
+                            selected = days == selectedDays,
+                            onClick = { onSelected(days) },
+                            role = Role.RadioButton,
+                        )
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    RadioButton(selected = days == selectedDays, onClick = null)
+                }
+            }
+        }
     }
 }
 

@@ -181,6 +181,21 @@ class TrashRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun purgeOlderThan(cutoffMillis: Long): Int = withContext(ioDispatcher) {
+        var purged = 0
+        for (entry in dao.getOlderThan(cutoffMillis)) {
+            coroutineContext.ensureActive()
+            val trashed = File(entry.trashedPath)
+            // Only drop the row once its payload is gone, so a failed physical delete never orphans
+            // the audit row (the item stays visible/restorable and is retried on the next sweep).
+            if (!trashed.exists() || trashed.deleteRecursively()) {
+                dao.delete(entry.id)
+                purged++
+            }
+        }
+        purged
+    }
+
     // ---------------------------------------------------------------------
     // Internal helpers
     // ---------------------------------------------------------------------
