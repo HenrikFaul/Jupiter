@@ -2,10 +2,13 @@ package com.jupiter.filemanager.feature.cleanup
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiter.filemanager.data.index.IndexingScheduler
+import com.jupiter.filemanager.data.index.PerceptualHash
 import com.jupiter.filemanager.data.media.MediaQualityProbe
 import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.MediaQuality
+import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import com.jupiter.filemanager.domain.repository.TrashRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +39,8 @@ import javax.inject.Inject
 @HiltViewModel
 class DuplicatesViewModel @Inject constructor(
     private val analyticsRepository: StorageAnalyticsRepository,
+    private val indexRepository: FileIndexRepository,
+    private val indexingScheduler: IndexingScheduler,
     private val mediaQualityProbe: MediaQualityProbe,
     private val storageAccessManager: StorageAccessManager,
     private val trashRepository: TrashRepository,
@@ -135,6 +140,10 @@ class DuplicatesViewModel @Inject constructor(
         }
 
         cancelProbes()
+        // Keep the perceptual-fingerprint backfill progressing so the VISUAL near-duplicate image
+        // groups (added on scan completion below) cover more of the library on each rescan. Cheap:
+        // KEEP policy never restarts an in-flight pass, and it exits immediately once nothing is left.
+        indexingScheduler.ensurePerceptualBackfill()
         // A user-initiated fresh scan trusts the index (which no longer contains files deleted this
         // session — moveToTrash removed their rows), so the session delete-filter can be reset.
         if (!silent) deletedPaths.clear()
@@ -172,11 +181,25 @@ class DuplicatesViewModel @Inject constructor(
                 }
                 .onCompletion { cause ->
                     if (cause == null) {
+                        // Exact byte-identical groups (all file types) come from the walk above. NOW
+                        // add VISUAL near-duplicate IMAGE groups (same photo re-sized/re-encoded, so
+                        // its bytes — and SHA-1 — differ). This is where the perceptual dHash detector
+                        // finally reaches the cleanup UI instead of only firing arrival notifications.
+                        // Drop any image already shown in an exact group so nothing appears twice.
+                        val exact = collected.toList()
+                        val exactPaths = exact.asSequence()
+                            .flatMap { it.files.asSequence() }
+                            .map { it.path }
+                            .toSet()
+                        val imageGroups = runCatching {
+                            indexRepository.nearDuplicateImageGroups(PerceptualHash.DEFAULT_NEAR_THRESHOLD)
+                        }.getOrDefault(emptyList())
+                            .map { group -> group.copy(files = group.files.filterNot { it.path in exactPaths }) }
+                            .filter { it.files.size > 1 }
+
                         // publishGroups drops anything deleted while this scan was in flight, so a
-                        // scan finishing AFTER a delete cannot resurrect the removed groups. A silent
-                        // refresh keeps the old list visible during the scan; swap in the fresh
-                        // result now. A visible scan has been streaming groups already.
-                        publishGroups(collected.toList(), isScanning = false)
+                        // scan finishing AFTER a delete cannot resurrect the removed groups.
+                        publishGroups(exact + imageGroups, isScanning = false)
                         scanCache.saveGroups(_uiState.value.groups)
                         // Probe quality only after the scan finishes, so probing never
                         // competes with the (CPU/IO-heavy) hashing walk on the IO pool.

@@ -181,6 +181,16 @@ interface FileIndexRepository {
     suspend fun duplicateGroups(minSizeBytes: Long): List<DuplicateGroup>
 
     /**
+     * Clusters fingerprinted IMAGES into VISUAL near-duplicate groups (the same photo at different
+     * resolution/format/compression), matched by perceptual dHash within [threshold] Hamming
+     * distance — the counterpart to [duplicateGroups] for images whose BYTES differ (so SHA-1 never
+     * groups them). Each returned [DuplicateGroup] has `similar = true`, its files ordered
+     * largest-first, and existence-pruned. Only images that already carry a perceptual hash
+     * participate (the backfill worker populates them); returns empty when fewer than two match.
+     */
+    suspend fun nearDuplicateImageGroups(threshold: Int): List<DuplicateGroup>
+
+    /**
      * Precomputes content hashes for every file whose size collides with another
      * (the only files that could be duplicates), so a later [duplicateGroups] call is
      * instant. Intended to run as the second phase of the background survey. Skips

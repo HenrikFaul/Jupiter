@@ -523,6 +523,85 @@ class FileIndexRepositoryImpl @Inject constructor(
             groups
         }
 
+    override suspend fun nearDuplicateImageGroups(threshold: Int): List<DuplicateGroup> =
+        withContext(ioDispatcher) {
+            // Every fingerprinted image as a lean (path, dHash) pair — scanning tens of thousands of
+            // 64-bit hashes in memory is trivial.
+            val entries = dao.allPerceptualHashes(PerceptualHash.UNHASHABLE)
+            val n = entries.size
+            if (n < 2) return@withContext emptyList()
+
+            // Union-find over the image set. Two passes build the clusters:
+            val parent = IntArray(n) { it }
+            val rank = IntArray(n)
+            fun find(x: Int): Int {
+                var r = x
+                while (parent[r] != r) {
+                    parent[r] = parent[parent[r]] // path halving
+                    r = parent[r]
+                }
+                return r
+            }
+            fun union(a: Int, b: Int) {
+                val ra = find(a)
+                val rb = find(b)
+                if (ra == rb) return
+                when {
+                    rank[ra] < rank[rb] -> parent[ra] = rb
+                    rank[ra] > rank[rb] -> parent[rb] = ra
+                    else -> { parent[rb] = ra; rank[ra]++ }
+                }
+            }
+
+            // Pass 1 — exact dHash equality (O(n)). dHash is resolution/compression-robust, so a
+            // re-saved photo usually lands on the IDENTICAL hash; this alone catches the common case
+            // and scales to any library size.
+            val firstOfHash = HashMap<Long, Int>(n)
+            for (i in 0 until n) {
+                val prev = firstOfHash.putIfAbsent(entries[i].perceptualHash, i)
+                if (prev != null) union(i, prev)
+            }
+
+            // Pass 2 — merge DISTINCT hashes within [threshold] Hamming distance (catches near copies
+            // whose hash is a few bits off). O(d²) over distinct hashes only; bounded so a huge
+            // all-unique library never spins (it falls back to the exact grouping from pass 1).
+            if (threshold > 0) {
+                val reps = firstOfHash.entries.toList()
+                val d = reps.size
+                if (d.toLong() * d <= MAX_NEAR_PAIR_COMPARISONS) {
+                    for (a in 0 until d) {
+                        currentCoroutineContext().ensureActive()
+                        for (b in (a + 1) until d) {
+                            if (PerceptualHash.isNear(reps[a].key, reps[b].key, threshold)) {
+                                union(reps[a].value, reps[b].value)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Collect clusters of two or more, then materialize + existence-prune the few that matter.
+            val clusters = LinkedHashMap<Int, MutableList<String>>()
+            for (i in 0 until n) {
+                clusters.getOrPut(find(i)) { mutableListOf() }.add(entries[i].path)
+            }
+            val out = ArrayList<DuplicateGroup>()
+            for (paths in clusters.values) {
+                if (paths.size < 2) continue
+                currentCoroutineContext().ensureActive()
+                val alive = existingOrPruned(dao.entriesForPaths(paths).map(::toFileItem))
+                if (alive.size < 2) continue
+                // Largest first so "keep the best" / "select extras" defaults to the highest-res copy.
+                val sorted = alive.sortedByDescending { it.sizeBytes }
+                out += DuplicateGroup(
+                    hash = "img:" + sorted.first().path,
+                    files = sorted,
+                    similar = true,
+                )
+            }
+            out
+        }
+
     override suspend fun hashCollidingSizes(minSizeBytes: Long) = withContext(ioDispatcher) {
         for (size in dao.collidingSizes(minSizeBytes)) {
             currentCoroutineContext().ensureActive()
@@ -610,6 +689,13 @@ class FileIndexRepositoryImpl @Inject constructor(
     private companion object {
         /** 64 KiB read window for streamed hashing. */
         const val DEFAULT_HASH_BUFFER = 64 * 1024
+
+        /**
+         * Cap on the O(d²) near-image merge (d = distinct perceptual hashes): ~50M cheap XOR/bitcount
+         * comparisons (well under a second). Above this the near pass is skipped and only the exact
+         * dHash grouping (pass 1) applies, so a very large all-unique library never stalls the scan.
+         */
+        const val MAX_NEAR_PAIR_COMPARISONS = 50_000_000L
 
         /**
          * Files below this size never trigger a duplicate ALERT: empty/near-empty files

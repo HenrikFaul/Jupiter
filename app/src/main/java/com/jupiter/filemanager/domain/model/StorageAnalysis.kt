@@ -45,10 +45,15 @@ data class StorageOverview(
  *
  * @param hash the content hash shared by every file in [files].
  * @param files the files belonging to this duplicate group.
+ * @param similar true when this is a VISUAL near-duplicate group (same photo at different
+ *   resolution/format, matched by perceptual dHash) rather than a byte-identical group. The copies
+ *   differ in bytes, so the UI labels it "similar" and keeping the largest/highest-quality is the
+ *   sensible default.
  */
 data class DuplicateGroup(
     val hash: String,
     val files: List<FileItem>,
+    val similar: Boolean = false,
 ) {
     /**
      * The number of bytes that could be reclaimed by keeping a single copy and removing the rest.

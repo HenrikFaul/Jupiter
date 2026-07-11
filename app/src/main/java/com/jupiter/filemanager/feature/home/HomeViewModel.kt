@@ -4,6 +4,7 @@ import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.data.media.MediaStoreCategorySource
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.CategoryUsage
@@ -12,7 +13,6 @@ import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageVolumeInfo
 import com.jupiter.filemanager.domain.repository.BookmarkRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
-import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -48,7 +48,7 @@ import kotlinx.coroutines.withContext
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val fileRepository: FileRepository,
-    private val analyticsRepository: StorageAnalyticsRepository,
+    private val categorySource: MediaStoreCategorySource,
     private val bookmarkRepository: BookmarkRepository,
     private val settings: SettingsDataStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -75,35 +75,26 @@ class HomeViewModel @Inject constructor(
             val volumes = withContext(ioDispatcher) { fileRepository.storageVolumes() }
             val primary = volumes.firstOrNull { it.isPrimary } ?: volumes.firstOrNull()
 
-            when (val overview = analyticsRepository.storageOverview()) {
-                is AppResult.Success -> {
-                    val categories = overview.data.categories
-                    val quickAccess = withContext(ioDispatcher) { buildQuickAccess(categories) }
-                    _uiState.update {
-                        it.copy(
-                            volumes = volumes,
-                            primaryVolume = primary,
-                            categories = categories,
-                            quickAccess = quickAccess,
-                            isLoading = false,
-                            error = null,
-                        )
-                    }
+            // Per-category size/count from the SAME type-based MediaStore source the category browser
+            // uses, so each tile shows exactly what opening the category reveals. (The previous
+            // analytics single-bucket categorization put every downloaded .apk/.zip into DOWNLOADS,
+            // which is why the APKs and Archives tiles read 0 B while the browse listed dozens.)
+            val categories = withContext(ioDispatcher) {
+                coroutineScope {
+                    GRID_CATEGORIES.map { category -> async { categorySource.summarize(category) } }
+                        .awaitAll()
                 }
-
-                is AppResult.Failure -> {
-                    val quickAccess = withContext(ioDispatcher) { buildQuickAccess(emptyList()) }
-                    _uiState.update {
-                        it.copy(
-                            volumes = volumes,
-                            primaryVolume = primary,
-                            categories = emptyList(),
-                            quickAccess = quickAccess,
-                            isLoading = false,
-                            error = overview.error.displayMessage,
-                        )
-                    }
-                }
+            }
+            val quickAccess = withContext(ioDispatcher) { buildQuickAccess(categories) }
+            _uiState.update {
+                it.copy(
+                    volumes = volumes,
+                    primaryVolume = primary,
+                    categories = categories,
+                    quickAccess = quickAccess,
+                    isLoading = false,
+                    error = null,
+                )
             }
         }
     }
@@ -183,5 +174,21 @@ class HomeViewModel @Inject constructor(
                     is AppResult.Failure -> null
                 }
             }
+    }
+
+    private companion object {
+        /**
+         * Categories shown as Home tiles, in display order. Type-based (Downloads is the folder view),
+         * so an item may count toward several — exactly as the category browser lists it.
+         */
+        val GRID_CATEGORIES = listOf(
+            StorageCategory.IMAGES,
+            StorageCategory.VIDEOS,
+            StorageCategory.AUDIO,
+            StorageCategory.DOCUMENTS,
+            StorageCategory.APPS,
+            StorageCategory.ARCHIVES,
+            StorageCategory.DOWNLOADS,
+        )
     }
 }

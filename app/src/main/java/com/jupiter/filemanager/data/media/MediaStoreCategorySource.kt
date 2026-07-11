@@ -10,6 +10,7 @@ import com.jupiter.filemanager.core.util.StorageExclusions
 import com.jupiter.filemanager.core.util.extensionOf
 import com.jupiter.filemanager.core.util.fileTypeFor
 import com.jupiter.filemanager.di.IoDispatcher
+import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.StorageCategory
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -59,6 +60,53 @@ class MediaStoreCategorySource @Inject constructor(
         } catch (_: Throwable) {
             // SecurityException (missing permission), IllegalStateException, etc.
             emptyList()
+        }
+    }
+
+    /**
+     * Returns the total size and file count for [category] — the SAME type-based view the category
+     * browser lists, so a summary tile shows exactly what opening the category reveals (e.g. an `.apk`
+     * that lives in Download counts toward BOTH the APKs and Downloads categories, matching the
+     * browse). Uses a lean projection (path + size only, no per-row `FileItem`) so even a 40k-image
+     * library is summed in a single cheap cursor pass. Never throws; returns zero on any error.
+     */
+    suspend fun summarize(category: StorageCategory): CategoryUsage = withContext(dispatcher) {
+        try {
+            aggregate(requestFor(category), category)
+        } catch (_: Throwable) {
+            CategoryUsage(category = category, sizeBytes = 0L, fileCount = 0)
+        }
+    }
+
+    private fun aggregate(request: QueryRequest, category: StorageCategory): CategoryUsage {
+        val projection = arrayOf(request.dataColumn, request.sizeColumn)
+        // Mirror runQuery's arg handling: the DOCUMENTS selection embeds its own MIME placeholders.
+        val args = when {
+            request.selection?.contains(inClause(mimeColumn, DOCUMENT_MIMES.size)) == true ->
+                DOCUMENT_MIMES.toTypedArray() + (request.selectionArgs ?: emptyArray())
+            else -> request.selectionArgs
+        }
+        val cursor = context.contentResolver.query(
+            request.collection,
+            projection,
+            request.selection,
+            args,
+            null,
+        ) ?: return CategoryUsage(category = category, sizeBytes = 0L, fileCount = 0)
+
+        return cursor.use { c ->
+            val dataIndex = c.getColumnIndex(request.dataColumn)
+            val sizeIndex = c.getColumnIndex(request.sizeColumn)
+            var totalBytes = 0L
+            var count = 0
+            while (c.moveToNext()) {
+                val data = if (dataIndex >= 0 && !c.isNull(dataIndex)) c.getString(dataIndex) else null
+                // Never count vendor recycle-bin / app-private files (they aren't shown in the browse).
+                if (data != null && StorageExclusions.isExcluded(data)) continue
+                totalBytes += if (sizeIndex >= 0 && !c.isNull(sizeIndex)) c.getLong(sizeIndex) else 0L
+                count++
+            }
+            CategoryUsage(category = category, sizeBytes = totalBytes, fileCount = count)
         }
     }
 
