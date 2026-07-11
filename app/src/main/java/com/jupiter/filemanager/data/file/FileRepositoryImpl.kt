@@ -237,6 +237,16 @@ class FileRepositoryImpl @Inject constructor(
             // Skip the root itself; only surface descendants.
             if (file.absolutePath == File(rootPath).absolutePath) continue
 
+            // Never surface a vendor recycle-bin / app-private / thumbnail file (e.g. Samsung
+            // `Android/.Trash/…`): its bytes don't round-trip through Java's path encoding (or the
+            // vendor purges it), so opening it errors with "Not found". This filesystem walk is the
+            // single boundary behind BOTH the Recent tab and global search — the last two surfaces
+            // that still surfaced these entries. (Category/album/index/analytics reads already exclude
+            // them.) Every descendant of an excluded dir is itself excluded, so each is skipped too.
+            if (com.jupiter.filemanager.core.util.StorageExclusions.isExcluded(file.absolutePath)) {
+                continue
+            }
+
             val item = try {
                 dataSource.toFileItem(file)
             } catch (e: SecurityException) {

@@ -14,7 +14,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -67,9 +69,10 @@ class AppStorageSource @Inject constructor(
     }
 
     /**
-     * Queries storage for every installed app, sorted by total size descending. Returns
-     * [AppStorageOverview.permissionRequired] = true (and no apps) when Usage-access is not
-     * granted. Never throws.
+     * Queries storage for every installed app, emitting PARTIAL results as it scans so the screen
+     * never blocks for the several seconds the full walk takes on a device with hundreds of apps.
+     * Returns a single `permissionRequired = true` frame when Usage-access is not granted. Never
+     * throws (each per-app query is guarded; one failure never aborts the aggregation).
      *
      * Completeness (the v0.29 screen showed ~10 GB of ~95 GB) rests on two fixes:
      * 1. the manifest holds QUERY_ALL_PACKAGES, so `getInstalledApplications` actually
@@ -84,28 +87,41 @@ class AppStorageSource @Inject constructor(
      * `/data/app` (other profiles' code) plus dalvik-cache — so "aggregate − per-app sum"
      * measures mostly things that are not apps of this user. An adversarial review confirmed
      * it would have inflated the header on essentially every real device.
+     *
+     * Emission contract:
+     * 1. If Usage-access is missing → a single `permissionRequired = true` frame.
+     * 2. Otherwise an immediate empty `scanning = true` frame so the UI can drop the grant prompt
+     *    and show "Scanning…" AT ONCE (the grant can lag, and querying 700+ packages is slow — the
+     *    old single-shot [query] left the prompt on screen for 9–15 s).
+     * 3. A `scanning = true` frame after the first [FIRST_BATCH] apps, then every [EMIT_EVERY] more,
+     *    each carrying the apps gathered so far sorted by size — the list fills progressively.
+     * 4. A final `scanning = false` frame with the complete, sorted result.
+     *
+     * Each partial is sorted by size so the biggest consumers bubble to the top as they are found.
      */
-    suspend fun query(): AppStorageOverview = withContext(dispatcher) {
+    fun queryStream(): Flow<AppStorageOverview> = flow {
         if (!hasUsageAccess()) {
-            return@withContext AppStorageOverview(permissionRequired = true)
+            emit(AppStorageOverview(permissionRequired = true))
+            return@flow
         }
         val stats = context.getSystemService(Context.STORAGE_STATS_SERVICE) as? StorageStatsManager
-            ?: return@withContext AppStorageOverview(permissionRequired = false)
+        if (stats == null) {
+            emit(AppStorageOverview(permissionRequired = false))
+            return@flow
+        }
         val packageManager = context.packageManager
-
-        // Flags 0: metadata bundles aren't needed, and QUERY_ALL_PACKAGES (manifest) makes
-        // this list actually complete on Android 11+.
         val installed = runCatching {
             packageManager.getInstalledApplications(0)
         }.getOrDefault(emptyList())
-
         val user = Process.myUserHandle()
 
+        // Immediate frame: leaves the grant prompt and shows "Scanning…" without waiting for the walk.
+        emit(AppStorageOverview(permissionRequired = false, scanning = true))
+
         val apps = ArrayList<AppStorageInfo>(installed.size)
+        var lastEmittedAt = 0
         for (info in installed) {
             currentCoroutineContext().ensureActive()
-            // Query the volume this app actually lives on; a null storageUuid falls back to
-            // the primary/internal volume.
             val uuid = info.storageUuid ?: StorageManager.UUID_DEFAULT
             val stat = runCatching {
                 stats.queryStatsForPackage(uuid, info.packageName, user)
@@ -123,14 +139,34 @@ class AppStorageSource @Inject constructor(
                     isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
                 ),
             )
+            // Publish the first handful right away, then in batches, so the user sees the list grow.
+            val reachedFirstBatch = apps.size == FIRST_BATCH
+            val reachedNextBatch = apps.size - lastEmittedAt >= EMIT_EVERY
+            if (reachedFirstBatch || reachedNextBatch) {
+                lastEmittedAt = apps.size
+                emit(snapshot(apps, scanning = true))
+            }
         }
-        apps.sortByDescending { it.totalBytes }
+        emit(snapshot(apps, scanning = false))
+    }.flowOn(dispatcher)
 
-        AppStorageOverview(
-            apps = apps,
-            totalBytes = apps.sumOf { it.totalBytes },
-            cacheBytes = apps.sumOf { it.cacheBytes },
+    /** Builds an overview from a COPY of the accumulated apps, sorted by size descending. */
+    private fun snapshot(apps: List<AppStorageInfo>, scanning: Boolean): AppStorageOverview {
+        val sorted = apps.sortedByDescending { it.totalBytes }
+        return AppStorageOverview(
+            apps = sorted,
+            totalBytes = sorted.sumOf { it.totalBytes },
+            cacheBytes = sorted.sumOf { it.cacheBytes },
             permissionRequired = false,
+            scanning = scanning,
         )
+    }
+
+    private companion object {
+        /** Emit the very first apps as soon as this many are gathered, so the list appears fast. */
+        const val FIRST_BATCH = 5
+
+        /** After the first batch, publish an updated snapshot every this-many more apps. */
+        const val EMIT_EVERY = 25
     }
 }

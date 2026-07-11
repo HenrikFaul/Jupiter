@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.data.apps.AppStorageSource
 import com.jupiter.filemanager.domain.model.AppStorageOverview
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -16,8 +18,9 @@ import javax.inject.Inject
 /**
  * UI state for the App-storage screen.
  *
- * @property isLoading whether the per-app query is running.
- * @property overview the aggregated per-app storage, or null before the first load.
+ * @property isLoading whether the per-app scan is still running (partial results may already show).
+ * @property overview the aggregated per-app storage, or null before the first load. During a scan
+ *   this holds the partial, growing result.
  * @property permissionRequired true when Usage-access has not been granted.
  */
 data class AppStorageUiState(
@@ -38,6 +41,9 @@ class AppStorageViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(AppStorageUiState())
     val uiState: StateFlow<AppStorageUiState> = _uiState.asStateFlow()
+
+    /** The in-flight scan collection, cancelled and replaced when a new load starts. */
+    private var scanJob: Job? = null
 
     init {
         load()
@@ -69,17 +75,40 @@ class AppStorageViewModel @Inject constructor(
         }
     }
 
-    /** (Re)loads per-app storage. Safe to call repeatedly (init, retry, on-resume). */
+    /**
+     * (Re)loads per-app storage. Safe to call repeatedly (init, retry, on-resume).
+     *
+     * When access is already held, the grant prompt is dropped SYNCHRONOUSLY (before the scan even
+     * starts) and a "Scanning…" state is shown, so the user never stares at "Grant Usage access"
+     * for the ~10 s the per-app walk takes. Results then stream in: the first apps appear almost
+     * immediately and the list grows until the scan completes.
+     */
     fun load() {
-        _uiState.update { it.copy(isLoading = true) }
-        viewModelScope.launch {
-            val overview = source.query()
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    overview = overview,
-                    permissionRequired = overview.permissionRequired,
-                )
+        val granted = source.hasUsageAccess()
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                // Leave the grant prompt at once when we already know access is granted; otherwise
+                // keep whatever the last scan reported (the stream will set it authoritatively).
+                permissionRequired = if (granted) false else it.permissionRequired,
+            )
+        }
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
+            source.queryStream().collect { overview ->
+                _uiState.update { current ->
+                    // On a REFRESH (we already have apps), don't blank the list back to the scan
+                    // view for the initial empty "scanning" frame — keep the old apps on screen with
+                    // the scanning indicator until fresh results arrive. A first-ever scan (no apps
+                    // yet) still shows the dedicated "Scanning…" view.
+                    val keepPrevious = overview.scanning && overview.apps.isEmpty() &&
+                        current.overview?.apps?.isNotEmpty() == true
+                    current.copy(
+                        isLoading = overview.scanning,
+                        overview = if (keepPrevious) current.overview else overview,
+                        permissionRequired = overview.permissionRequired,
+                    )
+                }
             }
         }
     }
