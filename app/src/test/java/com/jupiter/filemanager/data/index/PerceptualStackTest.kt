@@ -38,14 +38,27 @@ class PerceptualStackTest {
         )
     }
 
+    /**
+     * A photo-like grid with real LOW-frequency structure: a bright blob at ([cx],[cy]) over a
+     * smooth falloff. (A checkerboard is the pathological opposite — its low-frequency DCT block
+     * is all-zero, so its median-thresholded bits are pure noise; real photographs are not that.)
+     */
+    private fun blob(side: Int, cx: Int, cy: Int): IntArray =
+        IntArray(side * side) { i ->
+            val x = i % side
+            val y = i / side
+            (235 - 9 * (kotlin.math.abs(x - cx) + kotlin.math.abs(y - cy))).coerceIn(0, 255)
+        }
+
     @Test
     fun pHashToleratesSmallPerturbationButSeparatesDifferentContent() {
-        val base = checkerboard(PerceptualHash.PHASH_GRID)
+        val n = PerceptualHash.PHASH_GRID
+        val base = blob(n, cx = 10, cy = 12)
         val p1 = PerceptualHash.pHashFromLuminanceGrid(base)
         assertEquals(
             "same grid must hash identically",
             p1,
-            PerceptualHash.pHashFromLuminanceGrid(checkerboard(PerceptualHash.PHASH_GRID)),
+            PerceptualHash.pHashFromLuminanceGrid(blob(n, cx = 10, cy = 12)),
         )
 
         // Mild re-compression noise: nudge a scattering of samples by a small amount.
@@ -59,10 +72,12 @@ class PerceptualStackTest {
             PerceptualHash.hammingDistance(p1, pNoisy) <= 8,
         )
 
-        val pGradient = PerceptualHash.pHashFromLuminanceGrid(gradient(PerceptualHash.PHASH_GRID))
+        // A structurally different picture: the blob in the opposite corner.
+        val pOther = PerceptualHash.pHashFromLuminanceGrid(blob(n, cx = 25, cy = 4))
         assertTrue(
-            "different structure must be far apart",
-            PerceptualHash.hammingDistance(p1, pGradient) > 12,
+            "different structure must be far apart " +
+                "(got ${PerceptualHash.hammingDistance(p1, pOther)})",
+            PerceptualHash.hammingDistance(p1, pOther) > 12,
         )
     }
 
