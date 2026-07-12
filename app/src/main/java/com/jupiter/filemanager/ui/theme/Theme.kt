@@ -21,7 +21,7 @@ private val AmoledBlack = Color(0xFF000000)
  * @param themeMode resolves whether the dark scheme is used: [ThemeMode.LIGHT] forces light,
  *   [ThemeMode.DARK] forces dark, and [ThemeMode.SYSTEM] follows the device setting.
  * @param dynamicColor when true and running on Android 12 (S) or newer, uses the wallpaper-based
- *   dynamic color scheme; otherwise the NEXUS vivid-blue brand schemes are applied. An explicit
+ *   dynamic color scheme; otherwise the Jupiter midnight/teal brand schemes are applied. An explicit
  *   [accentColorArgb] override takes precedence over dynamic color.
  * @param accentColorArgb optional ARGB accent override (as [Long]). When non-zero, the scheme's
  *   primary/related roles are derived from this color. `0L` (default) means "no override" —

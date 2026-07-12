@@ -20,17 +20,26 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material3.AlertDialog
@@ -38,6 +47,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -58,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
@@ -87,14 +100,16 @@ import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.JupiterPill
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterStorageRing
+import com.jupiter.filemanager.ui.components.JupiterWordmark
+import com.jupiter.filemanager.ui.components.JupiterFloatingBottomNavigation
+import com.jupiter.filemanager.ui.components.JupiterMainTab
 import com.jupiter.filemanager.ui.components.iconForFile
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 import java.io.File
 import kotlinx.coroutines.launch
-
-private enum class DuplicatePresentation {
-    EXACT,
-    SIMILAR,
-}
 
 /**
  * Lists duplicate file groups detected on the primary storage volume. Each group
@@ -111,13 +126,22 @@ fun DuplicatesScreen(
     onOpenFile: (FileItem) -> Unit,
     onBack: () -> Unit,
     viewModel: DuplicatesViewModel = hiltViewModel(),
+    initialPresentation: DuplicatePresentation = DuplicatePresentation.EXACT,
+    onMainTabSelected: ((JupiterMainTab) -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     var showConfirm by remember { mutableStateOf(false) }
-    var presentation by remember { mutableStateOf(DuplicatePresentation.EXACT) }
+    var showHelp by remember { mutableStateOf(false) }
+    var showHeaderMenu by remember { mutableStateOf(false) }
+    var showSizeFilters by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(initialPresentation) {
+        viewModel.setPresentation(initialPresentation)
+    }
 
     // When the user returns from the system settings screen after we asked for
     // All-Files-Access, re-run the scan so a just-granted permission recovers.
@@ -138,60 +162,41 @@ fun DuplicatesScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Duplicate cleanup") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
+            DuplicatesHeader(
+                hasSelection = state.selectedCount > 0,
+                menuExpanded = showHeaderMenu,
+                showSizeFilters = showSizeFilters,
+                enabled = !state.isDeleting,
+                canRescan = !state.isScanning && !state.isDeleting,
+                onBack = onBack,
+                onHelp = { showHelp = true },
+                onMenuExpandedChange = { showHeaderMenu = it },
+                onToggleSelection = {
+                    if (state.selectedCount > 0) viewModel.clearSelection()
+                    else viewModel.selectDuplicatesKeepingBest()
                 },
-                actions = {
-                    // Toggle: select every removable copy while retaining the quality-ranked BEST
-                    // in each group, otherwise clear the whole selection.
-                    val hasSelection = state.selectedCount > 0
-                    IconButton(
-                        onClick = {
-                            if (hasSelection) viewModel.clearSelection()
-                            else viewModel.selectDuplicatesKeepingBest()
-                        },
-                    ) {
-                        Icon(
-                            imageVector = if (hasSelection) {
-                                Icons.Outlined.RemoveDone
-                            } else {
-                                Icons.Outlined.DoneAll
-                            },
-                            contentDescription = if (hasSelection) {
-                                "Clear selection"
-                            } else {
-                                "Select duplicates and keep the best copy"
-                            },
-                        )
-                    }
-                    IconButton(
-                        onClick = { viewModel.scan() },
-                        enabled = !state.isScanning && !state.isDeleting,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "Rescan",
-                        )
-                    }
-                },
+                onToggleSizeFilters = { showSizeFilters = !showSizeFilters },
+                onRescan = viewModel::scan,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            if (state.selectedCount > 0) {
-                DeleteBar(
-                    selectedCount = state.selectedCount,
-                    reclaimableBytes = state.selectedReclaimableBytes,
-                    isDeleting = state.isDeleting,
-                    onDelete = { showConfirm = true },
-                )
+            Column {
+                if (state.selectedCount > 0) {
+                    DeleteBar(
+                        selectedCount = state.selectedCount,
+                        reclaimableBytes = state.selectedReclaimableBytes,
+                        isDeleting = state.isDeleting,
+                        includeNavigationInset = onMainTabSelected == null,
+                        onDelete = { showConfirm = true },
+                    )
+                }
+                if (onMainTabSelected != null) {
+                    JupiterFloatingBottomNavigation(
+                        selectedTab = JupiterMainTab.MORE,
+                        onTabSelected = onMainTabSelected,
+                    )
+                }
             }
         },
     ) { padding ->
@@ -222,52 +227,70 @@ fun DuplicatesScreen(
                 }
 
                 else -> {
-                    val presentedGroups = state.visibleGroups.filter { group ->
-                        if (presentation == DuplicatePresentation.SIMILAR) group.similar else !group.similar
+                    val presentedGroups = state.visibleGroups
+                    val protectedKeeperPaths = remember(state.groups, state.qualities) {
+                        DuplicateSelectionPolicy.protectedKeeperPaths(
+                            allGroups = state.groups,
+                            qualities = state.qualities,
+                        )
                     }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
+                        state = listState,
+                        contentPadding = PaddingValues(
+                            start = JupiterDesign.ScreenPadding,
+                            top = 12.dp,
+                            end = JupiterDesign.ScreenPadding,
+                            bottom = 24.dp,
+                        ),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         item {
                             SummaryCard(
+                                duplicateFileCount = presentedGroups.sumOf { it.files.size },
                                 groupCount = presentedGroups.size,
                                 wastedBytes = presentedGroups.sumOf { it.wastedBytes },
                                 isScanning = state.isScanning,
+                                onReview = {
+                                    scope.launch { listState.animateScrollToItem(2) }
+                                },
                             )
                         }
                         item {
                             DuplicatePresentationSelector(
-                                selected = presentation,
-                                exactCount = state.visibleGroups.count { !it.similar },
-                                similarCount = state.visibleGroups.count { it.similar },
-                                onSelect = { presentation = it },
+                                selected = state.presentation,
+                                exactCount = state.sizeFilteredGroups.count { !it.similar },
+                                similarCount = state.sizeFilteredGroups.count { it.similar },
+                                enabled = !state.isDeleting,
+                                onSelect = viewModel::setPresentation,
                             )
                         }
                         if (state.analyzingPhotos) {
                             item { AnalyzingPhotosBanner() }
                         }
-                        item {
-                            SizeFilterRow(
-                                selected = state.sizeFilter,
-                                onSelect = viewModel::setSizeFilter,
-                            )
+                        if (showSizeFilters) {
+                            item {
+                                SizeFilterRow(
+                                    selected = state.sizeFilter,
+                                    enabled = !state.isDeleting,
+                                    onSelect = viewModel::setSizeFilter,
+                                )
+                            }
                         }
                         if (presentedGroups.isEmpty()) {
                             item {
                                 EmptyView(
-                                    title = if (presentation == DuplicatePresentation.SIMILAR) {
+                                    title = if (state.presentation == DuplicatePresentation.SIMILAR) {
                                         "No similar photos yet"
                                     } else {
                                         "No exact duplicates"
                                     },
-                                    message = if (presentation == DuplicatePresentation.SIMILAR) {
+                                    message = if (state.presentation == DuplicatePresentation.SIMILAR) {
                                         "Photo analysis continues in the background and will surface matches here."
                                     } else {
                                         "Switch to Similar photos to review visually matching images."
                                     },
-                                    icon = if (presentation == DuplicatePresentation.SIMILAR) {
+                                    icon = if (state.presentation == DuplicatePresentation.SIMILAR) {
                                         Icons.Outlined.Image
                                     } else {
                                         Icons.Outlined.ContentCopy
@@ -280,6 +303,8 @@ fun DuplicatesScreen(
                                 group = group,
                                 selectedPaths = state.selectedPaths,
                                 qualities = state.qualities,
+                                protectedKeeperPaths = protectedKeeperPaths,
+                                isBusy = state.isDeleting,
                                 onToggle = viewModel::toggleSelection,
                                 onOpenFile = onOpenFile,
                                 onCopyPath = { path ->
@@ -287,6 +312,9 @@ fun DuplicatesScreen(
                                     viewModel.notify("Path copied")
                                 },
                             )
+                        }
+                        item(key = "safe_footer") {
+                            DuplicateSafetyFooter()
                         }
                     }
                 }
@@ -322,6 +350,118 @@ fun DuplicatesScreen(
             },
         )
     }
+
+    if (showHelp) {
+        AlertDialog(
+            onDismissRequest = { showHelp = false },
+            icon = { Icon(Icons.Filled.Shield, contentDescription = null) },
+            title = { Text("Safe duplicate review") },
+            text = {
+                Text(
+                    "Exact copies and visually similar photos stay separate. Jupiter protects " +
+                        "the quality-ranked best file in every group, and deletion moves reviewed " +
+                        "copies to Recycle Bin.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showHelp = false }) { Text("Got it") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun DuplicatesHeader(
+    hasSelection: Boolean,
+    menuExpanded: Boolean,
+    showSizeFilters: Boolean,
+    enabled: Boolean,
+    canRescan: Boolean,
+    onBack: () -> Unit,
+    onHelp: () -> Unit,
+    onMenuExpandedChange: (Boolean) -> Unit,
+    onToggleSelection: () -> Unit,
+    onToggleSizeFilters: () -> Unit,
+    onRescan: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 18.dp, top = 10.dp, end = 12.dp, bottom = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JupiterWordmark(modifier = Modifier.weight(1f))
+            IconButton(onClick = onHelp) {
+                Icon(Icons.Outlined.HelpOutline, contentDescription = "About duplicate cleanup")
+            }
+            Box {
+                IconButton(onClick = { onMenuExpandedChange(true) }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Duplicate cleanup actions")
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { onMenuExpandedChange(false) },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(if (hasSelection) "Clear selection" else "Select duplicates, keep best")
+                        },
+                        enabled = enabled,
+                        leadingIcon = {
+                            Icon(
+                                if (hasSelection) Icons.Outlined.RemoveDone else Icons.Outlined.DoneAll,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onToggleSelection()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (showSizeFilters) "Hide size filters" else "Size filters") },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onToggleSizeFilters()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rescan") },
+                        enabled = canRescan,
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null)
+                        },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onRescan()
+                        },
+                    )
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.padding(top = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(50.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = "Duplicate cleanup",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+    }
 }
 
 /** Exact copies and perceptually similar photos remain visibly and logically separate. */
@@ -330,44 +470,46 @@ private fun DuplicatePresentationSelector(
     selected: DuplicatePresentation,
     exactCount: Int,
     similarCount: Int,
+    enabled: Boolean,
     onSelect: (DuplicatePresentation) -> Unit,
 ) {
-    Row(
+    JupiterCard(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(7.dp),
+        shape = JupiterDesign.CompactCardShape,
     ) {
-        JupiterPill(
-            selected = selected == DuplicatePresentation.EXACT,
-            onClick = { onSelect(DuplicatePresentation.EXACT) },
-            modifier = Modifier.weight(1f),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = "Exact files ($exactCount)",
-                style = MaterialTheme.typography.labelLarge,
+            JupiterPill(
+                selected = selected == DuplicatePresentation.EXACT,
+                onClick = { if (enabled) onSelect(DuplicatePresentation.EXACT) },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                textAlign = TextAlign.Center,
-            )
-        }
-        JupiterPill(
-            selected = selected == DuplicatePresentation.SIMILAR,
-            onClick = { onSelect(DuplicatePresentation.SIMILAR) },
-            modifier = Modifier.weight(1f),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
+                    .weight(1f)
+                    .height(56.dp),
             ) {
-                Icon(Icons.Outlined.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "Similar photos ($similarCount)",
+                    text = "Exact files ($exactCount)",
                     style = MaterialTheme.typography.labelLarge,
+                    textAlign = TextAlign.Center,
                 )
+            }
+            JupiterPill(
+                selected = selected == DuplicatePresentation.SIMILAR,
+                onClick = { if (enabled) onSelect(DuplicatePresentation.SIMILAR) },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Similar photos ($similarCount)",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
             }
         }
     }
@@ -474,70 +616,94 @@ private fun AnalyzingPhotosView() {
 /** In-list hint that photo analysis is still running, so more similar-photo groups may appear. */
 @Composable
 private fun AnalyzingPhotosBanner() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(14.dp),
+        shape = JupiterDesign.CompactCardShape,
     ) {
-        Text(
-            text = "Still analyzing your photo library — more similar photos may appear.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(6.dp))
-        LinearProgressIndicator(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(3.dp)),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JupiterIconBadge(
+                icon = Icons.Outlined.Image,
+                tint = JupiterDesign.Purple,
+                size = 52.dp,
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Analyzing your photos", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Finding the best matches…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            CircularProgressIndicator(
+                modifier = Modifier.size(44.dp),
+                strokeWidth = 4.dp,
+            )
+        }
     }
 }
 
 @Composable
 private fun SummaryCard(
+    duplicateFileCount: Int,
     groupCount: Int,
     wastedBytes: Long,
     isScanning: Boolean,
+    onReview: () -> Unit,
 ) {
-    Card(
+    JupiterCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = JupiterDesign.HeroCardShape,
+        contentPadding = PaddingValues(22.dp),
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(
-                text = formatBytes(wastedBytes),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "reclaimable across $groupCount duplicate group" +
-                    if (groupCount == 1) "" else "s",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            if (isScanning) {
-                Spacer(modifier = Modifier.height(12.dp))
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    trackColor = MaterialTheme.colorScheme.primary,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JupiterStorageRing(
+                fraction = if (duplicateFileCount > 0) 1f else 0f,
+                size = 126.dp,
+                strokeWidth = 15.dp,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ContentCopy,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(50.dp),
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+            }
+            Spacer(Modifier.width(22.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Still scanning…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    text = "$duplicateFileCount duplicate files",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
                 )
+                Text(
+                    text = "${formatBytes(wastedBytes)} can be freed",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
+                    text = if (isScanning) {
+                        "Smart detection · Still scanning"
+                    } else {
+                        "Smart detection · $groupCount groups · Safe to review"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
+                )
+                Button(
+                    onClick = onReview,
+                    enabled = duplicateFileCount > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Outlined.DoneAll, contentDescription = null, modifier = Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Review now")
+                    Spacer(Modifier.weight(1f))
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                }
             }
         }
     }
@@ -551,6 +717,7 @@ private fun SummaryCard(
 @Composable
 private fun SizeFilterRow(
     selected: SizeFilter,
+    enabled: Boolean,
     onSelect: (SizeFilter) -> Unit,
 ) {
     Row(
@@ -563,6 +730,7 @@ private fun SizeFilterRow(
         SizeFilter.entries.forEach { filter ->
             FilterChip(
                 selected = filter == selected,
+                enabled = enabled,
                 onClick = { onSelect(filter) },
                 label = { Text(filter.label) },
             )
@@ -575,61 +743,93 @@ private fun DuplicateGroupCard(
     group: DuplicateGroup,
     selectedPaths: Set<String>,
     qualities: Map<String, MediaQuality>,
+    protectedKeeperPaths: Set<String>,
+    isBusy: Boolean,
     onToggle: (String) -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onCopyPath: (String) -> Unit,
 ) {
-    Card(
+    var expanded by rememberSaveable(group.hash) { mutableStateOf(false) }
+    val ranked = remember(group, qualities) {
+        DuplicateSelectionPolicy.rank(group, qualities)
+    }
+    val best = ranked.firstOrNull()
+    val bestQuality = best?.path?.let(qualities::get)
+    JupiterCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = JupiterDesign.CompactCardShape,
+        contentPadding = PaddingValues(0.dp),
     ) {
-        Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DuplicateStackPreview(files = ranked)
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (group.similar) {
-                        "${group.files.size} similar photos"
-                    } else {
-                        "${group.files.size} copies"
-                    },
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = best?.name ?: if (group.similar) "Similar photos" else "Exact files",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${formatBytes(group.wastedBytes)} wasted",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "${group.files.size} files",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "${formatBytes(group.wastedBytes)} can be freed",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
                 )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "✓",
+                            color = JupiterDesign.Safe,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Keep best", style = MaterialTheme.typography.labelMedium)
+                        bestQuality?.label?.takeIf(String::isNotBlank)?.let { label ->
+                            Text(
+                                text = "  |  $label",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-            // Best copy first: highest probed quality score, then largest size.
-            val ranked = remember(group, qualities) {
-                group.files.sortedWith(
-                    compareByDescending<FileItem> { qualities[it.path]?.score ?: 0L }
-                        .thenByDescending { it.sizeBytes },
-                )
-            }
-            val bestQuality = qualities[ranked.firstOrNull()?.path]
+            Icon(
+                imageVector = if (expanded) Icons.Filled.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = if (expanded) "Collapse group" else "Review group",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (expanded) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             ranked.forEachIndexed { index, file ->
-                // Key each row by its file path so Compose never REUSES a row's node (and its
-                // Coil AsyncImage) for a DIFFERENT file after the list changes — e.g. when a
-                // deleted copy is removed and the rows below shift up. Without this the recycled
-                // AsyncImage kept showing the previous file's cached thumbnail, so a deleted row
-                // appeared to be replaced by an unrelated ("random") image.
                 key(file.path) {
                     val quality = qualities[file.path]
                     DuplicateFileRow(
                         file = file,
                         isKept = index == 0,
+                        canSelect = file.path !in protectedKeeperPaths && !isBusy,
                         isSelected = file.path in selectedPaths,
                         quality = quality,
                         relativeNote = relativeQualityNote(
@@ -654,9 +854,72 @@ private fun DuplicateGroupCard(
 }
 
 @Composable
+private fun DuplicateStackPreview(files: List<FileItem>) {
+    val previews = files.take(4)
+    Box(
+        modifier = Modifier
+            .width(126.dp)
+            .height(96.dp),
+    ) {
+        previews.asReversed().forEachIndexed { reverseIndex, file ->
+            val originalIndex = previews.lastIndex - reverseIndex
+            val fallback = rememberVectorPainter(iconForFile(file))
+            Surface(
+                modifier = Modifier
+                    .size(82.dp)
+                    .offset(x = (originalIndex * 13).dp, y = (originalIndex * 3).dp),
+                shape = RoundedCornerShape(11.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                if (file.type == FileType.IMAGE || file.type == FileType.VIDEO) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(File(file.path))
+                            .size(180)
+                            .memoryCacheKey(file.path)
+                            .diskCacheKey(file.path)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        placeholder = fallback,
+                        error = fallback,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = iconForFile(file),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    }
+                }
+            }
+        }
+        if (files.size > previews.size) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 2.dp, bottom = 2.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ) {
+                Text(
+                    text = "+${files.size - 1}",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun DuplicateFileRow(
     file: FileItem,
     isKept: Boolean,
+    canSelect: Boolean,
     isSelected: Boolean,
     quality: MediaQuality?,
     relativeNote: String?,
@@ -805,7 +1068,8 @@ private fun DuplicateFileRow(
         }
         Checkbox(
             checked = isSelected,
-            onCheckedChange = { onToggle() },
+            enabled = canSelect,
+            onCheckedChange = if (!canSelect) null else { _ -> onToggle() },
         )
     }
 }
@@ -854,10 +1118,37 @@ private fun relativeQualityNote(
 }
 
 @Composable
+private fun DuplicateSafetyFooter() {
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(14.dp),
+        shape = JupiterDesign.CompactCardShape,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JupiterIconBadge(
+                icon = Icons.Filled.Shield,
+                tint = JupiterDesign.Purple,
+                size = 46.dp,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("Your files are safe", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = "Best copies are protected and reviewed deletions go to Recycle Bin.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun DeleteBar(
     selectedCount: Int,
     reclaimableBytes: Long,
     isDeleting: Boolean,
+    includeNavigationInset: Boolean,
     onDelete: () -> Unit,
 ) {
     Surface(
@@ -867,9 +1158,7 @@ private fun DeleteBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // Clear the system navigation bar (gesture pill / 3-button bar) so the Delete
-                // action is never drawn underneath it and stays tappable on every device.
-                .navigationBarsPadding()
+                .then(if (includeNavigationInset) Modifier.navigationBarsPadding() else Modifier)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

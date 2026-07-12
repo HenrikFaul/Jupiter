@@ -29,12 +29,15 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,8 +75,11 @@ import com.jupiter.filemanager.domain.model.AppStorageInfo
 import com.jupiter.filemanager.domain.model.AppStorageOverview
 import com.jupiter.filemanager.ui.components.JupiterCard
 import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterFloatingBottomNavigation
+import com.jupiter.filemanager.ui.components.JupiterMainTab
 import com.jupiter.filemanager.ui.components.JupiterPill
 import com.jupiter.filemanager.ui.components.JupiterStorageRing
+import com.jupiter.filemanager.ui.components.JupiterWordmark
 import com.jupiter.filemanager.ui.theme.JupiterDesign
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -104,12 +110,15 @@ private const val LARGEST_APPS_LIMIT = 10
 fun AppStorageScreen(
     onBack: () -> Unit,
     onOpenPath: (String) -> Unit,
+    onMainTabSelected: (JupiterMainTab) -> Unit = {},
+    showBackButton: Boolean = true,
 ) {
     val viewModel: AppStorageViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     // The app whose action sheet is open, or null when none is.
     var selectedApp by remember { mutableStateOf<AppStorageInfo?>(null) }
+    var topMenuExpanded by rememberSaveable { mutableStateOf(false) }
 
     // Re-query every time the screen RESUMES — the first resume is already covered by the
     // ViewModel's init load, so skip it, but every later resume reloads. This catches returning
@@ -129,29 +138,36 @@ fun AppStorageScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "App storage",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    JupiterWordmark()
                 },
                 navigationIcon = {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                    ) {
+                    if (showBackButton) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
                 },
                 actions = {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                    ) {
-                        IconButton(onClick = viewModel::load, enabled = !uiState.isLoading) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    IconButton(onClick = viewModel::load, enabled = !uiState.isLoading) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    }
+                    if (!showBackButton) {
+                        Box {
+                            IconButton(onClick = { topMenuExpanded = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = topMenuExpanded,
+                                onDismissRequest = { topMenuExpanded = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Back") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        onBack()
+                                    },
+                                )
+                            }
                         }
                     }
                 },
@@ -163,25 +179,43 @@ fun AppStorageScreen(
                 ),
             )
         },
-    ) { innerPadding ->
-        val modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-        val overview = uiState.overview
-        when {
-            uiState.permissionRequired -> UsageAccessRequired(modifier)
-            // Nothing to show yet (before the first apps arrive): a clear "Scanning…" view so the
-            // grant prompt is gone the instant access is confirmed, even though the walk is ongoing.
-            // Gated on isLoading so a scan that legitimately finds no apps falls through to the
-            // (empty) content instead of spinning forever.
-            overview == null || (uiState.isLoading && overview.apps.isEmpty()) ->
-                ScanningView(overview, modifier)
-            else -> AppStorageContent(
-                overview = overview,
-                scanning = uiState.isLoading,
-                onAppClick = { selectedApp = it },
-                modifier = modifier,
+        bottomBar = {
+            JupiterFloatingBottomNavigation(
+                selectedTab = JupiterMainTab.MORE,
+                onTabSelected = onMainTabSelected,
             )
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            Text(
+                text = "App storage",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            )
+            val modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+            val overview = uiState.overview
+            when {
+                uiState.permissionRequired -> UsageAccessRequired(modifier)
+                // Nothing to show yet (before the first apps arrive): a clear "Scanning…" view so the
+                // grant prompt is gone the instant access is confirmed, even though the walk is ongoing.
+                // Gated on isLoading so a scan that legitimately finds no apps falls through to the
+                // (empty) content instead of spinning forever.
+                overview == null || (uiState.isLoading && overview.apps.isEmpty()) ->
+                    ScanningView(overview, modifier)
+                else -> AppStorageContent(
+                    overview = overview,
+                    scanning = uiState.isLoading,
+                    onAppClick = { selectedApp = it },
+                    modifier = modifier,
+                )
+            }
         }
     }
 

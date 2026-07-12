@@ -11,9 +11,11 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -51,37 +53,26 @@ class AnthropicAiAssistant @Inject constructor(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /**
-     * Long-lived scope (this is a process [Singleton]) used to observe the persisted
-     * Claude API key off the main thread so [isEnabled] can be served from a cached
-     * value without ever blocking.
-     */
+    /** Long-lived process scope that continuously materializes the Settings-derived flow. */
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + io)
 
     /**
-     * Cached "is a non-blank API key persisted?" flag, kept up to date by collecting
-     * [SettingsDataStore.aiApiKey] on [scope]. Defaults to `false` until the first
-     * value arrives, and falls back to `false` on any read error.
+     * Live availability derived from both user consent and the encrypted key state.
+     * Eager collection belongs to this process singleton, so every consumer sees
+     * subsequent Settings changes rather than a one-shot value captured at startup.
      */
-    @Volatile
-    private var enabledCache: Boolean = false
-
-    init {
-        settings.aiApiKey
-            .onEach { key -> enabledCache = key.isNotBlank() }
-            .catch { enabledCache = false }
-            .launchIn(scope)
+    override val enabled: StateFlow<Boolean> = combine(
+        settings.aiApiKey,
+        settings.aiEnabled,
+    ) { key, preferenceEnabled ->
+        preferenceEnabled && key.isNotBlank()
     }
-
-    /**
-     * Whether a non-blank Claude API key is currently persisted.
-     *
-     * Served from [enabledCache], which is updated off the main thread by an
-     * observer on [SettingsDataStore.aiApiKey]; reading this property never blocks
-     * and never touches DataStore directly.
-     */
-    override val isEnabled: Boolean
-        get() = enabledCache
+        .catch { emit(false) }
+        .stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = false,
+        )
 
     override suspend fun suggestName(item: FileItem): AppResult<String> {
         val key = currentKey()
@@ -151,7 +142,7 @@ class AnthropicAiAssistant @Inject constructor(
      */
     private suspend fun currentKey(): String = withContext(io) {
         try {
-            settings.aiApiKey.first()
+            if (!settings.aiEnabled.first()) "" else settings.aiApiKey.first()
         } catch (_: Throwable) {
             ""
         }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Apps
@@ -32,27 +33,36 @@ import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,10 +70,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatItemCount
+import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.Bookmark
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.CategoryUsage
@@ -73,8 +85,12 @@ import com.jupiter.filemanager.ui.components.SectionHeader
 import com.jupiter.filemanager.ui.components.StorageBar
 import com.jupiter.filemanager.ui.components.ToolTile
 import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterFileBadge
 import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterMainTab
+import com.jupiter.filemanager.ui.components.JupiterProgressBar
 import com.jupiter.filemanager.ui.components.JupiterStorageRing
+import com.jupiter.filemanager.ui.components.JupiterWordmark
 import com.jupiter.filemanager.ui.components.iconForFile
 import com.jupiter.filemanager.ui.navigation.Destination
 import com.jupiter.filemanager.ui.theme.JupiterDesign
@@ -114,12 +130,15 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(padding),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // Branded header.
             item(key = "header") {
-                HomeHeader(onOpenSettings = { onNavigate(Destination.Settings.route) })
+                HomeHeader(
+                    onOpenAssistant = { onNavigate(Destination.AiAssistant.route) },
+                    onOpenSettings = { onNavigate(Destination.Settings.route) },
+                )
             }
 
             // Search entry point.
@@ -169,6 +188,8 @@ fun HomeScreen(
             item(key = "tools_header") {
                 SectionHeader(
                     title = "Tools",
+                    actionLabel = "Clean up",
+                    onAction = { onNavigate(Destination.Cleanup.route) },
                 )
             }
             item(key = "tools_grid") {
@@ -178,10 +199,22 @@ fun HomeScreen(
             // Recents.
             if (uiState.recents.isNotEmpty()) {
                 item(key = "recents_header") {
-                    SectionHeader(title = "Recent")
+                    SectionHeader(
+                        title = "Recent files",
+                        actionLabel = "View all",
+                        onAction = {
+                            onNavigate(Destination.MainTab.create(JupiterMainTab.RECENT.route))
+                        },
+                    )
                 }
-                items(uiState.recents, key = { "recent_" + it.path }) { item ->
-                    RecentRow(item = item, onClick = { onOpenFile(item) })
+                item(key = "recent_files_card") {
+                    RecentFilesCard(
+                        items = uiState.recents.take(4),
+                        onOpenFile = onOpenFile,
+                        onOpenDetails = { item ->
+                            onNavigate(Destination.FileDetails.create(item.path))
+                        },
+                    )
                 }
             }
 
@@ -209,38 +242,30 @@ fun HomeScreen(
     }
 }
 
-/** Branded dashboard header with a direct, functioning Settings affordance. */
+/** Reference header: visual wordmark plus two real, functioning destinations. */
 @Composable
-private fun HomeHeader(onOpenSettings: () -> Unit) {
+private fun HomeHeader(
+    onOpenAssistant: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     Row(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp),
+            .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Jupi",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = "ter",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-            }
-            Text(
-                text = "Storage, organized",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        JupiterWordmark(modifier = Modifier.weight(1f))
+        IconButton(onClick = onOpenAssistant) {
+            Icon(
+                imageVector = Icons.Filled.AutoAwesome,
+                contentDescription = "AI assistant",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
             )
         }
         IconButton(onClick = onOpenSettings) {
             Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Settings",
+                imageVector = Icons.Filled.MoreVert,
+                contentDescription = "More and settings",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(24.dp),
             )
@@ -289,7 +314,7 @@ private fun SearchEntry(onClick: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -299,22 +324,22 @@ private fun SearchEntry(onClick: () -> Unit) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "Search files, AI, tags",
+                text = "Search files, folders, APKs",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             Icon(
-                imageVector = Icons.Filled.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
+                imageVector = Icons.Filled.Tune,
+                contentDescription = "Search and filters",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
             )
         }
     }
 }
 
-/** Horizontally-scrolling Quick Access folder tiles. */
+/** One three-cell quick-access strip, matching the supplied dashboard hierarchy. */
 @Composable
 private fun QuickAccessRow(
     shortcuts: List<QuickAccessShortcut>,
@@ -330,25 +355,35 @@ private fun QuickAccessRow(
         )
         return
     }
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 4.dp),
+    val visible = shortcuts.take(3)
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
     ) {
-        items(shortcuts, key = { it.id }) { shortcut ->
-            QuickAccessTile(
-                shortcut = shortcut,
-                onClick = {
-                    // Category-backed shortcuts open the instant, device-wide
-                    // MediaStore listing; anything else falls back to browsing
-                    // the concrete folder path.
-                    val category = categoryForShortcut(shortcut.id)
-                    if (category != null) {
-                        onNavigate(Destination.CategoryBrowse.create(category))
-                    } else {
-                        onOpenPath(shortcut.path)
-                    }
-                },
-            )
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            visible.forEachIndexed { index, shortcut ->
+                QuickAccessTile(
+                    shortcut = shortcut,
+                    onClick = {
+                        // Category-backed shortcuts open the instant, device-wide
+                        // MediaStore listing; anything else falls back to browsing
+                        // the concrete folder path.
+                        val category = categoryForShortcut(shortcut.id)
+                        if (category != null) {
+                            onNavigate(Destination.CategoryBrowse.create(category))
+                        } else {
+                            onOpenPath(shortcut.path)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                if (index != visible.lastIndex) {
+                    VerticalDivider(
+                        modifier = Modifier.height(48.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                    )
+                }
+            }
         }
     }
 }
@@ -367,57 +402,51 @@ private fun categoryForShortcut(id: String): StorageCategory? = when (id) {
     else -> null
 }
 
-/** A single Quick Access folder tile with icon, name and aggregated usage. */
+/** A compact horizontal cell inside the shared Quick Access strip. */
 @Composable
 private fun QuickAccessTile(
     shortcut: QuickAccessShortcut,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.width(140.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    Row(
+        modifier = modifier
+            .clip(JupiterDesign.CompactCardShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(44.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = iconForShortcut(shortcut.id),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
+        JupiterIconBadge(
+            icon = iconForShortcut(shortcut.id),
+            tint = colorForShortcut(shortcut.id),
+            contentDescription = null,
+            size = 32.dp,
+        )
+        Spacer(Modifier.width(7.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = shortcut.label,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.labelLarge.copy(fontSize = 10.sp, lineHeight = 12.sp),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = quickAccessSubtitle(shortcut),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 8.sp, lineHeight = 10.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
     }
+}
+
+private fun colorForShortcut(id: String): Color = when (id) {
+    "downloads" -> JupiterDesign.TealEnd
+    "documents" -> JupiterDesign.CategoryDocument
+    "images" -> Color(0xFFFF8068)
+    else -> JupiterDesign.CategoryOther
 }
 
 private fun quickAccessSubtitle(shortcut: QuickAccessShortcut): String {
@@ -441,7 +470,8 @@ private fun StorageOverviewCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(14.dp),
+        shape = JupiterDesign.HeroCardShape,
     ) {
         if (primary == null) {
             Text(
@@ -455,9 +485,13 @@ private fun StorageOverviewCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            JupiterStorageRing(fraction = primary.usedFraction) {
+            JupiterStorageRing(
+                fraction = primary.usedFraction,
+                size = 108.dp,
+                strokeWidth = 12.dp,
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "${(primary.usedFraction * 100).roundToInt()}%",
@@ -479,10 +513,11 @@ private fun StorageOverviewCard(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
-                    JupiterIconBadge(
-                        icon = Icons.Filled.Storage,
-                        contentDescription = null,
-                        size = 40.dp,
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Open storage analysis",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
                 Text(
@@ -495,13 +530,43 @@ private fun StorageOverviewCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(4.dp))
+                JupiterProgressBar(fraction = primary.usedFraction)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    StorageLegend(
+                        color = JupiterDesign.TealStart,
+                        label = "${formatBytes(primary.usedBytes)} used",
+                    )
+                    StorageLegend(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        label = "${formatBytes(primary.availableBytes)} free",
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        StorageBar(
-            label = primary.label.ifBlank { "Internal storage" },
-            usedBytes = primary.usedBytes,
-            totalBytes = primary.totalBytes,
+    }
+}
+
+@Composable
+private fun StorageLegend(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(color),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
         )
     }
 }
@@ -510,17 +575,16 @@ private fun StorageOverviewCard(
 @Composable
 private fun ToolsSection(onNavigate: (String) -> Unit) {
     val tools = listOf(
-        HomeTool("Clean up", "Free space", Icons.Filled.CleaningServices, Destination.Cleanup.route, JupiterDesign.Warning),
-        HomeTool("Duplicates", "Review safely", Icons.Filled.ContentCopy, Destination.Duplicates.route, MaterialTheme.colorScheme.primary),
+        HomeTool("Duplicate cleanup", "Review safely", Icons.Filled.ContentCopy, Destination.Duplicates.route, MaterialTheme.colorScheme.primary),
         HomeTool("App storage", "Apps & cache", Icons.Filled.Apps, Destination.AppStorage.route, JupiterDesign.CategoryApk),
         HomeTool("Secure vault", "Keep files safe", Icons.Filled.Lock, Destination.Vault.route, JupiterDesign.CategoryVideo),
         HomeTool("Cloud hub", "Manage clouds", Icons.Filled.Cloud, Destination.CloudHub.route, JupiterDesign.CategoryDownload),
         HomeTool("Automation", "Smart actions", Icons.Filled.SmartToy, Destination.Automation.route, JupiterDesign.CategoryApk),
         HomeTool("Transfers", "Send anywhere", Icons.Filled.SwapHoriz, Destination.TransferCenter.route, JupiterDesign.Warning),
     )
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         tools.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { tool ->
                     HomeToolTile(
                         tool = tool,
@@ -552,74 +616,144 @@ private fun HomeToolTile(
         modifier = modifier
             .clip(JupiterDesign.CompactCardShape)
             .clickable(onClick = onClick),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
-    ) {
-        JupiterIconBadge(
-            icon = tool.icon,
-            tint = tool.accent,
-            contentDescription = null,
-            size = 40.dp,
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = tool.title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = tool.subtitle,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** A recently visited file/folder entry. */
-@Composable
-private fun RecentRow(
-    item: FileItem,
-    onClick: () -> Unit,
-) {
-    JupiterCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+        shape = JupiterDesign.CompactCardShape,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             JupiterIconBadge(
-                icon = iconForFile(item),
+                icon = tool.icon,
+                tint = tool.accent,
                 contentDescription = null,
-                size = 44.dp,
+                size = 28.dp,
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(4.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = item.name,
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = tool.title,
+                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 8.sp, lineHeight = 10.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = item.path,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = tool.subtitle,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.sp, lineHeight = 9.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+/** One divided reference card containing the most recent real entries. */
+@Composable
+private fun RecentFilesCard(
+    items: List<FileItem>,
+    onOpenFile: (FileItem) -> Unit,
+    onOpenDetails: (FileItem) -> Unit,
+) {
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        items.forEachIndexed { index, item ->
+            RecentRow(
+                item = item,
+                onClick = { onOpenFile(item) },
+                onOpenDetails = { onOpenDetails(item) },
+            )
+            if (index != items.lastIndex) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(start = 76.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentRow(
+    item: FileItem,
+    onClick: () -> Unit,
+    onOpenDetails: () -> Unit,
+) {
+    var menuExpanded by remember(item.path) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        JupiterFileBadge(item = item, size = 40.dp)
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (item.isDirectory) "Folder" else formatBytes(item.sizeBytes),
+                text = item.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${recentTypeLabel(item)}  •  ${formatRelativeTime(item.lastModified)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (!item.isDirectory) {
+            Text(
+                text = formatBytes(item.sizeBytes),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
         }
+        Box {
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "More actions for ${item.name}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Open") },
+                    onClick = {
+                        menuExpanded = false
+                        onClick()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Details") },
+                    onClick = {
+                        menuExpanded = false
+                        onOpenDetails()
+                    },
+                )
+            }
+        }
     }
+}
+
+private fun recentTypeLabel(item: FileItem): String = when {
+    item.isDirectory -> "Folder"
+    item.extension.isNotBlank() -> item.extension.uppercase()
+    else -> item.type.name.lowercase().replaceFirstChar { it.uppercase() }
 }
 
 /** A saved bookmark entry. */
@@ -726,20 +860,26 @@ private fun CategoryGrid(
     val byCategory = categories.associateBy { it.category }
     val tiles = CATEGORY_TILE_ORDER.mapNotNull { byCategory[it] }
     if (tiles.isEmpty()) return
-    val columns = 4
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        tiles.chunked(columns).forEach { rowTiles ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                rowTiles.forEach { usage ->
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        tiles.take(4).takeIf { it.isNotEmpty() }?.let { firstRow ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                firstRow.forEach { usage ->
                     CategoryTile(
                         usage = usage,
                         onClick = { onOpenCategory(usage.category) },
                         modifier = Modifier.weight(1f),
                     )
                 }
-                // Pad the last row so tiles keep an equal width instead of stretching.
-                repeat(columns - rowTiles.size) {
-                    Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+        tiles.drop(4).takeIf { it.isNotEmpty() }?.let { secondRow ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                secondRow.forEach { usage ->
+                    CategoryTile(
+                        usage = usage,
+                        onClick = { onOpenCategory(usage.category) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -758,28 +898,33 @@ private fun CategoryTile(
         modifier = modifier
             .clip(JupiterDesign.CompactCardShape)
             .clickable(onClick = onClick),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 8.dp),
+        shape = JupiterDesign.CompactCardShape,
     ) {
-        JupiterIconBadge(
-            icon = iconForCategory(usage.category),
-            tint = accent,
-            contentDescription = null,
-            size = 44.dp,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = labelForCategory(usage.category),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = formatBytes(usage.sizeBytes),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JupiterIconBadge(
+                icon = iconForCategory(usage.category),
+                tint = accent,
+                contentDescription = null,
+                size = 32.dp,
+            )
+            Spacer(Modifier.width(6.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = labelForCategory(usage.category),
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 8.sp, lineHeight = 10.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = formatBytes(usage.sizeBytes),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }

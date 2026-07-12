@@ -2,6 +2,7 @@ package com.jupiter.filemanager.feature.editor
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.ui.components.ErrorView
+import com.jupiter.filemanager.ui.components.JupiterCard
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Lightweight plain-text editor screen.
@@ -73,6 +76,7 @@ fun TextEditorScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -151,7 +155,8 @@ fun TextEditorScreen(
                         colors = TextFieldDefaults.colors(),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
+                            .weight(1f)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 }
             }
@@ -162,14 +167,15 @@ fun TextEditorScreen(
 /** Inline advisory banner explaining a non-fatal condition (truncation / binary / read-only). */
 @Composable
 private fun NoticeBanner(message: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = Modifier.fillMaxWidth(),
+    JupiterCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(JupiterDesign.CompactPadding),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(
                 imageVector = Icons.Outlined.Info,

@@ -12,6 +12,7 @@ import com.jupiter.filemanager.data.media.MediaStoreCategorySource
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.StorageCategory
+import com.jupiter.filemanager.domain.repository.FileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -46,6 +47,7 @@ class CompressViewModel @Inject constructor(
     private val compressor: MediaCompressor,
     private val profile: DeviceDisplayProfile,
     private val mediaSource: MediaStoreCategorySource,
+    private val fileRepository: FileRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -60,6 +62,9 @@ class CompressViewModel @Inject constructor(
 
     /** In-flight compression job, so cancel/replace is possible. */
     private var compressJob: Job? = null
+
+    /** Resolves a browser deep-link without coupling the picker to navigation. */
+    private var pathResolveJob: Job? = null
 
     init {
         loadMedia()
@@ -147,6 +152,48 @@ class CompressViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Resolves and preselects a real image/video by absolute [path].
+     *
+     * This additive entry point lets the file browser deep-link into the existing compressor
+     * without fabricating picker state. It accepts files outside the current MediaStore page via
+     * [FileRepository.getFile], rejects folders/non-media, and leaves normal picker behaviour
+     * unchanged when resolution fails.
+     */
+    fun selectSourceByPath(path: String) {
+        val normalized = path.trim()
+        if (normalized.isEmpty()) return
+
+        _uiState.value.availableMedia.firstOrNull { it.path == normalized }?.let { existing ->
+            selectSource(existing)
+            return
+        }
+
+        pathResolveJob?.cancel()
+        pathResolveJob = viewModelScope.launch {
+            when (val result = fileRepository.getFile(normalized)) {
+                is AppResult.Success -> {
+                    val item = result.data
+                    if (item.isDirectory || item.type !in setOf(FileType.IMAGE, FileType.VIDEO)) {
+                        _uiState.update {
+                            it.copy(error = "Only images and videos can be compressed.")
+                        }
+                    } else {
+                        _uiState.update { current ->
+                            if (current.availableMedia.any { it.path == item.path }) current
+                            else current.copy(availableMedia = listOf(item) + current.availableMedia)
+                        }
+                        selectSource(item)
+                    }
+                }
+
+                is AppResult.Failure -> _uiState.update {
+                    it.copy(error = result.error.displayMessage)
+                }
+            }
+        }
+    }
+
     /** Selects [preset] as the active compression target. */
     fun selectPreset(preset: CompressPreset) {
         _uiState.update { it.copy(selectedPreset = preset) }
@@ -156,6 +203,7 @@ class CompressViewModel @Inject constructor(
     fun clearSource() {
         selectJob?.cancel()
         compressJob?.cancel()
+        pathResolveJob?.cancel()
         _uiState.update {
             it.copy(
                 sourceItem = null,

@@ -49,14 +49,15 @@ Opening a file is routed by `FileType` (`openByType`) to the matching viewer.
 
 | Area | Current behavior |
 |---|---|
-| **Home and design** | Dark teal dashboard with a live used/available storage ring, Quick Access, category cards, recent items, and routes to the existing power tools. The default is the branded dark theme; users can still select another theme, accent, or dynamic color in Settings. |
-| **Browse and file operations** | Breadcrumbs, sort/filter, multi-select, rename, folder creation, folder chooser, live copy/move progress, Recycle Bin deletion, and optional dual-pane browsing. A complete transfer plan is checked before any write; existing destination files or folders are rejected rather than silently overwritten. |
-| **Search** | Indexed search when the index is available, reconciled with a live walk; scope chips for All, Files, Folders, PDFs, Images, and AI search. The last eight submitted queries are stored only on-device, can be selected again or cleared, and never persist paths, result snippets, or AI output. |
-| **Storage and cleanup** | Real on-device storage analysis, large-file review, and exact/similar duplicate groups. Exact selection keeps the quality-ranked candidate and sends selected extras to the Recycle Bin; quality selection is not presented as a separate merge feature. |
-| **Photos and media** | MediaStore-backed category browsing. The Photos view has real Camera, Screenshots, and Downloads refinements, date-grouped image grids, and routes items to the existing viewers. |
+| **Home and design** | The shared midnight/teal reference system is applied across all 49 existing Compose screens: semantic surfaces, compact cards and controls, file/category badges, state views, typography, and navigation. The eight `Generatedscreens/` references define the detailed Home, Files, Search, Photos, Duplicates, App storage, Recycle Bin, and Settings compositions. Live device state remains the content source. |
+| **Browse and file operations** | Breadcrumbs, sort/filter, optional type grouping, multi-select, rename, folder creation/chooser, live copy/move progress, Recycle Bin deletion, and optional dual-pane browsing. Share uses a `FileProvider` URI, Details opens the real metadata route, and Compress is offered for supported image/video media and opens the existing compressor with that file preselected. A complete transfer plan rejects collisions before any write. |
+| **Search** | Indexed search when available, reconciled with a live walk; history plus Recent and Suggested result sections; scopes for All, Files, Folders, PDFs, Images, and AI search. The last eight submitted queries are stored only on-device, can be reused or cleared, and never persist paths, result snippets, or AI output. |
+| **Storage and cleanup** | Real on-device storage analysis, large-file review, and separate exact/similar duplicate presentations. Selection is restricted to the currently visible filter scope, hidden selections are pruned, and every quality-ranked `BEST` keeper remains protected before Recycle Bin deletion. Quick/perceptual hashes never replace the full-hash exact-match decision. |
+| **Photos and media** | MediaStore-backed category browsing with All, Camera, Screenshots, and Downloads refinements, date-grouped image grids, direct gallery opening, and a direct Similar-photos route. The visible filtered/sorted set can also run as a real 3-second autoplay slideshow with pause/resume, previous/next, and wrap-around; the handoff stays in memory instead of expanding navigation arguments. Selected photos can be moved through a real folder picker; target validation and no-overwrite repository semantics protect the source and destination. |
 | **App storage** | A streaming per-app storage scan after Android Usage Access is granted. Results stay useful while scanning and can be viewed as all apps, largest apps, or cache-heavy apps; Android system settings handle app-level cleanup actions. |
 | **Recycle Bin** | Deletions first go to the app-managed Recycle Bin. Items can be restored individually or together; permanent deletion is confirmed. Automatic retention is off by default and requires an explicit user setting. |
-| **Secure vault** | Biometric/device-credential-gated `EncryptedFile` storage. Import uses Android's Storage Access Framework document picker and streams the selected `content://` URI into the vault; the source is not removed. Export and permanent vault deletion remain explicit actions. |
+| **Settings** | Theme/accent/dynamic color, default sort, type grouping, confirm-before-trash, Recycle Bin retention, indexing, live AI enablement, app locale, Vault biometric/PIN policy, and 1/5/15/30-minute auto-lock are persisted preferences rather than decorative rows. The current APK ships English resources, so locale choices are honestly limited to System default or English. Existing advanced-tool routes remain available. |
+| **Secure vault** | Fail-closed `EncryptedFile` storage unlocked by a real device-auth result or a salted PBKDF2-protected local PIN. The verifier is stored only in Android-Keystore-backed encrypted preferences; storage failure denies access and never falls back to plaintext. Biometric disablement requires a configured PIN; background/navigation and the selected auto-lock interval close the runtime session. SAF import deliberately clears authorization while the picker is external: only a non-secret pending marker survives recreation, while the returned URI remains memory-only, requires fresh authentication, and is consumed once. The source is not removed; export and permanent deletion remain explicit. |
 | **Organization and automation** | Favorites, tags, workspaces, activity, and locally stored automation rules remain available through their existing routes. |
 | **Remote and transfer** | Wi-Fi desktop sharing and configured remote-connection surfaces are available. Google Drive sign-in is enabled only when a valid OAuth client ID is supplied; other cloud providers are explicitly marked as unavailable until their backend exists. |
 
@@ -65,10 +66,20 @@ Opening a file is routed by `FileType` (`openByType`) to the matching viewer.
 Jupiter does not substitute decorative data for a missing service. Cloud accounts,
 remote sources, and network transfer only operate when their required connection
 or configuration is present. The optional AI path is isolated behind
-`AiAssistant`; its default implementation reports that it is not configured
-instead of inventing file contents or answers. Likewise, empty, permission, and
-error states are intentional parts of the UI rather than hidden behind sample
-content.
+`AiAssistant`; disabling AI prevents the Anthropic implementation from running,
+and an unconfigured backend reports that state instead of inventing file contents
+or answers. Empty, permission, and error states are intentional UI states rather
+than sample content.
+
+The shared design implementation covers the existing 49-screen source inventory,
+but that code-level coverage is not a claim that every density, font scale, OEM
+permission sheet, media codec, or foldable posture has been visually certified.
+The eight reference screens still require captured device/emulator comparison in
+each release gate. The v0.51 round performed that comparison on a Pixel 8 Pro
+emulator and also exercised live app-size data, Recycle Bin delete/restore, Vault
+PIN unlock, and slideshow timing. Android authentication, full SAF recreation,
+locale application, external storage, media codecs, and network behavior still
+depend on platform services and suitable real test data.
 
 ---
 
@@ -177,15 +188,23 @@ creates this). The Gradle wrapper pins the Gradle version.
 ## Testing
 
 JVM unit tests under `app/src/test/` cover the core/domain rules plus the
-high-risk storage safeguards: index and deduplication behavior, storage
-exclusions, archive safety, Recycle Bin retention, transfer collision rejection,
-search-filter/history policy, vault ViewModel state, and streaming app-storage
-reconciliation. Run them with `./gradlew testDebugUnitTest`.
+high-risk storage safeguards: index and deduplication behavior, visible-only
+duplicate selection and keeper protection, storage exclusions, archive safety,
+Recycle Bin retention/filtering, transfer collision rejection, photo move-policy,
+search history/section policy, slideshow timing/wrap policy, Settings state
+ownership, Vault PIN persistence and fail-closed ViewModel state, and streaming
+app-storage reconciliation. Run them with `./gradlew testDebugUnitTest`.
 
-Device-dependent flows — storage permissions, the document picker, biometric
-authentication, real app-size measurements, remote connections, and media
-playback — still need verification on a device or emulator with suitable test
-data and permissions.
+For v0.51, `assembleDebug`, `testDebugUnitTest`, and `lintDebug` completed
+successfully in one local gate; the XML reports contain 318 tests with zero
+failures, errors, or skips.
+
+Release gates should repeat device-dependent checks with representative data and
+permissions. The v0.51 emulator run verified the eight reference screens, real
+app-size measurements, Recycle Bin delete/restore, PIN-based Vault unlock, and
+slideshow autoplay/pause. A real biometric/device credential, full SAF
+configuration-recreation return, app-locale recreation, remote connections, and
+device-specific media playback remain device-bound verification boundaries.
 
 ---
 

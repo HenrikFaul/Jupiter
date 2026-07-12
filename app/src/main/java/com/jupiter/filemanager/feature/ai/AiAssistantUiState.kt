@@ -29,7 +29,7 @@ data class ChatMessage(
 )
 
 /**
- * Immutable UI state for the AI assistant (Nexus AI) screen.
+ * Immutable UI state for the Jupiter AI assistant screen.
  *
  * @property messages the ordered chat transcript, oldest first.
  * @property input the current value of the composer text field.

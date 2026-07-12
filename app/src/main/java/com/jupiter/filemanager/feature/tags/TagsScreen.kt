@@ -2,6 +2,7 @@ package com.jupiter.filemanager.feature.tags
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,12 +60,14 @@ import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.Tag
 import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.iconForFile
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Palette of preset tag colors offered in the add-tag dialog. Values are packed
- * ARGB longs matching the NEXUS brand language (vivid, saturated accents).
+ * ARGB longs matching the Jupiter visual language (vivid, accessible accents).
  */
 private val TagColorPalette: List<Long> = listOf(
     0xFF2563EB, // blue 600 (brand)
@@ -97,6 +100,7 @@ fun TagsScreen(
     BackHandler(enabled = viewingTag) { viewModel.clearSelection() }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -106,6 +110,7 @@ fun TagsScreen(
                         } else {
                             "Tags"
                         },
+                        style = MaterialTheme.typography.headlineSmall,
                     )
                 },
                 navigationIcon = {
@@ -120,6 +125,12 @@ fun TagsScreen(
                         )
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
         floatingActionButton = {
@@ -181,7 +192,7 @@ private fun TagListContent(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(items = tags, key = { it.id }) { tag ->
@@ -202,9 +213,13 @@ private fun TagRowCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -269,7 +284,7 @@ private fun TagFilesContent(
 
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(items = files, key = { it.path }) { file ->
@@ -289,9 +304,13 @@ private fun TaggedFileCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -302,20 +321,11 @@ private fun TaggedFileCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(44.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = iconForFile(file),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
+            JupiterIconBadge(
+                icon = iconForFile(file),
+                contentDescription = null,
+                size = 44.dp,
+            )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

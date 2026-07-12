@@ -2,6 +2,7 @@ package com.jupiter.filemanager.feature.browser.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,11 +17,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +32,8 @@ import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.domain.model.FileOperationProgress
 import com.jupiter.filemanager.domain.model.FileOperationType
 import com.jupiter.filemanager.domain.model.OperationState
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterProgressBar
 
 /**
  * A card that surfaces the state of an in-flight (or just-finished) file
@@ -58,18 +58,11 @@ fun OperationProgressCard(
 ) {
     val isRunning = progress.state == OperationState.RUNNING
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+    JupiterCard(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(16.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusIcon(progress = progress)
 
@@ -96,8 +89,8 @@ fun OperationProgressCard(
             Spacer(modifier = Modifier.height(12.dp))
 
             if (isRunning) {
-                LinearProgressIndicator(
-                    progress = { progress.fraction },
+                JupiterProgressBar(
+                    fraction = progress.fraction,
                     modifier = Modifier.fillMaxWidth(),
                 )
 

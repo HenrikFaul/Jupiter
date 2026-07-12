@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.feature.automation
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,6 +44,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Screen for authoring a new automation rule.
@@ -69,9 +72,15 @@ fun RuleBuilderScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("New rule") },
+                title = {
+                    Text(
+                        text = "New rule",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -80,6 +89,12 @@ fun RuleBuilderScreen(
                         )
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
     ) { padding ->
@@ -88,7 +103,7 @@ fun RuleBuilderScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             OutlinedTextField(
@@ -98,7 +113,7 @@ fun RuleBuilderScreen(
                 label = { Text("Rule name") },
                 placeholder = { Text("e.g. Sort screenshots") },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = JupiterDesign.CompactCardShape,
             )
 
             AiSuggestionCard(
@@ -131,8 +146,8 @@ fun RuleBuilderScreen(
             )
 
             Text(
-                text = "Rule execution isn't wired up yet — saved rules are stored " +
-                    "and shown in Automation. They'll start running once that backend lands.",
+                text = "Rules run only when you choose Run rules now in Automation and confirm. " +
+                    "Nothing is executed silently in the background.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -143,7 +158,7 @@ fun RuleBuilderScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = JupiterDesign.CompactCardShape,
             ) {
                 if (state.isSaving) {
                     CircularProgressIndicator(
@@ -182,9 +197,13 @@ private fun AiSuggestionCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -195,16 +214,16 @@ private fun AiSuggestionCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.AutoAwesome,
+                JupiterIconBadge(
+                    icon = Icons.Filled.AutoAwesome,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    size = 40.dp,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = "Describe it in words",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
 
@@ -216,7 +235,7 @@ private fun AiSuggestionCard(
                         "then fill in the When and Then fields manually below."
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             OutlinedTextField(
@@ -226,14 +245,14 @@ private fun AiSuggestionCard(
                 placeholder = { Text("Move large videos older than a month to Archive") },
                 minLines = 2,
                 maxLines = 4,
-                shape = RoundedCornerShape(12.dp),
+                shape = JupiterDesign.CompactCardShape,
             )
 
             FilledTonalButton(
                 onClick = onRequest,
                 enabled = canParse,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = JupiterDesign.PillShape,
             ) {
                 if (isParsing) {
                     CircularProgressIndicator(
@@ -255,8 +274,8 @@ private fun AiSuggestionCard(
 
             if (suggestion != null) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface,
+                    shape = JupiterDesign.CompactCardShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
@@ -272,7 +291,7 @@ private fun AiSuggestionCard(
                 Text(
                     text = error,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -294,9 +313,13 @@ private fun FieldCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -307,20 +330,11 @@ private fun FieldCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
+                JupiterIconBadge(
+                    icon = icon,
+                    contentDescription = null,
+                    size = 36.dp,
+                )
                 Spacer(Modifier.width(12.dp))
                 Text(
                     text = title,
@@ -335,7 +349,7 @@ private fun FieldCard(
                 placeholder = { Text(placeholder) },
                 minLines = 1,
                 maxLines = 3,
-                shape = RoundedCornerShape(12.dp),
+                shape = JupiterDesign.CompactCardShape,
             )
             Text(
                 text = helper,

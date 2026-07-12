@@ -1,7 +1,6 @@
 package com.jupiter.filemanager.feature.transfer
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -25,23 +23,23 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterWordmark
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Transfer screen.
@@ -58,6 +56,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun TransferScreen(onBack: () -> Unit) {
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(text = "Transfer") },
@@ -80,6 +79,10 @@ fun TransferScreen(onBack: () -> Unit) {
                 .padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            JupiterWordmark()
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             HeroIcon()
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -169,22 +172,11 @@ fun TransferScreen(onBack: () -> Unit) {
  */
 @Composable
 private fun HeroIcon(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier
-            .size(112.dp)
-            .clip(CircleShape),
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = Icons.Filled.Send,
-                contentDescription = null,
-                modifier = Modifier.size(52.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
-    }
+    JupiterIconBadge(
+        icon = Icons.Filled.Send,
+        modifier = modifier,
+        size = 96.dp,
+    )
 }
 
 /**
@@ -197,24 +189,15 @@ private fun FeatureCard(
     description: String,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    JupiterCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        contentPadding = PaddingValues(JupiterDesign.CompactPadding),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(28.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            JupiterIconBadge(icon = icon)
             Spacer(modifier = Modifier.width(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(

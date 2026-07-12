@@ -6,18 +6,16 @@ import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.repository.FileRepository
 import com.jupiter.filemanager.domain.repository.StorageAnalyticsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
 /**
- * Drives the AI assistant (Nexus AI) chat screen.
+ * Drives the Jupiter AI assistant chat screen.
  *
  * Sending a message routes the prompt to the injected [AiAssistant]. When no
  * real backend is configured the production binding is
@@ -39,11 +37,12 @@ class AiAssistantViewModel @Inject constructor(
     val uiState: StateFlow<AiAssistantUiState> = _uiState.asStateFlow()
 
     init {
-        // Resolve availability off the main thread; never block in the field
-        // initializer. The assistant's isEnabled is backed by a cached value.
+        // Availability is a live Settings-derived flow: toggling AI or changing the
+        // encrypted key updates this already-open screen without recreating its ViewModel.
         viewModelScope.launch {
-            val enabled = withContext(Dispatchers.IO) { aiAssistant.isEnabled }
-            _uiState.update { it.copy(isEnabled = enabled) }
+            aiAssistant.enabled.collect { enabled ->
+                _uiState.update { it.copy(isEnabled = enabled) }
+            }
         }
     }
 

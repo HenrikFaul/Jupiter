@@ -5,6 +5,8 @@ import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FilterOption
 import com.jupiter.filemanager.domain.model.StorageOverview
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,7 +21,7 @@ import javax.inject.Singleton
 @Singleton
 class NoOpAiAssistant @Inject constructor() : AiAssistant {
 
-    override val isEnabled: Boolean = false
+    override val enabled: StateFlow<Boolean> = MutableStateFlow(false)
 
     override suspend fun suggestName(item: FileItem): AppResult<String> = notConfigured()
 

@@ -1,5 +1,7 @@
 package com.jupiter.filemanager.feature.settings
 
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
@@ -7,7 +9,10 @@ import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.index.IndexingWorker
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.data.trash.TrashScheduler
+import com.jupiter.filemanager.data.vault.VaultPinMutationResult
+import com.jupiter.filemanager.data.vault.VaultSecurityStore
 import com.jupiter.filemanager.domain.model.IndexStats
+import com.jupiter.filemanager.domain.model.SortOption
 import com.jupiter.filemanager.domain.model.ThemeMode
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.IndexStateRepository
@@ -40,6 +45,7 @@ class SettingsViewModel @Inject constructor(
     private val indexingScheduler: IndexingScheduler,
     private val trashScheduler: TrashScheduler,
     private val downloadIndexObserver: com.jupiter.filemanager.data.index.DownloadIndexObserver,
+    private val vaultSecurityStore: VaultSecurityStore,
 ) : ViewModel() {
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -56,6 +62,13 @@ class SettingsViewModel @Inject constructor(
         indexRepository.stats(),
         indexingScheduler.observeStatus(),
         settings.trashAutoDeleteDays,
+        settings.sortOption,
+        settings.groupFilesByType,
+        settings.confirmBeforeTrash,
+        settings.vaultBiometricLock,
+        settings.vaultAutoLockMinutes,
+        settings.appLanguageTag,
+        vaultSecurityStore.pinConfigured,
     ) { values ->
         val stats = values[10] as IndexStats
         val workInfo = values[11] as WorkInfo?
@@ -80,6 +93,13 @@ class SettingsViewModel @Inject constructor(
             indexProgressCurrent = indexedSoFar,
             indexProgressTotal = indexTotal,
             trashAutoDeleteDays = values[12] as Int,
+            defaultSortOption = values[13] as SortOption,
+            groupFilesByType = values[14] as Boolean,
+            confirmBeforeTrash = values[15] as Boolean,
+            vaultBiometricLock = values[16] as Boolean,
+            vaultAutoLockMinutes = values[17] as Int,
+            appLanguageTag = values[18] as String,
+            vaultPinConfigured = values[19] as Boolean,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -96,6 +116,24 @@ class SettingsViewModel @Inject constructor(
     fun setShowHidden(value: Boolean) {
         viewModelScope.launch {
             settings.setShowHidden(value)
+        }
+    }
+
+    fun setSortOption(option: SortOption) {
+        viewModelScope.launch {
+            settings.setSortOption(option)
+        }
+    }
+
+    fun setGroupFilesByType(value: Boolean) {
+        viewModelScope.launch {
+            settings.setGroupFilesByType(value)
+        }
+    }
+
+    fun setConfirmBeforeTrash(value: Boolean) {
+        viewModelScope.launch {
+            settings.setConfirmBeforeTrash(value)
         }
     }
 
@@ -201,5 +239,98 @@ class SettingsViewModel @Inject constructor(
             settings.setTrashAutoDeleteDays(days)
             if (days > 0) trashScheduler.purgeNow()
         }
+    }
+
+    fun setVaultAutoLockMinutes(minutes: Int) {
+        viewModelScope.launch {
+            settings.setVaultAutoLockMinutes(minutes)
+        }
+    }
+
+    /**
+     * Applies the selected per-app locale through AppCompat and mirrors the applied tag into
+     * DataStore. Persistence completes before AppCompat is allowed to recreate the Activity.
+     */
+    fun setAppLanguageTag(languageTag: String?) {
+        val locales = LocaleListCompat.forLanguageTags(languageTag.orEmpty())
+        val appliedTag = primaryLanguageTag(locales)
+        viewModelScope.launch {
+            settings.setAppLanguageTag(appliedTag)
+            AppCompatDelegate.setApplicationLocales(locales)
+        }
+    }
+
+    /** Reconciles DataStore with the locale currently applied by AppCompat/platform settings. */
+    fun refreshAppLanguageTag() {
+        val appliedTag = primaryLanguageTag(AppCompatDelegate.getApplicationLocales())
+        viewModelScope.launch {
+            settings.setAppLanguageTag(appliedTag)
+        }
+    }
+
+    /**
+     * Changes biometric protection through [VaultSecurityStore], which rejects disabling it
+     * unless a PIN is already configured. [onResult] receives false when policy or IO rejects it.
+     */
+    fun setVaultBiometricLock(value: Boolean, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(runCatching { vaultSecurityStore.setBiometricLock(value) }.getOrDefault(false))
+        }
+    }
+
+    /**
+     * Configures a Vault PIN. Ownership transfers at method entry: Jupiter synchronously copies
+     * the input, immediately zeroes the caller-owned array, and always wipes its private copy.
+     * Only a salted PBKDF2 verifier can reach persistent storage.
+     */
+    fun configureVaultPin(
+        pin: CharArray,
+        onResult: (VaultPinMutationResult) -> Unit = {},
+    ) {
+        val transientPin = VaultPinInputOwnership.take(pin)
+        val job = viewModelScope.launch {
+            val result = try {
+                runCatching { vaultSecurityStore.configurePin(transientPin) }
+                    .getOrDefault(VaultPinMutationResult.PERSISTENCE_FAILED)
+            } finally {
+                transientPin.fill('\u0000')
+            }
+            onResult(result)
+        }
+        // Also covers cancellation before the coroutine body gets a chance to start.
+        job.invokeOnCompletion { transientPin.fill('\u0000') }
+    }
+
+    /** Verifies a transferred PIN using the same copy-now/zero-now ownership contract. */
+    fun verifyVaultPin(pin: CharArray, onResult: (Boolean) -> Unit) {
+        val transientPin = VaultPinInputOwnership.take(pin)
+        val job = viewModelScope.launch {
+            val verified = try {
+                runCatching { vaultSecurityStore.verifyPin(transientPin) }.getOrDefault(false)
+            } finally {
+                transientPin.fill('\u0000')
+            }
+            onResult(verified)
+        }
+        job.invokeOnCompletion { transientPin.fill('\u0000') }
+    }
+
+    /** Clearing the PIN restores biometric protection before deleting the verifier. */
+    fun clearVaultPin(onResult: (VaultPinMutationResult) -> Unit = {}) {
+        viewModelScope.launch {
+            val result = runCatching { vaultSecurityStore.clearPin() }
+                .getOrDefault(VaultPinMutationResult.PERSISTENCE_FAILED)
+            onResult(result)
+        }
+    }
+
+    private fun primaryLanguageTag(locales: LocaleListCompat): String =
+        locales.toLanguageTags().substringBefore(',').trim()
+}
+
+/** Pure, synchronously testable ownership boundary for transient Settings PIN input. */
+internal object VaultPinInputOwnership {
+    fun take(callerOwnedPin: CharArray): CharArray = callerOwnedPin.copyOf().also {
+        callerOwnedPin.fill('\u0000')
     }
 }

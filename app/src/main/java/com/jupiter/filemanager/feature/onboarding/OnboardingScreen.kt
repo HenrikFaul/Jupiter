@@ -256,7 +256,7 @@ private data class OnboardingPage(
     val description: String,
 )
 
-/** The four NEXUS-style onboarding panels, in display order. */
+/** The four Jupiter onboarding panels, in display order. */
 @Composable
 private fun rememberOnboardingPages(): List<OnboardingPage> = listOf(
     OnboardingPage(

@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.feature.settings
 
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
+import com.jupiter.filemanager.domain.model.SortOption
 import com.jupiter.filemanager.domain.model.ThemeMode
 
 /**
@@ -37,6 +38,17 @@ data class SettingsUiState(
     val indexProgressTotal: Int = 0,
     // Recycle Bin: days after which trashed items are auto-deleted (0 = OFF, the default).
     val trashAutoDeleteDays: Int = 0,
+    // File-behaviour preferences are additive and deliberately follow every pre-v0.51 field so
+    // positional callers compiled against the established SettingsUiState ordering keep working.
+    val defaultSortOption: SortOption = SortOption(),
+    val groupFilesByType: Boolean = false,
+    val confirmBeforeTrash: Boolean = true,
+    // Vault security defaults remain fail-closed until explicitly configured by the user.
+    val vaultBiometricLock: Boolean = true,
+    val vaultAutoLockMinutes: Int = 5,
+    val vaultPinConfigured: Boolean = false,
+    // Empty means follow the system locale / use Android's per-app language setting.
+    val appLanguageTag: String = "",
 ) {
     /** Percentage [0,100] of the current index build, or null when unknown/not running. */
     val indexProgressPercent: Int?

@@ -45,7 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
- * Nexus AI assistant chat screen.
+ * Jupiter AI assistant chat screen.
  *
  * Renders the conversation transcript, a composer, and example suggestion chips
  * on the empty state. All AI work is delegated to [AiAssistantViewModel]; this
@@ -83,7 +83,7 @@ fun AiAssistantScreen(
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(
-                                "Nexus AI",
+                                "Jupiter AI",
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
@@ -168,7 +168,7 @@ private fun EmptyConversation(
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Ask Nexus AI",
+            text = "Ask Jupiter AI",
             style = MaterialTheme.typography.headlineSmall,
         )
         Spacer(Modifier.height(8.dp))
@@ -285,7 +285,7 @@ private fun Composer(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Ask Nexus AI…") },
+                placeholder = { Text("Ask Jupiter AI…") },
                 shape = RoundedCornerShape(24.dp),
                 maxLines = 4,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),

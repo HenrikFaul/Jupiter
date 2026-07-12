@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.feature.privacy
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * A static, honest "Your data & privacy in Jupiter" trust surface.
@@ -60,6 +63,7 @@ fun DataTransparencyScreen(
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(text = "Your data & privacy") },
@@ -72,6 +76,12 @@ fun DataTransparencyScreen(
                     }
                 },
                 scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
     ) { innerPadding ->
@@ -80,7 +90,7 @@ fun DataTransparencyScreen(
                 .padding(innerPadding)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(modifier = Modifier.height(0.dp))
@@ -116,8 +126,8 @@ fun DataTransparencyScreen(
                 )
                 PermissionLine(
                     name = "Internet (INTERNET)",
-                    purpose = "Only for the remote and cloud connections you add, and " +
-                        "for Wi-Fi transfer between your own devices.",
+                    purpose = "For remote/cloud connections, Wi-Fi transfer, and optional " +
+                        "AI requests you explicitly configure and submit.",
                 )
                 PermissionLine(
                     name = "Notifications (POST_NOTIFICATIONS)",
@@ -223,9 +233,15 @@ private fun TrustCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
             modifier = Modifier
@@ -234,11 +250,10 @@ private fun TrustCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = icon,
+                JupiterIconBadge(
+                    icon = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp),
+                    size = 44.dp,
                 )
                 Text(
                     text = title,

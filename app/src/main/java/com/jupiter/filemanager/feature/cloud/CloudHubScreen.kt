@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -68,18 +67,19 @@ import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.domain.model.CloudAccount
 import com.jupiter.filemanager.domain.model.CloudProvider
 import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.StorageBar
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Cloud Hub screen. Lists the user's linked cloud storage accounts
  * (Google Drive, Dropbox, OneDrive, iCloud, Box, WebDAV) and lets them add a new
  * link entry via a bottom sheet.
  *
- * No live provider authentication or quota backend is wired yet, so accounts are
- * surfaced honestly as "Not connected" with a "Connect" affordance that is not
- * yet functional ("Coming soon"). Account link entries themselves are persisted
- * so they survive process death.
+ * Google Drive uses the live consent/sign-in flow and reports real account/quota data when
+ * available. Providers without an authentication backend stay explicitly disabled as
+ * "Coming soon"; their local link labels are persisted without claiming a connection.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,9 +129,15 @@ fun CloudHubScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Cloud Hub") },
+                title = {
+                    Text(
+                        text = "Cloud Hub",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -140,6 +146,12 @@ fun CloudHubScreen(
                         )
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -162,8 +174,8 @@ fun CloudHubScreen(
 
                 state.isEmpty -> EmptyView(
                     title = "No cloud accounts",
-                    message = "Link a cloud account to keep it within reach. " +
-                        "Provider sign-in and sync are coming soon.",
+                    message = "Google Drive can connect now. Other providers remain clearly " +
+                        "marked unavailable until their sign-in backends are ready.",
                     icon = Icons.Outlined.CloudQueue,
                 )
 
@@ -206,7 +218,7 @@ private fun CloudAccountList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(items = accounts, key = { it.id }) { account ->
@@ -229,28 +241,23 @@ private fun CloudAccountCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Filled.Cloud,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
+                JupiterIconBadge(
+                    icon = Icons.Filled.Cloud,
+                    contentDescription = null,
+                    size = 44.dp,
+                )
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -363,6 +370,8 @@ private fun AddCloudAccountSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
             modifier = Modifier
@@ -378,8 +387,8 @@ private fun AddCloudAccountSheet(
             )
             Spacer(modifier = Modifier.size(4.dp))
             Text(
-                text = "Choose a provider and name this account. Provider sign-in " +
-                    "is coming soon.",
+                text = "Choose a provider and name this account. Google Drive supports live " +
+                    "sign-in; unavailable providers stay disabled after adding.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -440,8 +449,13 @@ private fun ProviderRow(
         MaterialTheme.colorScheme.surfaceContainer
     }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         color = container,
+        border = BorderStroke(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)

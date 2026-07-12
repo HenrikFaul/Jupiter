@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -83,6 +84,11 @@ class SettingsDataStore @Inject constructor(
         val RECENT_SEARCHES = stringPreferencesKey("recent_searches")
         val DEDUP_CHECKPOINT_ID = longPreferencesKey("dedup_checkpoint_id")
         val TRASH_AUTO_DELETE_DAYS = intPreferencesKey("trash_auto_delete_days")
+        val GROUP_FILES_BY_TYPE = booleanPreferencesKey("group_files_by_type")
+        val CONFIRM_BEFORE_TRASH = booleanPreferencesKey("confirm_before_trash")
+        val VAULT_BIOMETRIC_LOCK = booleanPreferencesKey("vault_biometric_lock")
+        val VAULT_AUTO_LOCK_MINUTES = intPreferencesKey("vault_auto_lock_minutes")
+        val APP_LANGUAGE_TAG = stringPreferencesKey("app_language_tag")
     }
 
     /** Current theme mode; defaults to the branded dark design. */
@@ -209,6 +215,40 @@ class SettingsDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.INDEXING_ENABLED] ?: true }
 
+    /** Whether browser listings should visually group entries by file type. */
+    val groupFilesByType: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.GROUP_FILES_BY_TYPE] ?: false }
+
+    /**
+     * Whether moving an item to the Recycle Bin requires a user confirmation.
+     * This preference never applies to permanent deletion, which must remain confirmed.
+     */
+    val confirmBeforeTrash: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.CONFIRM_BEFORE_TRASH] ?: true }
+
+    /** Whether the Vault requires biometric/device-credential authentication. */
+    val vaultBiometricLock: Flow<Boolean> = dataStore.data
+        .safe()
+        .map { prefs -> prefs[Keys.VAULT_BIOMETRIC_LOCK] ?: true }
+
+    /** Vault inactivity timeout. Unsupported/corrupt values safely fall back to five minutes. */
+    val vaultAutoLockMinutes: Flow<Int> = dataStore.data
+        .safe()
+        .map { prefs -> VaultSecurityPreferencePolicy.normalizeAutoLockMinutes(
+            prefs[Keys.VAULT_AUTO_LOCK_MINUTES],
+        ) }
+
+    /**
+     * Persisted BCP-47 app-language tag. An empty tag means follow the system language.
+     * The UI can either apply this through Android's per-app locale API or open the
+     * platform App language screen without inventing an unsupported in-app translation.
+     */
+    val appLanguageTag: Flow<String> = dataStore.data
+        .safe()
+        .map { prefs -> normalizeLanguageTag(prefs[Keys.APP_LANGUAGE_TAG]) }
+
     /**
      * The user's most recently submitted search terms, newest first.
      *
@@ -285,6 +325,40 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setIndexingEnabled(value: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.INDEXING_ENABLED] = value }
+    }
+
+    suspend fun setGroupFilesByType(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.GROUP_FILES_BY_TYPE] = value }
+    }
+
+    suspend fun setConfirmBeforeTrash(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.CONFIRM_BEFORE_TRASH] = value }
+    }
+
+    /**
+     * Low-level persistence primitive. Callers that disable this flag must first enforce
+     * [com.jupiter.filemanager.data.vault.VaultSecurityPolicy.canDisableBiometric].
+     */
+    internal suspend fun setVaultBiometricLock(value: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.VAULT_BIOMETRIC_LOCK] = value }
+    }
+
+    suspend fun setVaultAutoLockMinutes(value: Int) {
+        dataStore.edit { prefs ->
+            prefs[Keys.VAULT_AUTO_LOCK_MINUTES] =
+                VaultSecurityPreferencePolicy.normalizeAutoLockMinutes(value)
+        }
+    }
+
+    suspend fun setAppLanguageTag(value: String?) {
+        dataStore.edit { prefs ->
+            val normalized = normalizeLanguageTag(value)
+            if (normalized.isEmpty()) {
+                prefs.remove(Keys.APP_LANGUAGE_TAG)
+            } else {
+                prefs[Keys.APP_LANGUAGE_TAG] = normalized
+            }
+        }
     }
 
     /**
@@ -365,6 +439,24 @@ class SettingsDataStore @Inject constructor(
  */
 private inline fun <reified T : Enum<T>> enumValueOrNull(name: String): T? =
     enumValues<T>().firstOrNull { it.name == name }
+
+/** Pure persistence policy for the supported Vault inactivity windows. */
+internal object VaultSecurityPreferencePolicy {
+    const val DEFAULT_AUTO_LOCK_MINUTES: Int = 5
+    val ALLOWED_AUTO_LOCK_MINUTES: Set<Int> = setOf(1, 5, 15, 30)
+
+    fun normalizeAutoLockMinutes(value: Int?): Int =
+        value?.takeIf(ALLOWED_AUTO_LOCK_MINUTES::contains) ?: DEFAULT_AUTO_LOCK_MINUTES
+}
+
+/** Canonicalizes a BCP-47 tag while retaining an empty value for "follow system". */
+private fun normalizeLanguageTag(value: String?): String {
+    val candidate = value?.trim().orEmpty()
+    if (candidate.isEmpty()) return ""
+
+    val locale = Locale.forLanguageTag(candidate)
+    return locale.takeUnless { it == Locale.ROOT }?.toLanguageTag().orEmpty()
+}
 
 /**
  * Serialization and bounded-list policy for [SettingsDataStore.recentSearches].

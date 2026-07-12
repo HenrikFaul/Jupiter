@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.Color
 
 // --- Brand seeds ---
 private val TealPrimaryLight = Color(0xFF006D65)
-private val TealPrimaryDark = Color(0xFF3DE5D5)
+private val TealPrimaryDark = Color(0xFF43DDD1)
 private val SlateSecondaryLight = Color(0xFF465B74)
 private val SlateSecondaryDark = Color(0xFFB9C8D8)
 
@@ -77,19 +77,26 @@ private val md_dark_onError = Color(0xFF690005)
 private val md_dark_errorContainer = Color(0xFF93000A)
 private val md_dark_onErrorContainer = Color(0xFFFFDAD6)
 
-private val md_dark_background = Color(0xFF071019)
+private val md_dark_background = Color(0xFF080D15)
 private val md_dark_onBackground = Color(0xFFE7F0F3)
-private val md_dark_surface = Color(0xFF0B151F)
+private val md_dark_surface = Color(0xFF0C131D)
 private val md_dark_onSurface = Color(0xFFE7F0F3)
-private val md_dark_surfaceVariant = Color(0xFF1B2834)
+private val md_dark_surfaceVariant = Color(0xFF202A34)
 private val md_dark_onSurfaceVariant = Color(0xFFB1C0CB)
 private val md_dark_outline = Color(0xFF7B8B96)
-private val md_dark_outlineVariant = Color(0xFF2B3A46)
+private val md_dark_outlineVariant = Color(0xFF2A3541)
 private val md_dark_scrim = Color(0xFF000000)
 private val md_dark_inverseSurface = Color(0xFFE7F0F3)
 private val md_dark_inverseOnSurface = Color(0xFF16232D)
 private val md_dark_inversePrimary = TealPrimaryLight
 private val md_dark_surfaceTint = TealPrimaryDark
+private val md_dark_surfaceDim = Color(0xFF080D15)
+private val md_dark_surfaceBright = Color(0xFF27313B)
+private val md_dark_surfaceContainerLowest = Color(0xFF070B12)
+private val md_dark_surfaceContainerLow = Color(0xFF0E1620)
+private val md_dark_surfaceContainer = Color(0xFF151E28)
+private val md_dark_surfaceContainerHigh = Color(0xFF1B2530)
+private val md_dark_surfaceContainerHighest = Color(0xFF222D38)
 
 /** Light Material 3 color scheme for Jupiter. */
 val JupiterLightColors: ColorScheme = lightColorScheme(
@@ -155,6 +162,13 @@ val JupiterDarkColors: ColorScheme = darkColorScheme(
     inverseOnSurface = md_dark_inverseOnSurface,
     inversePrimary = md_dark_inversePrimary,
     surfaceTint = md_dark_surfaceTint,
+    surfaceDim = md_dark_surfaceDim,
+    surfaceBright = md_dark_surfaceBright,
+    surfaceContainerLowest = md_dark_surfaceContainerLowest,
+    surfaceContainerLow = md_dark_surfaceContainerLow,
+    surfaceContainer = md_dark_surfaceContainer,
+    surfaceContainerHigh = md_dark_surfaceContainerHigh,
+    surfaceContainerHighest = md_dark_surfaceContainerHighest,
 )
 
 // ---------------------------------------------------------------------------

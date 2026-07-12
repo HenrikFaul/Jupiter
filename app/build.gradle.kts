@@ -14,8 +14,8 @@ android {
         applicationId = "com.jupiter.filemanager"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.50.0"
+        versionCode = 3
+        versionName = "0.51.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -106,6 +106,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.appcompat)
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))

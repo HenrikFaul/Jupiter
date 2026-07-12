@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,8 +29,6 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,7 +41,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -54,6 +49,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Wi-Fi transfer screen.
@@ -76,6 +74,7 @@ fun WifiTransferScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(text = "Wi-Fi Transfer") },
@@ -150,30 +149,12 @@ fun WifiTransferScreen(
  */
 @Composable
 private fun HeaderBadge(running: Boolean, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier
-            .size(96.dp)
-            .clip(CircleShape),
-        shape = CircleShape,
-        color = if (running) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = if (running) Icons.Filled.Wifi else Icons.Filled.WifiOff,
-                contentDescription = null,
-                modifier = Modifier.size(44.dp),
-                tint = if (running) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
-    }
+    JupiterIconBadge(
+        icon = if (running) Icons.Filled.Wifi else Icons.Filled.WifiOff,
+        tint = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+        size = 96.dp,
+    )
 }
 
 /**
@@ -220,18 +201,12 @@ private fun AddressCard(
     onCopy: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    JupiterCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        contentPadding = PaddingValues(JupiterDesign.CompactPadding),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             InfoRow(
                 icon = Icons.Filled.Router,
@@ -338,20 +313,7 @@ private fun InfoRow(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            modifier = Modifier.size(40.dp).clip(CircleShape),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-        }
+        JupiterIconBadge(icon = icon, size = 40.dp)
         Spacer(modifier = Modifier.width(14.dp))
         Column(
             modifier = Modifier.weight(1f),
@@ -379,24 +341,18 @@ private fun InfoRow(
  */
 @Composable
 private fun SameNetworkNote(modifier: Modifier = Modifier) {
-    Card(
+    JupiterCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        contentPadding = PaddingValues(JupiterDesign.CompactPadding),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
         ) {
             Icon(
                 imageVector = Icons.Filled.Info,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp),
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -404,7 +360,7 @@ private fun SameNetworkNote(modifier: Modifier = Modifier) {
                 Text(
                     text = "Same network required",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = "The computer's browser and this phone must be connected to the " +
@@ -412,7 +368,7 @@ private fun SameNetworkNote(modifier: Modifier = Modifier) {
                         "only while it's running and only on your LAN — it isn't reachable " +
                         "from the internet.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

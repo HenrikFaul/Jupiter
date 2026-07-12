@@ -15,8 +15,8 @@ import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
-import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +38,8 @@ import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.ui.components.iconForFile
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * The set of contextual actions that can be performed on a single [FileItem]
@@ -84,6 +86,8 @@ fun FileActionsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = JupiterDesign.HeroCardShape,
     ) {
         Column(
             modifier = Modifier
@@ -126,11 +130,11 @@ private fun FileActionsHeader(
             .padding(horizontal = 24.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = iconForFile(item),
-            contentDescription = null,
+        JupiterIconBadge(
+            icon = iconForFile(item),
+            contentDescription = item.name,
             tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(40.dp),
+            size = 48.dp,
         )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -169,7 +173,7 @@ private fun ActionRow(
     }
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.surface,
+        color = androidx.compose.ui.graphics.Color.Transparent,
         contentColor = contentColor,
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -202,12 +206,16 @@ private fun actionsFor(item: FileItem): List<FileAction> = buildList {
         add(FileAction.OPEN)
         add(FileAction.OPEN_WITH)
         add(FileAction.SHARE)
+        if (item.type == com.jupiter.filemanager.domain.model.FileType.IMAGE ||
+            item.type == com.jupiter.filemanager.domain.model.FileType.VIDEO
+        ) {
+            add(FileAction.COMPRESS)
+        }
     }
     add(FileAction.RENAME)
     add(FileAction.COPY)
     add(FileAction.COPY_PATH)
     add(FileAction.MOVE)
-    add(FileAction.COMPRESS)
     add(FileAction.ADD_BOOKMARK)
     add(FileAction.DETAILS)
     add(FileAction.DELETE)

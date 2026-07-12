@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,6 +24,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Dialog used to rename an existing file or folder.
@@ -119,6 +121,8 @@ private fun NameInputDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = JupiterDesign.CardShape,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = { Text(text = title) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -130,6 +134,7 @@ private fun NameInputDialog(
                     isError = text.isNotEmpty() && !isValid,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }),
+                    shape = JupiterDesign.CompactCardShape,
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester),

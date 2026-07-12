@@ -54,6 +54,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -71,7 +72,9 @@ import com.jupiter.filemanager.feature.browser.components.FileRow
 import com.jupiter.filemanager.feature.browser.components.OperationProgressCard
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.ErrorView
+import com.jupiter.filemanager.ui.components.JupiterCard
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /** Identifies which of the two panes is currently the active (transfer source) pane. */
 private enum class Pane { LEFT, RIGHT }
@@ -280,6 +283,7 @@ fun DualPaneScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("Dual pane") },
@@ -478,34 +482,35 @@ private fun DropModeBar(
     onDropModeChange: (DropMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    JupiterCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        Text(
-            text = "Drop:",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
-            SegmentedButton(
-                selected = dropMode == DropMode.COPY,
-                onClick = { onDropModeChange(DropMode.COPY) },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                icon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
-            ) {
-                Text("Copy")
-            }
-            SegmentedButton(
-                selected = dropMode == DropMode.MOVE,
-                onClick = { onDropModeChange(DropMode.MOVE) },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                icon = { Icon(Icons.Filled.DriveFileMove, contentDescription = null) },
-            ) {
-                Text("Move")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Drop:",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
+                SegmentedButton(
+                    selected = dropMode == DropMode.COPY,
+                    onClick = { onDropModeChange(DropMode.COPY) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    icon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                ) { Text("Copy") }
+                SegmentedButton(
+                    selected = dropMode == DropMode.MOVE,
+                    onClick = { onDropModeChange(DropMode.MOVE) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    icon = { Icon(Icons.Filled.DriveFileMove, contentDescription = null) },
+                ) { Text("Move") }
             }
         }
     }
@@ -697,7 +702,10 @@ private fun Pane(
 
     Column(
         modifier = modifier
-            .border(BorderStroke(2.dp, borderColor))
+            .padding(4.dp)
+            .clip(JupiterDesign.CompactCardShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(BorderStroke(2.dp, borderColor), JupiterDesign.CompactCardShape)
             .then(paneTint)
             .onGloballyPositioned { geometry.bounds = it.boundsInWindow() },
     ) {

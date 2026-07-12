@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Drives the redesigned NEXUS-style Home dashboard.
+ * Drives the redesigned Jupiter Home dashboard.
  *
  * Surfaces:
  *  - mounted storage volumes and the primary volume (storage overview card),

@@ -32,9 +32,10 @@ Kötelező szabályok:
 
 A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 
-> **CI a fordító.** A dev-konténerből a `dl.google.com` nem elérhető, ezért APK-t csak a GitHub Actions
-> (`.github/workflows/android.yml`) fordít. "Zöld"-nek csak konkrét, sikeres CI run számít. Minden build
-> archiválódik időbélyeggel az `archive` release-tagbe (visszagörgetési háló).
+> **A bizonyíték forrását mindig nevezd meg.** Ebben a munkatérben a helyi Android SDK/Gradle build is
+> elérhető, ezért a lokális APK- és teszteredmény kötelező kapu. A GitHub Actions
+> (`.github/workflows/android.yml`) külön távoli kapu: CI-zöldet csak konkrét sikeres run alapján szabad
+> állítani. A két eredmény nem helyettesíti és nem hamisíthatja egymást.
 
 ---
 
@@ -642,3 +643,46 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `./gradlew.bat :app:assembleDebug :app:testDebugUnitTest` — **BUILD SUCCESSFUL**; a v0.50.0 debug APK elkészült, a teljes JVM tesztcsomag **274 teszt / 0 hiba / 0 failure** eredménnyel zöld.
 - A tesztkör először két valós `.Trash` kizárási hibát talált Windows-os útvonalszeparátorral; a közös policy javítása és a célzott Windows/content-URI tesztek után a teljes csomag zöld.
 - `git diff --check` tiszta. Eszköz/emulátor- és GitHub Actions-futtatás ebben a körben nem történt, ezért ezekre nem állítunk zöld CI-eredményt.
+
+## [jupiter:0.51.0] - 2026-07-12
+
+**Scope / miért:** a `Generatedscreens/` nyolc referenciájának teljesebb, konzisztens alkalmazása a már létező Jupiter alkalmazásra, a referencia nélküli képernyők azonos design-nyelvre emelése, valamint a designban jelzett, de korábban hiányzó interakciók valós és adatbiztonságos bekötése. A kör elsődleges korlátja a funkcionális regresszió tilalma.
+
+### Added
+- **[ui/theme, ui/components]** A midnight/teal rendszer 49 meglévő Compose képernyőre kiterjesztett szemantikus token-, tipográfia-, kártya-, fájljelvény-, állapotnézet- és navigációs készlete; világos témában szemantikus surface-eket használ a fix sötét festés helyett.
+- **[feature/browser, navigation]** Valós FileProvider-alapú Share, Details route, valamint kép/videó esetén a meglévő Compress folyamat fájlt előválasztó útvonala.
+- **[feature/search]** Valós Recent és Suggested keresési szekció-policy a már meglévő helyi előzmények és típus-scope-ok mellett; nincs generált találati metaadat.
+- **[feature/categories, feature/preview, navigation]** Kijelölt fotók mozgatása valós mappaválasztóval, célútvonal-validációval, no-overwrite védelemmel, megszakítható progresszel és siker utáni MediaStore-frissítéssel; közvetlen galéria- és Similar-photos navigáció; továbbá a látható szűrt/rendezett képkészletből valódi, 3 másodperces autoplay Slideshow pause/resume, előző/következő és körbeforduló vezérléssel.
+- **[data/vault, feature/vault]** Sózott PBKDF2-HMAC-SHA256 PIN-rekord kizárólag Android-Keystore-backed encrypted store-ban, plaintext fallback nélkül; device-auth/PIN runtime session, konfigurálható auto-lock és egyszer használható, friss újrahitelesítést kérő SAF import-folyamat.
+- **[data/preferences, feature/settings, build]** Perzisztált alapértelmezett rendezés, fájltípus-csoportosítás, törlés előtti megerősítés, AI engedélyezés, alkalmazás-locale, Vault biometria/PIN és auto-lock beállítás; Android locale-konfiguráció.
+- **[test]** Célzott policy/állapot tesztek a photo move, slideshow időzítés/wrap, visible-only duplicate selection, search result sections, Vault PIN/security/session, Settings PIN-input ownership és Trash szűrés/rendezés magas kockázatú útvonalaira.
+
+### Changed
+- **[ui/feature]** Home, Files, Search, Photos, Duplicates, App storage, Recycle Bin és Settings a nyolc referencia hierarchiájához és sűrűségéhez igazodik; a további meglévő képernyők ugyanazt a közös vizuális rendszert kapják, a mögöttes valódi állapotok és route-ok megtartásával.
+- **[feature/main, navigation]** A fő tabok külső shell-váltása visszaverem-stackelő módon történik; Photos → Similar közvetlenül a Duplicates Similar prezentációját nyitja. A nyilvános screen-paraméterek additív, alapértékes bővítések maradnak.
+- **[feature/cleanup]** A duplikátum-kijelölés mindig csak a látható szűrési scope-ban működik, a rejtett kijelölést levágja, és törlés előtt ismét megvédi minden csoport minőségi `BEST` keeperét.
+- **[feature/settings, feature/ai]** Az AI-kapcsoló élő végrehajtási gate; az alkalmazásnyelv és a fájlkezelési/Vault sorok valós DataStore-beállításokat módosítanak, nem dekoratív kontrollok.
+- **[feature/vault]** Külső dokumentumválasztó indításakor a Vault session bezár; konfiguráció-/process-újralétrehozáskor csak a nem titkos pending-marker marad a `SavedStateHandle`-ben, a visszaadott URI kizárólag memóriában vár, navigáció/cancel/stale eredmény törli, sikeres friss auth után legfeljebb egyszer importálható.
+- **[build/docs/governance]** `versionCode` 3, `versionName` 0.51.0; README, changelog és versioning a valós képesség-/bizonyítékhatárokat, valamint a kötelező `main` fetch + `pull --ff-only` + közvetlen main commit/push szerződést rögzíti.
+
+### Fixed
+- **[feature/browser]** A korábban inert vagy kerülő fájl-akciók tényleges Share/Details/Compress végpontra kerülnek, miközben a normál delete továbbra is kizárólag a Recycle Binbe visz.
+- **[feature/categories]** A fotómozgatás nem írhat azonos forrás/cél útvonalra vagy létező célra; hiba/cancel esetén a kijelölés és a forrás megmarad, siker esetén a stale régi útvonal nem tér vissza a listába.
+- **[feature/cleanup]** Szűrőváltás után rejtett duplikátum nem maradhat észrevétlenül törlésre kijelölve; a `BEST` elem közvetlen toggle-lal sem választható ki.
+- **[feature/vault, security]** Megszűnik az UI-ból elérhető hitelesítés nélküli feloldás és a SAF-visszatérés session-öröklése; biometria csak már konfigurált PIN mellett kapcsolható ki, a PIN törlése visszaállítja a biometrikus policyt.
+- **[feature/vault, security]** PIN/jelszó többé nem kerül `rememberSaveable`/SavedState állapotba; a ViewModel csak saját másolatot ellenőriz, majd azt és a UI inputot is nullázza. Keystore-, crypto- vagy IO-hiba zárt állapotot eredményez.
+- **[ui/home]** A referencia-kompakt Tool kártyák a teljes direkt elnevezéseket mutatják; a `Duplicate cleanup` többé nem csonkolódik ellipszissel a validált Pixel 8 Pro emulátor-méreten.
+- **[ui/navigation]** A What's New nem takarja el a splash/onboarding/permission kapukat, és a státusz-/navigációs sáv ikon-kontrasztja a tényleges app-témát követi.
+
+### Known issues
+- **[verification/ui]** A 49-screen forráslefedettség és a v0.51 Pixel 8 Pro emulátoros nyolcképernyős összevetése nem azonos minden kijelzőméret, font scale, OEM és foldable posture vizuális tanúsításával; ezt minden release gate-ben reprezentatív eszközökön ismételni kell.
+- **[platform]** All-Files-Access, Usage Access, device/biometrikus auth, SAF picker-visszatérés, locale recreation, valós MediaStore-mozgatás, codec és hálózati/remote működés platform- és tesztadat-függő.
+- **[service]** Az Anthropic AI csak érvényes konfigurációval működik; kikapcsolt vagy konfigurálatlan állapotban őszinte unavailable választ ad. Külső cloud/remote szolgáltatás nem szimulált.
+
+### Verification
+- `./gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon` — **BUILD SUCCESSFUL**; az XML riportok összesítése **318 teszt / 0 failure / 0 error / 0 skipped**.
+- `git diff --check` — tiszta; a publikus screen/UiState paramétersorrend, a navigation/Hilt graph, a normál-delete→Recycle Bin út, valamint a tiltott Smart Merge/cleanup-AI visszatérés diff-review-ja elkészült.
+- A debug APK sikeresen települt az `emulator-5554` `Pixel_8_Pro` AVD-profilra (`sdk_gphone64_x86_64`, Android 14 / API 34, 1344×2992, density 480). A Home, Files, Search, Photos, Duplicates, App storage, Recycle Bin és Settings referenciaképernyők installált APK-ból készített képei össze lettek vetve; a végső Home-hierarchia mind a hat Toolt, a Recent szekciót és a teljes `Duplicate cleanup` nevet tartalmazza.
+- Runtime próbák: valós 225 alkalmazásos App storage összesítés; normál Delete → Recycle Bin → Restore sikeres és a forrás visszaállt; exact duplicate csoport valós adaton renderelt; PIN-alapú Vault unlock csak helyes PIN-nel működött; a Slideshow 3 másodpercenként lépett, pause után legalább 5 másodpercig ugyanazon a képen maradt.
+- Eszközhatár: a rendszer SAF picker konfiguráció-újralétrehozásos visszatérése, valódi biometrikus/device credential, locale recreation, remote/cloud és több OEM/font-scale/foldable kombináció ebben a körben nem lett teljes integrációban tanúsítva; ezekre nincs túlzó állítás.
+- A közvetlen `main` push és a konkrét GitHub Actions run az implementációs commit után kerül ugyanebbe az append-only rekordba; addig CI-sikert ez a sor nem állít.

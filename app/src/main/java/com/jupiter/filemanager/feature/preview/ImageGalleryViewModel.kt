@@ -39,6 +39,7 @@ class ImageGalleryViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ImageGalleryUiState())
     val uiState: StateFlow<ImageGalleryUiState> = _uiState.asStateFlow()
+    private var loadGeneration: Long = 0L
 
     init {
         val rawArg = savedStateHandle.get<String>(Destination.ImageGallery.ARG_PATH)
@@ -55,6 +56,38 @@ class ImageGalleryViewModel @Inject constructor(
     }
 
     /**
+     * Replaces sibling discovery with an in-memory, already-filtered launch list.
+     *
+     * Photos uses this hand-off for slideshow launches so the exact visible filter
+     * and sort order is retained without encoding a potentially huge path list into
+     * the navigation route. The ViewModel owns the list after this call, which also
+     * survives configuration changes. A process-recreated destination safely falls
+     * back to the route seed and normal sibling discovery.
+     */
+    fun useLaunchImages(images: List<FileItem>, initialPath: String?) {
+        val launchImages = images
+            .asSequence()
+            .filter { !it.isDirectory && it.type == FileType.IMAGE }
+            .distinctBy { it.path }
+            .toList()
+        if (launchImages.isEmpty()) return
+
+        // Invalidate a repository listing which may still be completing from init.
+        loadGeneration += 1L
+        val initialIndex = launchImages
+            .indexOfFirst { it.path == initialPath }
+            .coerceAtLeast(0)
+        _uiState.update {
+            it.copy(
+                images = launchImages,
+                initialIndex = initialIndex,
+                isLoading = false,
+                error = null,
+            )
+        }
+    }
+
+    /**
      * Resolves the folder containing [path] and lists its image siblings.
      *
      * Resolution is best-effort: if the opened path itself is a directory, its images
@@ -63,12 +96,14 @@ class ImageGalleryViewModel @Inject constructor(
      * resulting list to seed [ImageGalleryUiState.initialIndex].
      */
     private fun load(path: String) {
+        val generation = ++loadGeneration
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             val target = when (val result = fileRepository.getFile(path)) {
                 is AppResult.Success -> result.data
                 is AppResult.Failure -> null
             }
+            if (generation != loadGeneration) return@launch
 
             // The folder to scan: the file's parent, or the path itself when it's a folder.
             val folderPath = when {
@@ -89,6 +124,7 @@ class ImageGalleryViewModel @Inject constructor(
 
             when (val listing = fileRepository.listFiles(folderPath, sort, filter)) {
                 is AppResult.Success -> {
+                    if (generation != loadGeneration) return@launch
                     val images = listing.data.filter { it.type == FileType.IMAGE && !it.isDirectory }
                     val initialIndex = images
                         .indexOfFirst { it.path == path }
@@ -103,8 +139,10 @@ class ImageGalleryViewModel @Inject constructor(
                     }
                 }
 
-                is AppResult.Failure -> _uiState.update {
-                    it.copy(isLoading = false, error = listing.error.displayMessage)
+                is AppResult.Failure -> if (generation == loadGeneration) {
+                    _uiState.update {
+                        it.copy(isLoading = false, error = listing.error.displayMessage)
+                    }
                 }
             }
         }

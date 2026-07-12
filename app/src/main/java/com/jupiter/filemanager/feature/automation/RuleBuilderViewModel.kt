@@ -37,9 +37,17 @@ class RuleBuilderViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
-        RuleBuilderUiState(aiAvailable = aiAssistant.isEnabled),
+        RuleBuilderUiState(aiAvailable = false),
     )
     val uiState: StateFlow<RuleBuilderUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            aiAssistant.enabled.collect { available ->
+                _uiState.update { it.copy(aiAvailable = available) }
+            }
+        }
+    }
 
     /** Updates the rule name. */
     fun onNameChange(value: String) {

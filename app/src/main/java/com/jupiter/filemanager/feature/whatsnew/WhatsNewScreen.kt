@@ -1,7 +1,6 @@
 package com.jupiter.filemanager.feature.whatsnew
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,25 +13,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -41,6 +34,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterWordmark
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * A single "What's New" highlight: an icon, a title, and a short description of a
@@ -58,31 +55,28 @@ private data class WhatsNewHighlight(
  */
 private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
     WhatsNewHighlight(
-        icon = Icons.Filled.Cloud,
-        title = "Remote backends",
-        description = "Connect to SFTP, SMB, and cloud storage and browse remote files " +
-            "right alongside your local ones.",
+        icon = Icons.Filled.ColorLens,
+        title = "A calmer Jupiter design",
+        description = "Core screens now share the midnight-and-teal layout, compact cards, " +
+            "clearer hierarchy, and consistent controls.",
     ),
     WhatsNewHighlight(
-        icon = Icons.Filled.FolderZip,
-        title = "Archives",
-        description = "Open, browse, and extract ZIP and other archives without leaving " +
-            "the file manager.",
+        icon = Icons.Filled.ContentCopy,
+        title = "Safer duplicate review",
+        description = "Exact and similar results stay visibly separate. Select all only " +
+            "targets the results you can see and never selects the protected keeper.",
     ),
     WhatsNewHighlight(
-        icon = Icons.Filled.PictureAsPdf,
-        title = "PDF viewer",
-        description = "Preview PDF documents in place with smooth page navigation.",
+        icon = Icons.Filled.Security,
+        title = "Stronger Vault controls",
+        description = "Vault access can use device authentication or a local PIN, supports " +
+            "automatic locking, and confirms permanent deletion before changing data.",
     ),
     WhatsNewHighlight(
-        icon = Icons.Filled.Edit,
-        title = "Text editor",
-        description = "Edit text and code files directly, with a fast, distraction-free editor.",
-    ),
-    WhatsNewHighlight(
-        icon = Icons.Filled.PlayCircle,
-        title = "Automation",
-        description = "Set up rules and routines to organize and tidy your files automatically.",
+        icon = Icons.Filled.Tune,
+        title = "Useful browsing preferences",
+        description = "File grouping, delete confirmation, default sorting, language, and Vault " +
+            "lock timing are now explicit settings instead of decorative switches.",
     ),
 )
 
@@ -101,6 +95,7 @@ fun WhatsNewScreen(
 ) {
     val highlights = remember { whatsNewHighlights }
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(text = "What's new") },
@@ -124,6 +119,8 @@ fun WhatsNewScreen(
         ) {
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    JupiterWordmark()
+                    Spacer(modifier = Modifier.height(18.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Filled.AutoAwesome,
@@ -140,7 +137,7 @@ fun WhatsNewScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Here are some of the latest additions to Jupiter.",
+                        text = "Version 0.51 focuses on visual consistency and safer file actions.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -172,34 +169,16 @@ private fun HighlightCard(
     highlight: WhatsNewHighlight,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    JupiterCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        contentPadding = PaddingValues(JupiterDesign.CompactPadding),
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+                .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(44.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = highlight.icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
+            JupiterIconBadge(icon = highlight.icon)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

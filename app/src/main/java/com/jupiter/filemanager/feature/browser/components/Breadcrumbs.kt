@@ -2,11 +2,16 @@ package com.jupiter.filemanager.feature.browser.components
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -18,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jupiter.filemanager.feature.browser.Breadcrumb
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * A horizontally scrollable breadcrumb trail rendering the navigation path
@@ -40,28 +47,46 @@ fun Breadcrumbs(
 ) {
     val scrollState = rememberScrollState()
 
-    Row(
+    JupiterCard(
         modifier = modifier
-            .horizontalScroll(scrollState)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .fillMaxWidth()
+            .padding(horizontal = JupiterDesign.ScreenPadding, vertical = 4.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        shape = JupiterDesign.CompactCardShape,
     ) {
-        crumbs.forEachIndexed { index, crumb ->
-            val isLast = index == crumbs.lastIndex
-
-            CrumbChip(
-                crumb = crumb,
-                isCurrent = isLast,
-                onClick = { onCrumbClick(crumb) },
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scrollState)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Storage,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
             )
+            Spacer(Modifier.width(8.dp))
+            crumbs.forEachIndexed { index, crumb ->
+                val isLast = index == crumbs.lastIndex
 
-            if (!isLast) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 2.dp),
+                CrumbChip(
+                    crumb = crumb,
+                    isCurrent = isLast,
+                    onClick = { onCrumbClick(crumb) },
                 )
+
+                if (!isLast) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(20.dp),
+                    )
+                }
             }
         }
     }
@@ -80,13 +105,9 @@ private fun CrumbChip(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(8.dp),
-        color = if (isCurrent) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surface
-        },
+        color = androidx.compose.ui.graphics.Color.Transparent,
         contentColor = if (isCurrent) {
-            MaterialTheme.colorScheme.onSecondaryContainer
+            MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
@@ -97,7 +118,7 @@ private fun CrumbChip(
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
         )
     }
 }

@@ -74,4 +74,10 @@ data class FileBrowserUiState(
     val tabs: List<BrowserTab> = listOf(BrowserTab(path = "", title = "Files")),
     val activeTabIndex: Int = 0,
     val treeExpanded: Boolean = false,
+    /** User preference; the screen applies it only on tablet-width layouts. */
+    val dualPaneEnabled: Boolean = false,
+    /** When true, non-folder rows are split into honest file-type sections. */
+    val groupFilesByType: Boolean = false,
+    /** Confirmation policy for reversible moves to Recycle Bin (permanent delete is unaffected). */
+    val confirmBeforeTrash: Boolean = true,
 )

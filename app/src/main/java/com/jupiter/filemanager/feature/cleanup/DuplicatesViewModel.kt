@@ -93,9 +93,12 @@ class DuplicatesViewModel @Inject constructor(
                 .map { g -> g.copy(files = g.files.filter { it.path !in deletedPaths }) }
                 .filter { it.files.size > 1 }
         }
-        _uiState.value = _uiState.value.copy(
+        val next = _uiState.value.copy(
             groups = cleaned,
             isScanning = isScanning ?: _uiState.value.isScanning,
+        )
+        _uiState.value = next.copy(
+            selectedPaths = DuplicateSelectionPolicy.sanitizeVisible(next),
         )
     }
 
@@ -280,7 +283,10 @@ class DuplicatesViewModel @Inject constructor(
                     val probed: Map<String, MediaQuality> = mediaQualityProbe.probeAll(paths)
                     if (probed.isNotEmpty()) {
                         val merged = _uiState.value.qualities + probed
-                        _uiState.value = _uiState.value.copy(qualities = merged)
+                        val next = _uiState.value.copy(qualities = merged)
+                        _uiState.value = next.copy(
+                            selectedPaths = DuplicateSelectionPolicy.sanitizeVisible(next),
+                        )
                         scanCache.saveQualities(merged)
                     }
                 }
@@ -299,63 +305,65 @@ class DuplicatesViewModel @Inject constructor(
 
     /** Toggles selection of a single file path within a duplicate group. */
     fun toggleSelection(path: String) {
-        val current = _uiState.value.selectedPaths
+        val state = _uiState.value
+        if (state.isDeleting) return
+        val removable = DuplicateSelectionPolicy.removablePaths(
+            actionableGroups = state.visibleGroups,
+            allGroups = state.groups,
+            qualities = state.qualities,
+        )
+        // BEST/keeper copies and files hidden by the active tab/filter are never actionable.
+        if (path !in removable) return
+        val current = state.selectedPaths
         val updated = if (path in current) current - path else current + path
-        _uiState.value = _uiState.value.copy(selectedPaths = updated)
+        _uiState.value = state.copy(selectedPaths = updated)
     }
 
-    /**
-     * Selects every duplicate copy except the first (kept) file in each group,
-     * which is the recommended way to reclaim the most space safely.
-     */
-    fun selectAllExtras() {
-        val extras = _uiState.value.groups
-            .asSequence()
-            .flatMap { it.files.drop(1).asSequence() }
-            .map { it.path }
-            .toSet()
-        _uiState.value = _uiState.value.copy(selectedPaths = extras)
-    }
+    /** Compatibility alias for the quality-ranked, visible-only safe selection policy. */
+    fun selectAllExtras() = selectDuplicatesKeepingBest()
 
     /**
-     * One-tap "keep the best copy in each group, select the rest" — the capability
-     * absorbed from the former Smart Merge screen.
+     * One-tap "keep the best copy in each group, select the rest" using the existing
+     * duplicate-review workflow without adding a separate cleanup route.
      *
-     * For every group, the BEST file is the highest probed [MediaQuality.score]
+     * For every currently visible group, the BEST file is the highest probed [MediaQuality.score]
      * (ties broken by larger on-disk size, then most-recent modification); every
-     * OTHER file in the group is added to [DuplicatesUiState.selectedPaths] so the
-     * user can review the selection and delete with the existing flow.
+     * OTHER removable file is selected. Keepers from all groups are globally protected, and
+     * selections hidden by the exact/similar tab or size filter are not retained.
      */
     fun selectDuplicatesKeepingBest() {
-        val qualities = _uiState.value.qualities
-        // Best copy is greatest: highest quality score, then largest size, then
-        // most recently modified. Everything else in the group is selected.
-        val comparator = compareBy<com.jupiter.filemanager.domain.model.FileItem> {
-            qualities[it.path]?.score ?: 0L
-        }
-            .thenBy { it.sizeBytes }
-            .thenBy { it.lastModified }
-
-        val toSelect = _uiState.value.groups
-            .asSequence()
-            .flatMap { group ->
-                val best = group.files.maxWithOrNull(comparator)
-                group.files.asSequence()
-                    .filter { best == null || it.path != best.path }
-                    .map { it.path }
-            }
-            .toSet()
-        _uiState.value = _uiState.value.copy(selectedPaths = toSelect)
+        val state = _uiState.value
+        if (state.isDeleting) return
+        val toSelect = DuplicateSelectionPolicy.removablePaths(
+            actionableGroups = state.visibleGroups,
+            allGroups = state.groups,
+            qualities = state.qualities,
+        )
+        _uiState.value = state.copy(selectedPaths = toSelect)
     }
 
     /** Clears the current selection. */
     fun clearSelection() {
+        if (_uiState.value.isDeleting) return
         _uiState.value = _uiState.value.copy(selectedPaths = emptySet())
     }
 
     /** Sets the minimum-size filter that narrows the visible duplicate groups. */
     fun setSizeFilter(filter: SizeFilter) {
-        _uiState.value = _uiState.value.copy(sizeFilter = filter)
+        if (_uiState.value.isDeleting) return
+        val next = _uiState.value.copy(sizeFilter = filter)
+        _uiState.value = next.copy(
+            selectedPaths = DuplicateSelectionPolicy.sanitizeVisible(next),
+        )
+    }
+
+    /** Switches exact/similar review scope and drops every now-hidden deletion selection. */
+    fun setPresentation(presentation: DuplicatePresentation) {
+        if (_uiState.value.isDeleting) return
+        val next = _uiState.value.copy(presentation = presentation)
+        _uiState.value = next.copy(
+            selectedPaths = DuplicateSelectionPolicy.sanitizeVisible(next),
+        )
     }
 
     /** Dismisses any transient error or info message. */
@@ -378,7 +386,13 @@ class DuplicatesViewModel @Inject constructor(
      * as a failure.
      */
     fun deleteSelected() {
-        val state = _uiState.value
+        val current = _uiState.value
+        val state = current.copy(
+            selectedPaths = DuplicateSelectionPolicy.sanitizeVisible(current),
+        )
+        if (state.selectedPaths != current.selectedPaths) {
+            _uiState.value = state
+        }
         if (state.selectedPaths.isEmpty() || state.isDeleting) return
 
         // Resolve the selected paths back to their FileItems so they can be routed

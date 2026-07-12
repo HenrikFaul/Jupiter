@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,9 +65,11 @@ import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageOverview
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.SectionHeader
 import com.jupiter.filemanager.ui.components.StorageBar
 import com.jupiter.filemanager.ui.navigation.Destination
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Storage Analytics screen.
@@ -95,9 +98,15 @@ fun StorageAnalyticsScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Storage Analytics") },
+                title = {
+                    Text(
+                        text = "Storage Analytics",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -117,6 +126,13 @@ fun StorageAnalyticsScreen(
                         )
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.primary,
+                ),
             )
         },
     ) { innerPadding ->
@@ -177,7 +193,7 @@ private fun AnalyticsContent(
 
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (isScanning) {
@@ -202,9 +218,13 @@ private fun AnalyticsContent(
         item(key = "total-usage") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = JupiterDesign.CompactCardShape,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             ) {
@@ -277,9 +297,13 @@ private fun BreakdownCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -429,9 +453,13 @@ private fun CategoryRow(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -470,14 +498,14 @@ private fun CategoryRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(JupiterDesign.PillShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(fraction)
                         .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(JupiterDesign.PillShape)
                         .background(colorForCategory(usage.category)),
                 )
             }
@@ -496,9 +524,13 @@ private fun CategoryRow(
 private fun LargeFilesEntry(onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -509,20 +541,11 @@ private fun LargeFilesEntry(onClick: () -> Unit) {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.FindInPage,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
+            JupiterIconBadge(
+                icon = Icons.Filled.FindInPage,
+                contentDescription = null,
+                size = 44.dp,
+            )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -558,9 +581,13 @@ private fun AppStorageEntry(
     val appish = if (estimateReliable) (usedBytes - analyzedBytes).coerceAtLeast(0L) else 0L
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -571,20 +598,12 @@ private fun AppStorageEntry(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Apps,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
+            JupiterIconBadge(
+                icon = Icons.Filled.Apps,
+                tint = JupiterDesign.CategoryApk,
+                contentDescription = null,
+                size = 44.dp,
+            )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -594,7 +613,7 @@ private fun AppStorageEntry(
                 )
                 Text(
                     text = if (appish > 0) {
-                        "~" + formatBytes(appish) + " is app data & caches the filesystem can't show"
+                        "~" + formatBytes(appish) + " is outside shared-file analysis; review the per-app breakdown"
                     } else {
                         "See per-app storage usage"
                     },
@@ -616,7 +635,7 @@ private fun AppStorageEntry(
 private fun ScanningChip() {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .clip(JupiterDesign.PillShape)
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -644,7 +663,7 @@ private fun ScanningChip() {
 private fun IndexedFromCard(indexedCount: Int) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .clip(JupiterDesign.PillShape)
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -741,12 +760,12 @@ private fun labelForCategory(category: StorageCategory): String = when (category
 
 /** Stable accent color for a [StorageCategory]. */
 private fun colorForCategory(category: StorageCategory): Color = when (category) {
-    StorageCategory.IMAGES -> Color(0xFF42A5F5)
-    StorageCategory.VIDEOS -> Color(0xFFEF5350)
-    StorageCategory.AUDIO -> Color(0xFFAB47BC)
-    StorageCategory.DOCUMENTS -> Color(0xFF26A69A)
-    StorageCategory.ARCHIVES -> Color(0xFFFFA726)
-    StorageCategory.APPS -> Color(0xFF66BB6A)
-    StorageCategory.DOWNLOADS -> Color(0xFF5C6BC0)
-    StorageCategory.OTHER -> Color(0xFF8D6E63)
+    StorageCategory.IMAGES -> JupiterDesign.CategoryPhoto
+    StorageCategory.VIDEOS -> JupiterDesign.CategoryVideo
+    StorageCategory.AUDIO -> JupiterDesign.CategoryAudio
+    StorageCategory.DOCUMENTS -> JupiterDesign.CategoryDocument
+    StorageCategory.ARCHIVES -> JupiterDesign.CategoryArchive
+    StorageCategory.APPS -> JupiterDesign.CategoryApk
+    StorageCategory.DOWNLOADS -> JupiterDesign.CategoryDownload
+    StorageCategory.OTHER -> JupiterDesign.CategoryOther
 }

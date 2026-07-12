@@ -1,6 +1,10 @@
 package com.jupiter.filemanager.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -20,6 +24,7 @@ import com.jupiter.filemanager.feature.categories.CategoryBrowseScreen
 import com.jupiter.filemanager.feature.browser.DualPaneScreen
 import com.jupiter.filemanager.feature.browser.FileBrowserScreen
 import com.jupiter.filemanager.feature.cleanup.CleanupScreen
+import com.jupiter.filemanager.feature.cleanup.DuplicatePresentation
 import com.jupiter.filemanager.feature.cleanup.DuplicatesScreen
 import com.jupiter.filemanager.feature.cloud.CloudHubScreen
 import com.jupiter.filemanager.feature.cloud.NasConnectionsScreen
@@ -54,6 +59,7 @@ import com.jupiter.filemanager.feature.version.VersionHistoryScreen
 import com.jupiter.filemanager.feature.whatsnew.WhatsNewScreen
 import com.jupiter.filemanager.feature.workspace.WorkspaceDetailScreen
 import com.jupiter.filemanager.feature.workspace.WorkspacesScreen
+import com.jupiter.filemanager.ui.components.JupiterMainTab
 
 /**
  * Central navigation graph for the Jupiter file manager.
@@ -76,6 +82,12 @@ fun JupiterNavHost(
     startDestination: String,
     modifier: Modifier = Modifier,
 ) {
+    // One-shot, in-memory transport for a Photos slideshow. A list of thousands
+    // of paths must never be embedded in a navigation URL or persisted Bundle.
+    // ImageGalleryViewModel takes ownership immediately; its normal route seed
+    // remains a process-recreation fallback.
+    var slideshowLaunch by remember { mutableStateOf<SlideshowLaunch?>(null) }
+
     // Navigate to the appropriate screen for a file based on its type. Media and
     // archives open in their dedicated viewers; PDFs open in the PDF viewer; code and
     // small text-like documents open in the text editor; everything else falls back to
@@ -100,6 +112,26 @@ fun JupiterNavHost(
             else -> Destination.Preview.create(item.path)
         }
         navController.navigate(route)
+    }
+
+    fun openMainTab(tab: JupiterMainTab) {
+        navController.navigate(Destination.MainTab.create(tab.route)) {
+            // A bottom-tab tap leaves any outer tool screen and replaces the previous
+            // shell instead of stacking another nested MainScreen on every tap.
+            popUpTo(navController.graph.id) { inclusive = false }
+            launchSingleTop = true
+        }
+    }
+
+    fun openRoute(route: String) {
+        if (route.startsWith("main_tab/")) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.id) { inclusive = false }
+                launchSingleTop = true
+            }
+        } else {
+            navController.navigate(route)
+        }
     }
 
     NavHost(
@@ -146,7 +178,26 @@ fun JupiterNavHost(
 
         composable(route = Destination.Main.route) {
             MainScreen(
-                onOpenRoute = { route -> navController.navigate(route) },
+                onOpenRoute = ::openRoute,
+                onOpenFile = { item -> openByType(item) },
+                onOpenPath = { path ->
+                    navController.navigate(Destination.Browser.create(path))
+                },
+            )
+        }
+
+        composable(
+            route = Destination.MainTab.route,
+            arguments = listOf(
+                navArgument(Destination.MainTab.ARG_TAB) { type = NavType.StringType },
+            ),
+        ) { backStackEntry ->
+            val initialTab = JupiterMainTab.fromRoute(
+                backStackEntry.arguments?.getString(Destination.MainTab.ARG_TAB),
+            )
+            MainScreen(
+                initialTab = initialTab,
+                onOpenRoute = ::openRoute,
                 onOpenFile = { item -> openByType(item) },
                 onOpenPath = { path ->
                     navController.navigate(Destination.Browser.create(path))
@@ -181,6 +232,7 @@ fun JupiterNavHost(
             SearchScreen(
                 onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
+                onMainTabSelected = ::openMainTab,
             )
         }
 
@@ -201,6 +253,8 @@ fun JupiterNavHost(
             SettingsScreen(
                 onOpenRoute = { route -> navController.navigate(route) },
                 onBack = { navController.popBackStack() },
+                onMainTabSelected = ::openMainTab,
+                showBackButton = false,
             )
         }
 
@@ -280,6 +334,8 @@ fun JupiterNavHost(
                 onOpenPath = { path ->
                     navController.navigate(Destination.Browser.create(path))
                 },
+                onMainTabSelected = ::openMainTab,
+                showBackButton = false,
             )
         }
 
@@ -287,6 +343,16 @@ fun JupiterNavHost(
             DuplicatesScreen(
                 onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
+                onMainTabSelected = ::openMainTab,
+            )
+        }
+
+        composable(route = Destination.SimilarPhotos.route) {
+            DuplicatesScreen(
+                onOpenFile = { item -> openByType(item) },
+                onBack = { navController.popBackStack() },
+                onMainTabSelected = ::openMainTab,
+                initialPresentation = DuplicatePresentation.SIMILAR,
             )
         }
 
@@ -300,6 +366,8 @@ fun JupiterNavHost(
         composable(route = Destination.Trash.route) {
             TrashScreen(
                 onBack = { navController.popBackStack() },
+                onMainTabSelected = ::openMainTab,
+                showBackButton = false,
             )
         }
 
@@ -316,6 +384,16 @@ fun JupiterNavHost(
             CategoryBrowseScreen(
                 onOpenFile = { item -> openByType(item) },
                 onBack = { navController.popBackStack() },
+                onOpenSimilar = { navController.navigate(Destination.SimilarPhotos.route) },
+                onMainTabSelected = ::openMainTab,
+                onStartSlideshow = slideshow@{ visibleImages ->
+                    val first = visibleImages.firstOrNull() ?: return@slideshow
+                    slideshowLaunch = SlideshowLaunch(
+                        images = visibleImages,
+                        initialPath = first.path,
+                    )
+                    navController.navigate(Destination.ImageSlideshow.create(first.path))
+                },
             )
         }
 
@@ -451,6 +529,23 @@ fun JupiterNavHost(
             )
         }
 
+        composable(
+            route = Destination.CompressSelected.route,
+            arguments = listOf(
+                navArgument(Destination.CompressSelected.ARG_PATH) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { backStackEntry ->
+            CompressScreen(
+                onBack = { navController.popBackStack() },
+                initialPath = backStackEntry.arguments
+                    ?.getString(Destination.CompressSelected.ARG_PATH),
+            )
+        }
+
         composable(route = Destination.Albums.route) {
             AlbumsScreen(
                 onOpenFile = { item -> openByType(item) },
@@ -535,6 +630,28 @@ fun JupiterNavHost(
             )
         }
 
+        composable(
+            route = Destination.ImageSlideshow.route,
+            arguments = listOf(
+                navArgument(Destination.ImageSlideshow.ARG_PATH) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { backStackEntry ->
+            val launch = slideshowLaunch
+            ImageGalleryScreen(
+                onBack = { navController.popBackStack() },
+                initialImages = launch?.images,
+                initialPath = launch?.initialPath
+                    ?: backStackEntry.arguments
+                        ?.getString(Destination.ImageSlideshow.ARG_PATH),
+                startInSlideshow = true,
+                onInitialImagesConsumed = { slideshowLaunch = null },
+            )
+        }
+
         // ---------------------------------------------------------------------
         // Versioning & sync
         // ---------------------------------------------------------------------
@@ -594,4 +711,10 @@ private val TEXT_EDITABLE_EXTENSIONS: Set<String> = setOf(
     "txt", "text", "log", "md", "markdown", "csv", "tsv",
     "json", "xml", "yaml", "yml", "ini", "cfg", "conf", "properties",
     "rtf", "tex", "srt", "vtt", "nfo",
+)
+
+/** Navigation-lifetime only; deliberately not Parcelable/Serializable. */
+private data class SlideshowLaunch(
+    val images: List<FileItem>,
+    val initialPath: String,
 )

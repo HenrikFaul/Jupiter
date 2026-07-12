@@ -31,7 +31,7 @@ class MainViewModel @Inject constructor(
 ) : ViewModel() {
 
     /**
-     * Current theme preference. Starts from [ThemeMode.SYSTEM] until the first
+     * Current theme preference. Starts from branded [ThemeMode.DARK] until the first
      * value is read from persistence, and stays active while there are
      * subscribers (plus a short grace period across configuration changes).
      */
@@ -39,7 +39,7 @@ class MainViewModel @Inject constructor(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000L),
-            initialValue = ThemeMode.SYSTEM,
+            initialValue = ThemeMode.DARK,
         )
 
     /**
@@ -61,12 +61,12 @@ class MainViewModel @Inject constructor(
             initialValue = false,
         )
 
-    /** Whether wallpaper-based dynamic color is used on Android 12+; defaults to true. */
+    /** Whether wallpaper-based dynamic color is used on Android 12+; defaults to false. */
     val dynamicColor: StateFlow<Boolean> = settings.dynamicColor
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000L),
-            initialValue = true,
+            initialValue = false,
         )
 
     /**

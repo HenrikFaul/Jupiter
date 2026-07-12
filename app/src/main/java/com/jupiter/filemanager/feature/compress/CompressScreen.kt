@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,8 +69,10 @@ import com.jupiter.filemanager.data.media.CompressPreset
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.iconForFile
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 import java.io.File
 
 /**
@@ -85,15 +90,29 @@ import java.io.File
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CompressScreen(onBack: () -> Unit) {
+fun CompressScreen(
+    onBack: () -> Unit,
+    initialPath: String? = null,
+) {
     val viewModel: CompressViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    // Optional browser deep-link. The default keeps every existing caller source-compatible.
+    LaunchedEffect(initialPath) {
+        initialPath?.takeIf { it.isNotBlank() }?.let(viewModel::selectSourceByPath)
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Compress") },
+                title = {
+                    Text(
+                        text = "Compress",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = {
                         if (uiState.sourceItem != null && !uiState.isCompressing) {
@@ -108,6 +127,12 @@ fun CompressScreen(onBack: () -> Unit) {
                         )
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
     ) { innerPadding ->
@@ -151,7 +176,7 @@ private fun PickerContent(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 108.dp),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
@@ -176,14 +201,23 @@ private fun MediaCell(
 ) {
     val fallback = rememberVectorPainter(iconForFile(item))
     Column(
-        modifier = Modifier.clickable { onPick(item) },
+        modifier = Modifier
+            .clip(JupiterDesign.CompactCardShape)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+                JupiterDesign.CompactCardShape,
+            )
+            .clickable { onPick(item) }
+            .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(12.dp)),
+                .clip(JupiterDesign.IconBadgeShape),
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
@@ -215,7 +249,7 @@ private fun MediaCell(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(6.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(JupiterDesign.PillShape)
                     .background(MaterialTheme.colorScheme.primary)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
@@ -252,7 +286,7 @@ private fun ConfigureContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // Device / screen recommendation line.
@@ -325,6 +359,7 @@ private fun ConfigureContent(
                 onClick = onCompress,
                 enabled = state.canCompress,
                 modifier = Modifier.fillMaxWidth(),
+                shape = JupiterDesign.PillShape,
             ) {
                 Icon(
                     imageVector = Icons.Filled.Compress,
@@ -344,11 +379,21 @@ private fun SourceHeader(
     state: CompressUiState,
 ) {
     val fallback = rememberVectorPainter(iconForFile(item))
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+        ) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(File(item.path))
@@ -361,9 +406,9 @@ private fun SourceHeader(
             error = fallback,
             modifier = Modifier
                 .size(72.dp)
-                .clip(RoundedCornerShape(12.dp)),
+                .clip(JupiterDesign.IconBadgeShape),
         )
-        Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.name,
                 style = MaterialTheme.typography.titleSmall,
@@ -378,6 +423,7 @@ private fun SourceHeader(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            }
         }
     }
 }
@@ -419,6 +465,7 @@ private fun PresetChips(
                             }
                         },
                         colors = FilterChipDefaults.filterChipColors(),
+                        shape = JupiterDesign.PillShape,
                     )
                 }
             }
@@ -435,26 +482,29 @@ private fun ResultCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
+        border = BorderStroke(1.dp, JupiterDesign.Safe.copy(alpha = 0.55f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
+                JupiterIconBadge(
+                    icon = Icons.Filled.CheckCircle,
+                    tint = JupiterDesign.Safe,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp),
+                    size = 40.dp,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Compression complete",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -463,7 +513,7 @@ private fun ResultCard(
                 text = "Original ${formatBytes(result.originalBytes)}  →  " +
                     "Compressed ${formatBytes(result.compressedBytes)}",
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = "Saved ${formatBytes(result.savedBytes)} " +

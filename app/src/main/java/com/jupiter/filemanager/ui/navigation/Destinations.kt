@@ -49,6 +49,12 @@ sealed class Destination(val route: String) {
 
     data object Main : Destination("main")
 
+    /** Re-enters the main shell with a specific bottom-navigation tab selected. */
+    data object MainTab : Destination("main_tab/{tab}") {
+        const val ARG_TAB = "tab"
+        fun create(tabRoute: String): String = "main_tab/" + android.net.Uri.encode(tabRoute)
+    }
+
     // ---- AI & analytics ----
 
     data object AiAssistant : Destination("ai_assistant")
@@ -59,6 +65,9 @@ sealed class Destination(val route: String) {
     data object AppStorage : Destination("app_storage")
 
     data object Duplicates : Destination("duplicates")
+
+    /** Opens duplicate review directly on the perceptual-similarity scope. */
+    data object SimilarPhotos : Destination("duplicates/similar")
 
     data object Downloads : Destination("downloads")
 
@@ -132,6 +141,12 @@ sealed class Destination(val route: String) {
     /** Device-aware media compression (image + video). */
     data object Compress : Destination("compress")
 
+    /** Browser action entry that opens media compression with a real source preselected. */
+    data object CompressSelected : Destination("compress/selected?path={path}") {
+        const val ARG_PATH = "path"
+        fun create(path: String): String = "compress/selected?path=" + android.net.Uri.encode(path)
+    }
+
     /** Image albums grouped by MediaStore bucket/folder. */
     data object Albums : Destination("albums")
 
@@ -148,6 +163,13 @@ sealed class Destination(val route: String) {
     data object ImageGallery : Destination("gallery?path={path}") {
         const val ARG_PATH = "path"
         fun create(path: String): String = "gallery?path=" + android.net.Uri.encode(path)
+    }
+
+    /** Autoplay entry for [ImageGallery]; the existing gallery route remains unchanged. */
+    data object ImageSlideshow : Destination("gallery/slideshow?path={path}") {
+        const val ARG_PATH = "path"
+        fun create(path: String): String =
+            "gallery/slideshow?path=" + android.net.Uri.encode(path)
     }
 
     // ---- Versioning & sync ----

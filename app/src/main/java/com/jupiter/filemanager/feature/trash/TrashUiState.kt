@@ -2,6 +2,20 @@ package com.jupiter.filemanager.feature.trash
 
 import com.jupiter.filemanager.domain.model.TrashItem
 
+/** Presentation order for the real Recycle-Bin entries. */
+enum class TrashSort(val label: String) {
+    NEWEST("Deleted (newest)"),
+    OLDEST("Deleted (oldest)"),
+    SIZE("Size (largest)"),
+}
+
+/** Local type filter; no item is removed from the repository by changing it. */
+enum class TrashFilter(val label: String) {
+    ALL("All items"),
+    FILES("Files"),
+    FOLDERS("Folders"),
+}
+
 /**
  * Immutable UI state for the Recycle Bin (Trash) screen.
  *
@@ -24,8 +38,25 @@ data class TrashUiState(
     val busy: Boolean = false,
     val errorMessage: String? = null,
     val autoDeleteDays: Int = 0,
+    val sort: TrashSort = TrashSort.NEWEST,
+    val filter: TrashFilter = TrashFilter.ALL,
 ) {
     /** True when there is nothing in the Recycle Bin once loading has finished. */
     val isEmpty: Boolean
         get() = !isLoading && items.isEmpty()
+
+    /** Filtered and sorted view of [items], leaving the source list untouched. */
+    val visibleItems: List<TrashItem>
+        get() {
+            val filtered = when (filter) {
+                TrashFilter.ALL -> items
+                TrashFilter.FILES -> items.filterNot(TrashItem::isDirectory)
+                TrashFilter.FOLDERS -> items.filter(TrashItem::isDirectory)
+            }
+            return when (sort) {
+                TrashSort.NEWEST -> filtered.sortedByDescending(TrashItem::deletedAt)
+                TrashSort.OLDEST -> filtered.sortedBy(TrashItem::deletedAt)
+                TrashSort.SIZE -> filtered.sortedByDescending(TrashItem::sizeBytes)
+            }
+        }
 }

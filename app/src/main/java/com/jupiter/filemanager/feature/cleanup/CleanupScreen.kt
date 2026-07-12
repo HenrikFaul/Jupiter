@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -76,13 +77,15 @@ import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageOverview
 import com.jupiter.filemanager.ui.components.ErrorView
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.iconForFile
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 import java.io.File
 
 /**
  * Cleanup screen: shows a categorized storage breakdown, a selectable list of large
- * files and duplicate groups, an optional AI explanation card and a "Reclaim X"
- * delete button guarded by a confirmation dialog.
+ * files and duplicate groups, plus a "Reclaim X" delete button guarded by a
+ * confirmation dialog.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,9 +109,15 @@ fun CleanupScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Cleanup") },
+                title = {
+                    Text(
+                        text = "Cleanup",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -128,6 +137,13 @@ fun CleanupScreen(
                         )
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.primary,
+                ),
             )
         },
         bottomBar = {
@@ -190,8 +206,8 @@ fun CleanupScreen(
 }
 
 /**
- * Scrolling body of the screen composed of the storage breakdown, the optional AI
- * card, large files and duplicate groups.
+ * Scrolling body of the screen composed of the storage breakdown, large files and
+ * duplicate groups.
  */
 @Composable
 private fun CleanupContent(
@@ -223,7 +239,7 @@ private fun CleanupContent(
 
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (isScanning) {
@@ -345,7 +361,15 @@ private fun CleanupContent(
 /** A small indeterminate banner shown while the scan is in progress. */
 @Composable
 private fun ScanningCard() {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CompactCardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -371,8 +395,13 @@ private fun ScanningCard() {
 private fun IndexStatusCard(indexedCount: Int, onRescan: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
     ) {
         Row(
@@ -386,7 +415,7 @@ private fun IndexStatusCard(indexedCount: Int, onRescan: () -> Unit) {
                     text = "Instant results from your file index",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = if (indexedCount > 0) {
@@ -396,7 +425,7 @@ private fun IndexStatusCard(indexedCount: Int, onRescan: () -> Unit) {
                         "Downloads and edits update it automatically."
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -412,9 +441,11 @@ private fun IndexStatusCard(indexedCount: Int, onRescan: () -> Unit) {
 private fun PotentialReclaimHero(totalBytes: Long) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
     ) {
         Column(
             modifier = Modifier
@@ -422,23 +453,22 @@ private fun PotentialReclaimHero(totalBytes: Long) {
                 .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(
-                imageVector = Icons.Filled.CleaningServices,
+            JupiterIconBadge(
+                icon = Icons.Filled.CleaningServices,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(32.dp),
+                size = 52.dp,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = formatBytes(totalBytes),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.primary,
             )
             Text(
                 text = "can be freed",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -452,9 +482,11 @@ private fun SafeToCleanCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFFE6F4EA),
+            containerColor = JupiterDesign.Safe.copy(alpha = 0.10f),
         ),
+        border = BorderStroke(1.dp, JupiterDesign.Safe.copy(alpha = 0.55f)),
     ) {
         Row(
             modifier = Modifier
@@ -465,7 +497,7 @@ private fun SafeToCleanCard(
             Icon(
                 imageVector = Icons.Filled.CleaningServices,
                 contentDescription = null,
-                tint = Color(0xFF2E7D32),
+                tint = JupiterDesign.Safe,
                 modifier = Modifier.size(28.dp),
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -474,12 +506,12 @@ private fun SafeToCleanCard(
                     text = "Safe to clean",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF1B5E20),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = formatBytes(safeBytes) + " from duplicate copies",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF2E7D32),
+                    color = JupiterDesign.Safe,
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
@@ -493,7 +525,15 @@ private fun SafeToCleanCard(
 /** Initial prompt inviting the user to start a scan when no results exist. */
 @Composable
 private fun ScanCallToAction(onScan: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -586,7 +626,15 @@ private fun PermissionRequiredView(modifier: Modifier = Modifier) {
 private fun StorageBreakdownCard(
     overview: StorageOverview,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = overview.volume.label,
@@ -642,14 +690,14 @@ private fun CategoryBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(JupiterDesign.PillShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction)
                     .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(JupiterDesign.PillShape)
                     .background(colorForCategory(usage.category)),
             )
         }
@@ -688,6 +736,12 @@ private fun CollapsibleSectionHeader(
             .fillMaxWidth()
             .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier),
         colors = CardDefaults.cardColors(containerColor = containerColor),
+        shape = JupiterDesign.CompactCardShape,
+        border = BorderStroke(
+            1.dp,
+            if (expanded) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
     ) {
         Row(
             modifier = Modifier
@@ -760,7 +814,7 @@ private fun DuplicateGroupHeader(group: DuplicateGroup) {
 private fun FileThumbnail(item: FileItem) {
     val thumbnailable = item.type == FileType.IMAGE || item.type == FileType.VIDEO
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = JupiterDesign.IconBadgeShape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.size(40.dp),
     ) {
@@ -778,7 +832,7 @@ private fun FileThumbnail(item: FileItem) {
                 error = fallbackPainter,
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+                    .clip(JupiterDesign.IconBadgeShape),
             )
         } else {
             Box(contentAlignment = Alignment.Center) {
@@ -801,7 +855,16 @@ private fun SelectableFileRow(
     onToggle: () -> Unit,
     onOpen: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CompactCardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+        ),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -869,6 +932,7 @@ private fun ReclaimBar(
         Button(
             onClick = onReclaim,
             modifier = Modifier.fillMaxWidth(),
+            shape = JupiterDesign.PillShape,
         ) {
             Icon(
                 imageVector = Icons.Filled.Delete,
@@ -900,18 +964,18 @@ private fun DeleteConfirmDialog(
                 contentDescription = null,
             )
         },
-        title = { Text(text = "Delete files?") },
+        title = { Text(text = "Move files to Recycle Bin?") },
         text = {
             Text(
-                text = "This will permanently delete " + formatItemCount(count) +
-                    " and free up " + formatBytes(reclaimableBytes) +
-                    ". This action cannot be undone.",
+                text = "This moves " + formatItemCount(count) +
+                    " to the Recycle Bin and can reclaim " + formatBytes(reclaimableBytes) +
+                    ". You can restore the files until they are permanently removed from the bin.",
             )
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(
-                    text = "Delete",
+                    text = "Move to Recycle Bin",
                     color = MaterialTheme.colorScheme.error,
                 )
             }
@@ -938,12 +1002,12 @@ private fun labelForCategory(category: StorageCategory): String = when (category
 
 /** Stable accent color for a [StorageCategory]'s bar. */
 private fun colorForCategory(category: StorageCategory): Color = when (category) {
-    StorageCategory.IMAGES -> Color(0xFF42A5F5)
-    StorageCategory.VIDEOS -> Color(0xFFEF5350)
-    StorageCategory.AUDIO -> Color(0xFFAB47BC)
-    StorageCategory.DOCUMENTS -> Color(0xFF26A69A)
-    StorageCategory.ARCHIVES -> Color(0xFFFFA726)
-    StorageCategory.APPS -> Color(0xFF66BB6A)
-    StorageCategory.DOWNLOADS -> Color(0xFF5C6BC0)
-    StorageCategory.OTHER -> Color(0xFF8D6E63)
+    StorageCategory.IMAGES -> JupiterDesign.CategoryPhoto
+    StorageCategory.VIDEOS -> JupiterDesign.CategoryVideo
+    StorageCategory.AUDIO -> JupiterDesign.CategoryAudio
+    StorageCategory.DOCUMENTS -> JupiterDesign.CategoryDocument
+    StorageCategory.ARCHIVES -> JupiterDesign.CategoryArchive
+    StorageCategory.APPS -> JupiterDesign.CategoryApk
+    StorageCategory.DOWNLOADS -> JupiterDesign.CategoryDownload
+    StorageCategory.OTHER -> JupiterDesign.CategoryOther
 }

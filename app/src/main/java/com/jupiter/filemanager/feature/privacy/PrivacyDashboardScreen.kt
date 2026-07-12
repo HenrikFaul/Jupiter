@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.feature.privacy
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,8 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -54,8 +53,10 @@ import com.jupiter.filemanager.domain.model.PrivacyReport
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.StatRow
 import com.jupiter.filemanager.ui.navigation.Destination
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Privacy Dashboard: surfaces an overall privacy posture (Good / Fair / At risk)
@@ -72,9 +73,15 @@ fun PrivacyDashboardScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Privacy") },
+                title = {
+                    Text(
+                        text = "Privacy",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -91,6 +98,13 @@ fun PrivacyDashboardScreen(
                         )
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.primary,
+                ),
             )
         },
     ) { padding ->
@@ -128,7 +142,7 @@ private fun PrivacyContent(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
         PrivacyHealthHeader(report = report)
 
@@ -136,9 +150,13 @@ private fun PrivacyContent(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = JupiterDesign.CardShape,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
@@ -157,13 +175,13 @@ private fun PrivacyContent(
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
                 StatRow(
                     label = "Shared Links",
-                    value = report.sharedLinks.toString(),
+                    value = "Not tracked",
                     icon = Icons.Filled.Share,
                 )
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
                 StatRow(
                     label = "Apps with Access",
-                    value = report.appsWithAccess.toString(),
+                    value = "Not tracked",
                     icon = Icons.Filled.Apps,
                 )
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -193,7 +211,7 @@ private fun PrivacyContent(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Shared links and third-party app access aren't tracked on this device yet, so they're reported as zero.",
+            text = "Shared links and third-party app access are shown as not tracked; Jupiter does not infer a safe result from missing data.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -205,9 +223,13 @@ private fun PrivacyHealthHeader(report: PrivacyReport) {
     val accent = levelColor(report.level)
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
             containerColor = accent.copy(alpha = 0.12f),
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -218,20 +240,12 @@ private fun PrivacyHealthHeader(report: PrivacyReport) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Surface(
-                shape = CircleShape,
-                color = accent.copy(alpha = 0.18f),
-                modifier = Modifier.size(56.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = levelIcon(report.level),
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(30.dp),
-                    )
-                }
-            }
+            JupiterIconBadge(
+                icon = levelIcon(report.level),
+                tint = accent,
+                contentDescription = null,
+                size = 56.dp,
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = levelTitle(report.level),
@@ -263,8 +277,8 @@ private fun levelIcon(level: PrivacyLevel): ImageVector = when (level) {
 
 @Composable
 private fun levelColor(level: PrivacyLevel): Color = when (level) {
-    PrivacyLevel.GOOD -> Color(0xFF16A34A)
-    PrivacyLevel.FAIR -> Color(0xFFD97706)
+    PrivacyLevel.GOOD -> JupiterDesign.Safe
+    PrivacyLevel.FAIR -> JupiterDesign.Warning
     PrivacyLevel.AT_RISK -> MaterialTheme.colorScheme.error
 }
 

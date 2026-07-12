@@ -34,6 +34,7 @@ import com.jupiter.filemanager.domain.model.FilterOption
 import com.jupiter.filemanager.domain.model.SortDirection
 import com.jupiter.filemanager.domain.model.SortField
 import com.jupiter.filemanager.domain.model.SortOption
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Modal bottom sheet that lets the user adjust both the [SortOption] and the
@@ -70,12 +71,14 @@ fun SortFilterSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = JupiterDesign.HeroCardShape,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp)
+                .padding(horizontal = JupiterDesign.ScreenPadding)
                 .padding(bottom = 24.dp),
         ) {
             Text(

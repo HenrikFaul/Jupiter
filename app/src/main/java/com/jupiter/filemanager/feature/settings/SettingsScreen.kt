@@ -1,8 +1,7 @@
 package com.jupiter.filemanager.feature.settings
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable as clickableModifier
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,11 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable as selectableModifier
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable as toggleableModifier
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -29,7 +29,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Brightness4
-import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Colorize
@@ -39,7 +38,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
@@ -52,6 +50,7 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -63,12 +62,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,69 +77,96 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jupiter.filemanager.BuildConfig
+import com.jupiter.filemanager.data.vault.VaultPinMutationResult
+import com.jupiter.filemanager.domain.model.SortDirection
+import com.jupiter.filemanager.domain.model.SortField
+import com.jupiter.filemanager.domain.model.SortOption
 import com.jupiter.filemanager.domain.model.ThemeMode
 import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterFloatingBottomNavigation
 import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterMainTab
 import com.jupiter.filemanager.ui.navigation.Destination
-import com.jupiter.filemanager.ui.theme.AccentColor
 import com.jupiter.filemanager.ui.theme.AccentPalette
 
-/**
- * The user-facing settings hub.
- *
- * The screen intentionally contains only preferences and destinations that are
- * backed by the application today. Each interaction continues to delegate to
- * [SettingsViewModel] or to the already-wired navigation route; this file only
- * provides the grouped-card presentation used across the Jupiter design system.
- */
+/** Compact, reference-matched settings hub. Every control delegates to persisted state. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onOpenRoute: (String) -> Unit,
     onBack: () -> Unit,
+    onMainTabSelected: (JupiterMainTab) -> Unit = {},
+    showBackButton: Boolean = true,
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+    val snackbar = remember { SnackbarHostState() }
+    var feedback by remember { mutableStateOf<String?>(null) }
+    var themeDialog by rememberSaveable { mutableStateOf(false) }
+    var sortDialog by rememberSaveable { mutableStateOf(false) }
+    var retentionDialog by rememberSaveable { mutableStateOf(false) }
+    var autoLockDialog by rememberSaveable { mutableStateOf(false) }
+    var languageDialog by rememberSaveable { mutableStateOf(false) }
+    var pinDialog by rememberSaveable { mutableStateOf(false) }
+    var accentDialog by rememberSaveable { mutableStateOf(false) }
+    var indexDialog by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        // AppCompat is the locale source of truth. Mirror its active locale into
+        // DataStore whenever this screen is (re)created after a locale change.
+        viewModel.refreshAppLanguageTag()
+    }
+
+    LaunchedEffect(feedback) {
+        feedback?.let {
+            snackbar.showSnackbar(it)
+            feedback = null
+        }
+    }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Settings",
-                        style = MaterialTheme.typography.headlineLarge,
-                    )
-                },
-                navigationIcon = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(48.dp)
+                    .padding(horizontal = if (showBackButton) 4.dp else 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showBackButton) {
                     IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    scrolledContainerColor = MaterialTheme.colorScheme.background,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
-                scrollBehavior = scrollBehavior,
+                }
+                Text(
+                    text = "Settings",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
+        bottomBar = {
+            JupiterFloatingBottomNavigation(
+                selectedTab = JupiterMainTab.MORE,
+                onTabSelected = onMainTabSelected,
             )
         },
     ) { innerPadding ->
@@ -149,21 +175,152 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                .padding(start = 12.dp, end = 12.dp, bottom = 24.dp),
         ) {
-            SettingsGroup(title = "Appearance") {
-                ThemeModeSelector(
-                    selected = uiState.themeMode,
-                    onSelected = viewModel::setThemeMode,
+            SettingsGroup("Appearance") {
+                SettingsValueRow(
+                    icon = Icons.Filled.Palette,
+                    title = "Theme",
+                    value = themeLabel(uiState.themeMode),
+                    onClick = { themeDialog = true },
+                )
+                SettingsGroupDivider()
+                SettingsValueRow(
+                    icon = Icons.Filled.Info,
+                    title = "App language",
+                    value = appLanguageLabel(uiState.appLanguageTag),
+                    onClick = { languageDialog = true },
+                )
+                SettingsGroupDivider()
+                AccentColorPicker(
+                    selectedArgb = uiState.accentColorArgb,
+                    onClick = { accentDialog = true },
                 )
             }
 
-            SettingsGroup(title = "Personalization") {
-                AccentColorPicker(
-                    selectedArgb = uiState.accentColorArgb,
-                    onAccentSelected = viewModel::setAccentColorArgb,
+            SettingsGroup("Browsing") {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Visibility,
+                    title = "Show hidden files",
+                    subtitle = "Show files that start with a dot",
+                    checked = uiState.showHidden,
+                    onCheckedChange = viewModel::setShowHidden,
                 )
                 SettingsGroupDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Filled.ViewColumn,
+                    title = "Dual-pane on tablets",
+                    subtitle = "Use side-by-side layout on large screens",
+                    checked = uiState.dualPaneEnabled,
+                    onCheckedChange = viewModel::setDualPane,
+                )
+                SettingsGroupDivider()
+                SettingsValueRow(
+                    icon = Icons.Filled.Bolt,
+                    title = "Default sort order",
+                    value = sortOptionLabel(uiState.defaultSortOption),
+                    onClick = { sortDialog = true },
+                )
+                SettingsGroupDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Folder,
+                    title = "Group files by type",
+                    subtitle = "Organize files into categories",
+                    checked = uiState.groupFilesByType,
+                    onCheckedChange = viewModel::setGroupFilesByType,
+                )
+            }
+
+            SettingsGroup("Recycle Bin") {
+                SettingsValueRow(
+                    icon = Icons.Filled.DeleteSweep,
+                    title = "Auto-delete trashed items",
+                    value = retentionLabel(uiState.trashAutoDeleteDays),
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    onClick = { retentionDialog = true },
+                )
+                SettingsGroupDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Refresh,
+                    title = "Confirm before deleting",
+                    subtitle = "Show confirmation for delete actions",
+                    checked = uiState.confirmBeforeTrash,
+                    onCheckedChange = viewModel::setConfirmBeforeTrash,
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                )
+                SettingsGroupDivider()
+                SettingsNavigationRow(
+                    icon = Icons.Filled.DeleteSweep,
+                    title = "Clear trash now",
+                    subtitle = "Review the bin before permanent deletion",
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    onClick = { onOpenRoute(Destination.Trash.route) },
+                )
+            }
+
+            SettingsGroup("Security") {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Shield,
+                    title = "Biometric vault lock",
+                    subtitle = "Use fingerprint, face or device credential",
+                    checked = uiState.vaultBiometricLock,
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    onCheckedChange = { enabled ->
+                        viewModel.setVaultBiometricLock(enabled) { accepted ->
+                            if (!accepted) {
+                                feedback = "Set a Vault PIN before disabling biometric protection."
+                            }
+                        }
+                    },
+                )
+                SettingsGroupDivider()
+                SettingsValueRow(
+                    icon = Icons.Filled.Lock,
+                    title = if (uiState.vaultPinConfigured) "Change vault PIN" else "Set vault PIN",
+                    value = if (uiState.vaultPinConfigured) "PIN configured" else "Not configured",
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    onClick = { pinDialog = true },
+                )
+                SettingsGroupDivider()
+                SettingsValueRow(
+                    icon = Icons.Filled.Brightness4,
+                    title = "Auto-lock",
+                    value = autoLockLabel(uiState.vaultAutoLockMinutes),
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    onClick = { autoLockDialog = true },
+                )
+            }
+
+            SettingsGroup("AI & Automation") {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.SmartToy,
+                    title = "Semantic search",
+                    subtitle = "Find files using natural language",
+                    checked = uiState.aiEnabled,
+                    onCheckedChange = viewModel::setAiEnabled,
+                )
+                SettingsGroupDivider()
+                SettingsNavigationRow(
+                    icon = Icons.Filled.PlayArrow,
+                    title = "Smart rules",
+                    subtitle = "Automate organization and actions",
+                    onClick = { onOpenRoute(Destination.Automation.route) },
+                )
+                SettingsGroupDivider()
+                SettingsIndexRow(
+                    icon = Icons.Filled.Bolt,
+                    title = "Indexing",
+                    subtitle = if (uiState.indexing) "Indexing files now" else "${uiState.indexedCount} files indexed",
+                    value = if (uiState.indexingEnabled) "Enabled" else "Off",
+                    onClick = { indexDialog = true },
+                )
+            }
+
+            SettingsGroup("About") {
+                AboutSection()
+            }
+
+            SettingsGroup("Advanced appearance") {
                 SettingsSwitchRow(
                     icon = Icons.Filled.DarkMode,
                     title = "AMOLED black",
@@ -175,46 +332,41 @@ fun SettingsScreen(
                 SettingsSwitchRow(
                     icon = Icons.Filled.Palette,
                     title = "Dynamic color",
-                    subtitle = "Match your wallpaper colors on Android 12+",
+                    subtitle = "Match wallpaper colors on Android 12+",
                     checked = uiState.dynamicColor,
                     onCheckedChange = viewModel::setDynamicColor,
                 )
             }
 
-            SettingsGroup(title = "Browsing") {
-                SettingsSwitchRow(
-                    icon = Icons.Filled.Visibility,
-                    title = "Show hidden files",
-                    subtitle = "Display files and folders that start with a dot",
-                    checked = uiState.showHidden,
-                    onCheckedChange = viewModel::setShowHidden,
-                )
+            SettingsGroup("Advanced services") {
+                SettingsNavigationRow(Icons.Filled.Storage, "Storage analysis", "Review usage and reclaim space") {
+                    onOpenRoute(Destination.StorageAnalytics.route)
+                }
                 SettingsGroupDivider()
-                SettingsSwitchRow(
-                    icon = Icons.Filled.ViewColumn,
-                    title = "Dual-pane layout",
-                    subtitle = "Show two file panes side by side on wide screens",
-                    checked = uiState.dualPaneEnabled,
-                    onCheckedChange = viewModel::setDualPane,
-                )
+                SettingsNavigationRow(Icons.Filled.SwapHoriz, "Transfer history", "Recent copy, move and send tasks") {
+                    onOpenRoute(Destination.TransferCenter.route)
+                }
+                SettingsGroupDivider()
+                SettingsNavigationRow(Icons.Filled.Lock, "Secure vault", "Open encrypted files") {
+                    onOpenRoute(Destination.Vault.route)
+                }
+                SettingsGroupDivider()
+                SettingsNavigationRow(Icons.Filled.Cloud, "Connected accounts", "Manage cloud storage providers") {
+                    onOpenRoute(Destination.CloudHub.route)
+                }
+                SettingsGroupDivider()
+                SettingsNavigationRow(Icons.Filled.Shield, "Your data & privacy", "Access and protection details") {
+                    onOpenRoute(Destination.DataTransparency.route)
+                }
+                SettingsGroupDivider()
+                SettingsNavigationRow(Icons.Filled.Star, "Jupiter Pro", "Benefits and support") {
+                    onOpenRoute(Destination.Paywall.route)
+                }
             }
 
-            SettingsGroup(title = "AI assistant") {
-                SettingsSwitchRow(
-                    icon = Icons.Filled.SmartToy,
-                    title = "Enable AI assistant",
-                    subtitle = "Smart suggestions for naming, search and cleanup",
-                    checked = uiState.aiEnabled,
-                    onCheckedChange = viewModel::setAiEnabled,
-                )
+            SettingsGroup("Advanced AI & privacy") {
+                AiApiKeyField(uiState.aiApiKey, viewModel::setAiApiKey)
                 SettingsGroupDivider()
-                AiApiKeyField(
-                    apiKey = uiState.aiApiKey,
-                    onApiKeyChange = viewModel::setAiApiKey,
-                )
-            }
-
-            SettingsGroup(title = "Privacy") {
                 SettingsSwitchRow(
                     icon = Icons.Filled.Insights,
                     title = "Help improve Jupiter",
@@ -222,125 +374,139 @@ fun SettingsScreen(
                     checked = uiState.analyticsOptIn,
                     onCheckedChange = viewModel::setAnalyticsOptIn,
                 )
-                SettingsGroupDivider()
-                SettingsNavigationRow(
-                    icon = Icons.Filled.Shield,
-                    title = "Your data & privacy",
-                    subtitle = "See what Jupiter accesses, where your data lives, and how it's protected",
-                    onClick = { onOpenRoute(Destination.DataTransparency.route) },
-                )
-            }
-
-            SettingsGroup(title = "Jupiter Pro") {
-                SettingsNavigationRow(
-                    icon = Icons.Filled.Star,
-                    title = "Jupiter Pro",
-                    subtitle = "Support development and explore Pro benefits",
-                    onClick = { onOpenRoute(Destination.Paywall.route) },
-                )
-            }
-
-            SettingsGroup(title = "Storage") {
-                SettingsNavigationRow(
-                    icon = Icons.Filled.Storage,
-                    title = "Storage analysis",
-                    subtitle = "Review usage and reclaim space",
-                    onClick = { onOpenRoute(Destination.StorageAnalytics.route) },
-                )
-            }
-
-            SettingsGroup(title = "Recycle Bin") {
-                SettingsNavigationRow(
-                    icon = Icons.Filled.DeleteSweep,
-                    title = "Open Recycle Bin",
-                    subtitle = "Restore or permanently remove trashed files",
-                    iconTint = MaterialTheme.colorScheme.tertiary,
-                    onClick = { onOpenRoute(Destination.Trash.route) },
-                )
-                SettingsGroupDivider()
-                TrashAutoDeleteSelector(
-                    selectedDays = uiState.trashAutoDeleteDays,
-                    onSelected = viewModel::setTrashAutoDeleteDays,
-                )
-            }
-
-            SettingsGroup(title = "Indexing") {
-                SettingsSwitchRow(
-                    icon = Icons.Filled.Bolt,
-                    title = "Index files for fast search",
-                    subtitle = "Cache file metadata so search is instant instead of re-scanning storage every time",
-                    checked = uiState.indexingEnabled,
-                    onCheckedChange = viewModel::setIndexingEnabled,
-                )
-                SettingsGroupDivider()
-                IndexStatusRow(
-                    indexedCount = uiState.indexedCount,
-                    indexing = uiState.indexing,
-                    progressPercent = uiState.indexProgressPercent,
-                    progressCurrent = uiState.indexProgressCurrent,
-                    progressTotal = uiState.indexProgressTotal,
-                    enabled = uiState.indexingEnabled,
-                    onRebuild = viewModel::rebuildIndex,
-                )
-            }
-
-            SettingsGroup(title = "Transfers") {
-                SettingsNavigationRow(
-                    icon = Icons.Filled.SwapHoriz,
-                    title = "Transfer history",
-                    subtitle = "View recent copy, move and send tasks",
-                    onClick = { onOpenRoute(Destination.TransferCenter.route) },
-                )
-            }
-
-            SettingsGroup(title = "Security") {
-                SettingsNavigationRow(
-                    icon = Icons.Filled.Lock,
-                    title = "Vault security",
-                    subtitle = "Unlock encrypted files with biometric or device credential",
-                    iconTint = MaterialTheme.colorScheme.tertiary,
-                    onClick = { onOpenRoute(Destination.Vault.route) },
-                )
-            }
-
-            SettingsGroup(title = "Cloud") {
-                SettingsNavigationRow(
-                    icon = Icons.Filled.Cloud,
-                    title = "Connected accounts",
-                    subtitle = "Manage linked cloud storage providers",
-                    onClick = { onOpenRoute(Destination.CloudHub.route) },
-                )
-            }
-
-            SettingsGroup(title = "Automation") {
-                SettingsNavigationRow(
-                    icon = Icons.Filled.PlayArrow,
-                    title = "Rules",
-                    subtitle = "Automate sorting and cleanup tasks",
-                    onClick = { onOpenRoute(Destination.Automation.route) },
-                )
-            }
-
-            SettingsGroup(title = "About") {
-                AboutSection()
             }
         }
     }
+
+    if (themeDialog) {
+        ChoiceDialog(
+            title = "Theme",
+            values = ThemeMode.entries,
+            selected = uiState.themeMode,
+            label = ::themeLabel,
+            onDismiss = { themeDialog = false },
+            onSelected = {
+                viewModel.setThemeMode(it)
+                themeDialog = false
+            },
+        )
+    }
+    if (accentDialog) {
+        AccentPaletteDialog(
+            selectedArgb = uiState.accentColorArgb,
+            onDismiss = { accentDialog = false },
+            onAccentSelected = { argb ->
+                viewModel.setAccentColorArgb(argb)
+                accentDialog = false
+            },
+        )
+    }
+    if (indexDialog) {
+        IndexingDialog(
+            enabled = uiState.indexingEnabled,
+            indexedCount = uiState.indexedCount,
+            indexing = uiState.indexing,
+            progressPercent = uiState.indexProgressPercent,
+            progressCurrent = uiState.indexProgressCurrent,
+            progressTotal = uiState.indexProgressTotal,
+            onEnabledChange = viewModel::setIndexingEnabled,
+            onRebuild = viewModel::rebuildIndex,
+            onDismiss = { indexDialog = false },
+        )
+    }
+    if (sortDialog) {
+        ChoiceDialog(
+            title = "Default sort order",
+            values = SORT_OPTIONS,
+            selected = SORT_OPTIONS.firstOrNull { sameSort(it, uiState.defaultSortOption) } ?: SORT_OPTIONS.first(),
+            label = ::sortOptionLabel,
+            onDismiss = { sortDialog = false },
+            onSelected = {
+                viewModel.setSortOption(it)
+                sortDialog = false
+            },
+        )
+    }
+    if (languageDialog) {
+        ChoiceDialog(
+            title = "App language",
+            values = APP_LANGUAGE_OPTIONS,
+            selected = appLanguageChoice(uiState.appLanguageTag),
+            label = ::appLanguageLabel,
+            onDismiss = { languageDialog = false },
+            onSelected = {
+                viewModel.setAppLanguageTag(it)
+                languageDialog = false
+            },
+        )
+    }
+    if (retentionDialog) {
+        ChoiceDialog(
+            title = "Auto-delete trashed items",
+            values = RETENTION_OPTIONS,
+            selected = uiState.trashAutoDeleteDays,
+            label = ::retentionLabel,
+            onDismiss = { retentionDialog = false },
+            onSelected = {
+                viewModel.setTrashAutoDeleteDays(it)
+                retentionDialog = false
+            },
+        )
+    }
+    if (autoLockDialog) {
+        ChoiceDialog(
+            title = "Vault auto-lock",
+            values = AUTO_LOCK_OPTIONS,
+            selected = uiState.vaultAutoLockMinutes,
+            label = ::autoLockLabel,
+            onDismiss = { autoLockDialog = false },
+            onSelected = {
+                viewModel.setVaultAutoLockMinutes(it)
+                autoLockDialog = false
+            },
+        )
+    }
+    if (pinDialog) {
+        VaultPinDialog(
+            configured = uiState.vaultPinConfigured,
+            onDismiss = { pinDialog = false },
+            onSave = { pin ->
+                viewModel.configureVaultPin(pin) { result ->
+                    feedback = when (result) {
+                        VaultPinMutationResult.SUCCESS -> "Vault PIN saved."
+                        VaultPinMutationResult.INVALID_PIN -> "Use 4–12 numeric digits."
+                        VaultPinMutationResult.PERSISTENCE_FAILED -> "Vault PIN could not be saved."
+                    }
+                    if (result == VaultPinMutationResult.SUCCESS) pinDialog = false
+                }
+            },
+            onRemove = {
+                viewModel.clearVaultPin { result ->
+                    feedback = if (result == VaultPinMutationResult.SUCCESS) {
+                        "Vault PIN removed; biometric protection remains enabled."
+                    } else {
+                        "Vault PIN could not be removed."
+                    }
+                    if (result == VaultPinMutationResult.SUCCESS) pinDialog = false
+                }
+            },
+        )
+    }
 }
 
-/** A titled, rounded settings card matching the supplied dark Jupiter references. */
 @Composable
-private fun SettingsGroup(
-    title: String,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
+private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 18.dp),
+            .padding(top = 6.dp),
     ) {
-        SettingsSectionHeader(title = title)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 6.dp, bottom = 3.dp),
+        )
         JupiterCard(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(0.dp),
@@ -349,277 +515,14 @@ private fun SettingsGroup(
     }
 }
 
-/** A quiet group label; the card remains the visual focus. */
-@Composable
-private fun SettingsSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.onBackground,
-        modifier = modifier.padding(start = 12.dp, bottom = 8.dp),
-    )
-}
-
-/** Divider alignment leaves a clear leading-icon column, like the reference design. */
 @Composable
 private fun SettingsGroupDivider() {
     HorizontalDivider(
-        modifier = Modifier.padding(start = 80.dp),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
+        modifier = Modifier.padding(start = 50.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
     )
 }
 
-/** Radio-style selector for the three [ThemeMode] options. */
-@Composable
-private fun ThemeModeSelector(
-    selected: ThemeMode,
-    onSelected: (ThemeMode) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.selectableGroup()) {
-        ThemeMode.entries.forEachIndexed { index, mode ->
-            ThemeModeRow(
-                mode = mode,
-                selected = mode == selected,
-                onSelect = { onSelected(mode) },
-            )
-            if (index < ThemeMode.entries.lastIndex) {
-                SettingsGroupDivider()
-            }
-        }
-    }
-}
-
-/** One accessible theme choice with an unmistakable selected state. */
-@Composable
-private fun ThemeModeRow(
-    mode: ThemeMode,
-    selected: Boolean,
-    onSelect: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 72.dp)
-            .selectableModifier(
-                selected = selected,
-                onClick = onSelect,
-                role = Role.RadioButton,
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        JupiterIconBadge(
-            icon = iconForThemeMode(mode),
-            contentDescription = null,
-            size = 48.dp,
-        )
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = labelForThemeMode(mode),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = descriptionForThemeMode(mode),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        RadioButton(
-            selected = selected,
-            onClick = null,
-        )
-    }
-}
-
-/** The Recycle-Bin retention windows offered in Settings (label, days; 0 = never auto-delete). */
-private val TRASH_AUTO_DELETE_OPTIONS: List<Pair<String, Int>> = listOf(
-    "Never" to 0,
-    "After 7 days" to 7,
-    "After 15 days" to 15,
-    "After 30 days" to 30,
-    "After 60 days" to 60,
-)
-
-/**
- * Radio selector for the functional Recycle Bin retention policy. A selection is persisted through
- * the view model; it is not merely visual state.
- */
-@Composable
-private fun TrashAutoDeleteSelector(
-    selectedDays: Int,
-    onSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            JupiterIconBadge(
-                icon = Icons.Filled.DeleteSweep,
-                tint = MaterialTheme.colorScheme.tertiary,
-                contentDescription = null,
-                size = 48.dp,
-            )
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = "Auto-delete trashed items",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "Keep items for the selected retention period",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Column(
-            modifier = Modifier
-                .selectableGroup()
-                .padding(start = 62.dp),
-        ) {
-            TRASH_AUTO_DELETE_OPTIONS.forEach { (label, days) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 48.dp)
-                        .selectableModifier(
-                            selected = days == selectedDays,
-                            onClick = { onSelected(days) },
-                            role = Role.RadioButton,
-                        )
-                        .padding(horizontal = 4.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    RadioButton(selected = days == selectedDays, onClick = null)
-                }
-            }
-        }
-    }
-}
-
-/** Accent swatches for the persisted accent preference. */
-@Composable
-private fun AccentColorPicker(
-    selectedArgb: Long,
-    onAccentSelected: (Long) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            JupiterIconBadge(
-                icon = Icons.Filled.Colorize,
-                contentDescription = null,
-                size = 48.dp,
-            )
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = "Accent color",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = selectedAccentName(selectedArgb),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(start = 62.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AccentSwatch(
-                color = MaterialTheme.colorScheme.primary,
-                selected = selectedArgb == 0L,
-                contentDescription = "Jupiter default accent",
-                onClick = { onAccentSelected(0L) },
-            )
-            AccentPalette.forEach { accent: AccentColor ->
-                AccentSwatch(
-                    color = accent.color,
-                    selected = selectedArgb == accent.argb,
-                    contentDescription = accent.name,
-                    onClick = { onAccentSelected(accent.argb) },
-                )
-            }
-        }
-    }
-}
-
-/** A 48 dp accent selector with radio semantics and a clear selected mark. */
-@Composable
-private fun AccentSwatch(
-    color: Color,
-    selected: Boolean,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier
-            .size(48.dp)
-            .semantics { this.contentDescription = contentDescription }
-            .selectableModifier(
-                selected = selected,
-                onClick = onClick,
-                role = Role.RadioButton,
-            ),
-        shape = CircleShape,
-        color = color,
-        border = if (selected) {
-            BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
-        } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        },
-    ) {
-        if (selected) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = contentDescription,
-                    tint = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-    }
-}
-
-/** A full-row, accessible switch preference with the shared badge treatment. */
 @Composable
 private fun SettingsSwitchRow(
     icon: ImageVector,
@@ -633,49 +536,278 @@ private fun SettingsSwitchRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 76.dp)
-            .toggleableModifier(
-                value = checked,
-                onValueChange = onCheckedChange,
-                role = Role.Switch,
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .defaultMinSize(minHeight = 48.dp)
+            .toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        JupiterIconBadge(
-            icon = icon,
-            tint = iconTint,
-            contentDescription = null,
-            size = 48.dp,
-        )
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
+        JupiterIconBadge(icon = icon, tint = iconTint, contentDescription = null, size = 32.dp)
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
             Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = subtitle,
+                subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(Modifier.width(8.dp))
         Switch(
             checked = checked,
             onCheckedChange = null,
+            modifier = Modifier.scale(0.78f),
         )
     }
 }
 
-/**
- * Live status for the persistent file index. Rebuild remains disabled while indexing is off or
- * already running, so this card cannot queue redundant work.
- */
+@Composable
+private fun SettingsValueRow(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        JupiterIconBadge(icon = icon, tint = iconTint, contentDescription = null, size = 32.dp)
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SettingsNavigationRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        JupiterIconBadge(icon = icon, tint = iconTint, contentDescription = null, size = 32.dp)
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+    }
+}
+
+@Composable
+private fun SettingsIndexRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    value: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        JupiterIconBadge(
+            icon = icon,
+            tint = MaterialTheme.colorScheme.primary,
+            contentDescription = null,
+            size = 32.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(6.dp))
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+    }
+}
+
+@Composable
+private fun AccentColorPicker(selectedArgb: Long, onClick: () -> Unit) {
+    val selectedColor = if (selectedArgb == 0L) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        AccentPalette.firstOrNull { it.argb == selectedArgb }?.color
+            ?: MaterialTheme.colorScheme.primary
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        JupiterIconBadge(
+            icon = Icons.Filled.Colorize,
+            tint = MaterialTheme.colorScheme.primary,
+            contentDescription = null,
+            size = 32.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Accent color", style = MaterialTheme.typography.titleSmall)
+            Text(
+                selectedAccentName(selectedArgb),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Surface(
+            modifier = Modifier
+                .size(28.dp)
+                .semantics {
+                    contentDescription = "Selected accent: ${selectedAccentName(selectedArgb)}"
+                },
+            shape = CircleShape,
+            color = selectedColor,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {}
+    }
+}
+
+@Composable
+private fun AccentPaletteDialog(
+    selectedArgb: Long,
+    onDismiss: () -> Unit,
+    onAccentSelected: (Long) -> Unit,
+) {
+    val choices = listOf(AccentChoice(0L, "Jupiter teal", MaterialTheme.colorScheme.primary)) +
+        AccentPalette.drop(1).map { AccentChoice(it.argb, it.name, it.color) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Accent color") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                choices.chunked(5).forEach { rowChoices ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        rowChoices.forEach { choice ->
+                            AccentSwatch(
+                                color = choice.color,
+                                selected = selectedArgb == choice.argb ||
+                                    (choice.argb == 0L && selectedArgb == AccentPalette.firstOrNull()?.argb),
+                                description = choice.name,
+                                onClick = { onAccentSelected(choice.argb) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun IndexingDialog(
+    enabled: Boolean,
+    indexedCount: Int,
+    indexing: Boolean,
+    progressPercent: Int?,
+    progressCurrent: Int,
+    progressTotal: Int,
+    onEnabledChange: (Boolean) -> Unit,
+    onRebuild: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Indexing") },
+        text = {
+            Column {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Bolt,
+                    title = "Keep index up to date",
+                    subtitle = "Maintain fast search as files change",
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                IndexStatusRow(
+                    indexedCount = indexedCount,
+                    indexing = indexing,
+                    progressPercent = progressPercent,
+                    progressCurrent = progressCurrent,
+                    progressTotal = progressTotal,
+                    enabled = enabled,
+                    onRebuild = onRebuild,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+private data class AccentChoice(val argb: Long, val name: String, val color: Color)
+
+@Composable
+private fun AccentSwatch(
+    color: Color,
+    selected: Boolean,
+    description: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .size(48.dp)
+            .semantics { contentDescription = description }
+            .selectable(selected, role = Role.RadioButton, onClick = onClick),
+        shape = CircleShape,
+        color = color,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        if (selected) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
 @Composable
 private fun IndexStatusRow(
     indexedCount: Int,
@@ -685,294 +817,246 @@ private fun IndexStatusRow(
     progressTotal: Int,
     enabled: Boolean,
     onRebuild: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = when {
+                    when {
                         !enabled -> "Indexing is off"
                         indexing && progressPercent != null -> "Indexing files… $progressPercent%"
                         indexing -> "Indexing files…"
                         else -> "$indexedCount files indexed"
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                when {
-                    indexing && progressTotal > 0 -> Text(
-                        text = "$progressCurrent / $progressTotal files",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    enabled && !indexing -> Text(
-                        text = "Rebuild to refresh cached metadata",
+                if (indexing && progressTotal > 0) {
+                    Text(
+                        "$progressCurrent / $progressTotal files",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            if (indexing && progressPercent == null) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .padding(end = 12.dp)
-                        .size(20.dp),
-                    strokeWidth = 2.dp,
-                )
-            }
-            FilledTonalButton(
-                onClick = onRebuild,
-                enabled = enabled && !indexing,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = "Rebuild")
+            if (indexing && progressPercent == null) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(10.dp))
+            FilledTonalButton(onClick = onRebuild, enabled = enabled && !indexing) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Rebuild")
             }
         }
         if (indexing) {
-            if (progressPercent != null) {
-                LinearProgressIndicator(
-                    progress = { progressPercent / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            if (progressPercent == null) LinearProgressIndicator(Modifier.fillMaxWidth()) else {
+                LinearProgressIndicator(progress = { progressPercent / 100f }, modifier = Modifier.fillMaxWidth())
             }
         }
     }
 }
 
-/**
- * A masked text field for the real Claude API key. The draft is deliberately
- * local so typing remains responsive while every change is persisted by the
- * view model.
- */
 @Composable
-private fun AiApiKeyField(
-    apiKey: String,
-    onApiKeyChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var draft by remember { mutableStateOf(apiKey) }
+private fun AiApiKeyField(apiKey: String, onApiKeyChange: (String) -> Unit) {
+    var draft by remember(apiKey) { mutableStateOf(apiKey) }
     var revealed by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(apiKey) {
-        if (apiKey != draft) {
-            draft = apiKey
-        }
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    Column(Modifier.padding(14.dp)) {
         OutlinedTextField(
             value = draft,
-            onValueChange = { value ->
-                draft = value
-                onApiKeyChange(value)
+            onValueChange = {
+                draft = it
+                onApiKeyChange(it)
             },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            label = { Text(text = "Claude API key") },
-            placeholder = { Text(text = "sk-ant-…") },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Filled.Key,
-                    contentDescription = null,
-                )
-            },
+            label = { Text("Claude API key") },
+            leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null) },
             trailingIcon = {
                 IconButton(onClick = { revealed = !revealed }) {
                     Icon(
-                        imageVector = if (revealed) {
-                            Icons.Filled.VisibilityOff
-                        } else {
-                            Icons.Filled.Visibility
-                        },
-                        contentDescription = if (revealed) {
-                            "Hide API key"
-                        } else {
-                            "Show API key"
-                        },
+                        if (revealed) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        contentDescription = if (revealed) "Hide API key" else "Show API key",
                     )
                 }
             },
-            visualTransformation = if (revealed) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-            ),
+            visualTransformation = if (revealed) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         )
         Text(
-            text = "Your key is stored on-device only and never leaves your phone except to call " +
-                "Claude. It enables Claude-powered search, smart naming and automation rules.",
+            "Stored on-device and sent only when you use Claude-powered features.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
         )
     }
 }
 
-/** A functional, full-row destination with a chevron affordance. */
 @Composable
-private fun SettingsNavigationRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    iconTint: Color = MaterialTheme.colorScheme.primary,
-) {
+private fun AboutSection() {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 76.dp)
-            .clickableModifier(
-                role = Role.Button,
-                onClick = onClick,
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .defaultMinSize(minHeight = 48.dp)
+            .padding(horizontal = 10.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         JupiterIconBadge(
-            icon = icon,
-            tint = iconTint,
+            icon = Icons.Filled.Info,
+            tint = MaterialTheme.colorScheme.primary,
             contentDescription = null,
-            size = 48.dp,
+            size = 32.dp,
         )
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("About Jupiter", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
             Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+                "v${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = subtitle,
+                "Private, native Android file management.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(modifier = Modifier.width(8.dp))
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
-/** Static information about Jupiter; no faux navigation/action is attached. */
 @Composable
-private fun AboutSection(
-    modifier: Modifier = Modifier,
+private fun <T> ChoiceDialog(
+    title: String,
+    values: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onDismiss: () -> Unit,
+    onSelected: (T) -> Unit,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            JupiterIconBadge(
-                icon = Icons.Filled.Folder,
-                contentDescription = null,
-                size = 56.dp,
-            )
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    text = "Jupiter File Manager",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(Modifier.selectableGroup()) {
+                values.forEach { value ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(value == selected, role = Role.RadioButton) { onSelected(value) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = value == selected, onClick = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text(label(value))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun VaultPinDialog(
+    configured: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (CharArray) -> Unit,
+    onRemove: () -> Unit,
+) {
+    // PIN material deliberately stays in non-saveable composition memory: it must
+    // never be serialized into the Activity saved-state Bundle.
+    var pin by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    val valid = pin.length in 4..12 && pin.all(Char::isDigit) && pin == confirmation
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (configured) "Change vault PIN" else "Set vault PIN") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Use 4–12 numeric digits. Jupiter stores only a salted PBKDF2 verifier.")
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("New PIN") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = PasswordVisualTransformation(),
                 )
-                Text(
-                    text = "Version $APP_VERSION",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "A fast, private, native file manager for Android.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                OutlinedTextField(
+                    value = confirmation,
+                    onValueChange = { confirmation = it.filter(Char::isDigit).take(12) },
+                    label = { Text("Confirm PIN") },
+                    singleLine = true,
+                    isError = confirmation.isNotEmpty() && confirmation != pin,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = PasswordVisualTransformation(),
                 )
             }
-        }
-        HorizontalDivider(
-            modifier = Modifier.padding(start = 80.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Info,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(modifier = Modifier.width(14.dp))
-            Text(
-                text = "All operations run on-device. No data leaves your phone.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = valid,
+                onClick = {
+                    val submittedPin = pin.toCharArray()
+                    pin = ""
+                    confirmation = ""
+                    onSave(submittedPin)
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (configured) TextButton(onClick = onRemove) { Text("Remove PIN") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
-private const val APP_VERSION = "1.0.0"
+private val SORT_OPTIONS = listOf(
+    SortOption(SortField.NAME, SortDirection.ASCENDING, foldersFirst = true),
+    SortOption(SortField.NAME, SortDirection.DESCENDING, foldersFirst = true),
+    SortOption(SortField.DATE_MODIFIED, SortDirection.DESCENDING, foldersFirst = true),
+    SortOption(SortField.SIZE, SortDirection.DESCENDING, foldersFirst = true),
+)
+private val RETENTION_OPTIONS = listOf(0, 7, 15, 30, 60)
+private val AUTO_LOCK_OPTIONS = listOf(1, 5, 15, 30)
+private val APP_LANGUAGE_OPTIONS = listOf("", "en")
 
-private fun selectedAccentName(argb: Long): String = when (argb) {
-    0L -> "Jupiter default"
-    else -> AccentPalette.firstOrNull { it.argb == argb }?.name ?: "Custom accent"
+private fun sameSort(a: SortOption, b: SortOption): Boolean = a.field == b.field && a.direction == b.direction
+
+private fun sortOptionLabel(option: SortOption): String = when (option.field) {
+    SortField.NAME -> if (option.direction == SortDirection.ASCENDING) "Name (A–Z)" else "Name (Z–A)"
+    SortField.DATE_MODIFIED -> if (option.direction == SortDirection.ASCENDING) "Date (oldest)" else "Date (newest)"
+    SortField.SIZE -> if (option.direction == SortDirection.ASCENDING) "Size (smallest)" else "Size (largest)"
+    SortField.TYPE -> if (option.direction == SortDirection.ASCENDING) "Type (A–Z)" else "Type (Z–A)"
 }
 
-/** Human-readable label for a [ThemeMode]. */
-private fun labelForThemeMode(mode: ThemeMode): String = when (mode) {
+private fun retentionLabel(days: Int): String = if (days <= 0) "Off" else "$days days"
+private fun autoLockLabel(minutes: Int): String = "$minutes min"
+private fun themeLabel(mode: ThemeMode): String = when (mode) {
     ThemeMode.SYSTEM -> "System default"
     ThemeMode.LIGHT -> "Light"
     ThemeMode.DARK -> "Dark"
 }
 
-/** Short description shown under each theme-mode option. */
-private fun descriptionForThemeMode(mode: ThemeMode): String = when (mode) {
-    ThemeMode.SYSTEM -> "Follow the device theme"
-    ThemeMode.LIGHT -> "Always use a light theme"
-    ThemeMode.DARK -> "Always use a dark theme"
+private fun selectedAccentName(argb: Long): String = when (argb) {
+    0L -> "Jupiter teal"
+    else -> AccentPalette.firstOrNull { it.argb == argb }?.name ?: "Custom"
 }
 
-/** Leading icon for each theme-mode option. */
-private fun iconForThemeMode(mode: ThemeMode): ImageVector = when (mode) {
-    ThemeMode.SYSTEM -> Icons.Filled.BrightnessAuto
-    ThemeMode.LIGHT -> Icons.Filled.LightMode
-    ThemeMode.DARK -> Icons.Filled.Brightness4
+private fun appLanguageLabel(tag: String): String = if (tag.isBlank()) {
+    "System default"
+} else {
+    runCatching {
+        java.util.Locale.forLanguageTag(tag)
+            .getDisplayLanguage(java.util.Locale.getDefault())
+            .replaceFirstChar(Char::titlecase)
+    }.getOrDefault(tag)
+}
+
+private fun appLanguageChoice(tag: String): String = when {
+    tag.isBlank() -> ""
+    tag.equals("en", ignoreCase = true) || tag.startsWith("en-", ignoreCase = true) -> "en"
+    else -> tag
 }

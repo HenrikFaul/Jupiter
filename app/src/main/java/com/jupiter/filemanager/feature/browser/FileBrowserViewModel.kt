@@ -83,6 +83,25 @@ class FileBrowserViewModel @Inject constructor(
             )
             loadDirectory(startPath)
         }
+
+        // Keep the Settings toggle live. The composable additionally checks the
+        // window width, so phones retain the single-pane browser while tablets
+        // switch to the existing, fully functional DualPaneScreen.
+        viewModelScope.launch {
+            settings.dualPaneEnabled.collect { enabled ->
+                _uiState.value = _uiState.value.copy(dualPaneEnabled = enabled)
+            }
+        }
+        viewModelScope.launch {
+            settings.groupFilesByType.collect { enabled ->
+                _uiState.value = _uiState.value.copy(groupFilesByType = enabled)
+            }
+        }
+        viewModelScope.launch {
+            settings.confirmBeforeTrash.collect { enabled ->
+                _uiState.value = _uiState.value.copy(confirmBeforeTrash = enabled)
+            }
+        }
     }
 
     /** Opens [path], replacing the current listing. */

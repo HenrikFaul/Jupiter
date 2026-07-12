@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.feature.transfer
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,8 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -57,7 +56,11 @@ import com.jupiter.filemanager.domain.model.TransferDirection
 import com.jupiter.filemanager.domain.model.TransferStatus
 import com.jupiter.filemanager.domain.model.TransferTask
 import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterPill
 import com.jupiter.filemanager.ui.navigation.Destination
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Transfer Center.
@@ -67,8 +70,9 @@ import com.jupiter.filemanager.ui.navigation.Destination
  * active transfers and finished history sourced from the real
  * [com.jupiter.filemanager.domain.repository.TransferRepository].
  *
- * No live transfer transport is wired yet, so the repository starts empty and
- * this screen renders honest empty states instead of fabricating progress.
+ * Wi-Fi sharing routes to the live local server. Nearby discovery remains an explicitly-labelled
+ * preview until its transport exists. The transfer-history repository starts empty and this screen
+ * renders honest states instead of fabricating progress.
  *
  * @param onOpenRoute navigates to another destination route (Nearby / Wi-Fi).
  * @param onBack pops the current screen.
@@ -83,9 +87,15 @@ fun TransferCenterScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Transfer Center") },
+                title = {
+                    Text(
+                        text = "Transfer Center",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -103,6 +113,13 @@ fun TransferCenterScreen(
                         }
                     }
                 },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.primary,
+                ),
             )
         },
     ) { innerPadding ->
@@ -114,20 +131,31 @@ fun TransferCenterScreen(
             QuickStartRow(
                 onNearby = { onOpenRoute(Destination.NearbyTransfer.route) },
                 onWifi = { onOpenRoute(Destination.WifiTransfer.route) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             )
 
-            TabRow(selectedTabIndex = uiState.selectedTab.ordinal) {
-                Tab(
-                    selected = uiState.selectedTab == TransferCenterTab.TRANSFERS,
-                    onClick = { viewModel.selectTab(TransferCenterTab.TRANSFERS) },
-                    text = { Text(text = "Transfers") },
-                )
-                Tab(
-                    selected = uiState.selectedTab == TransferCenterTab.HISTORY,
-                    onClick = { viewModel.selectTab(TransferCenterTab.HISTORY) },
-                    text = { Text(text = "History") },
-                )
+            JupiterCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(6.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    JupiterPill(
+                        selected = uiState.selectedTab == TransferCenterTab.TRANSFERS,
+                        onClick = { viewModel.selectTab(TransferCenterTab.TRANSFERS) },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                    ) {
+                        Text(text = "Transfers", style = MaterialTheme.typography.labelLarge)
+                    }
+                    JupiterPill(
+                        selected = uiState.selectedTab == TransferCenterTab.HISTORY,
+                        onClick = { viewModel.selectTab(TransferCenterTab.HISTORY) },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                    ) {
+                        Text(text = "History", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
             }
 
             val visible = when (uiState.selectedTab) {
@@ -155,7 +183,7 @@ fun TransferCenterScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(items = visible, key = { it.id }) { task ->
@@ -184,7 +212,7 @@ private fun QuickStartRow(
         QuickStartCard(
             icon = Icons.Filled.NearMe,
             title = "Nearby",
-            subtitle = "Send to devices around you",
+            subtitle = "Discovery preview · transport coming soon",
             onClick = onNearby,
             modifier = Modifier.weight(1f),
         )
@@ -211,9 +239,13 @@ private fun QuickStartCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -223,20 +255,7 @@ private fun QuickStartCard(
                 .padding(16.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(44.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
+            JupiterIconBadge(icon = icon, contentDescription = null, size = 44.dp)
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = title,
@@ -272,28 +291,24 @@ private fun TransferTaskCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = directionIcon(task.direction),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
+                JupiterIconBadge(
+                    icon = directionIcon(task.direction),
+                    tint = MaterialTheme.colorScheme.secondary,
+                    contentDescription = null,
+                    size = 40.dp,
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -325,7 +340,7 @@ private fun TransferTaskCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
+                        .clip(JupiterDesign.PillShape),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )

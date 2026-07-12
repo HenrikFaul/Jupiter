@@ -94,6 +94,16 @@ class TrashViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(errorMessage = null)
     }
 
+    /** Changes only the ordering of the currently observed items. */
+    fun setSort(sort: TrashSort) {
+        _uiState.value = _uiState.value.copy(sort = sort)
+    }
+
+    /** Changes only the visible item type; repository contents remain untouched. */
+    fun setFilter(filter: TrashFilter) {
+        _uiState.value = _uiState.value.copy(filter = filter)
+    }
+
     // ---- internals -------------------------------------------------------
 
     private fun runAction(block: suspend () -> AppResult<Unit>) {

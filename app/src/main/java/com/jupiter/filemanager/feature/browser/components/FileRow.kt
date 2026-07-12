@@ -1,6 +1,7 @@
 package com.jupiter.filemanager.feature.browser.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +35,7 @@ import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.ui.components.iconForFile
+import com.jupiter.filemanager.ui.components.JupiterFileBadge
 import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
@@ -82,7 +84,7 @@ fun FileRow(
 ) {
     val horizontalPadding = if (dense) 8.dp else 16.dp
     val verticalPadding = if (dense) 8.dp else 12.dp
-    val leadingSize = if (dense) 32.dp else 40.dp
+    val leadingSize = if (dense) 32.dp else 52.dp
     val textGap = if (dense) 8.dp else 16.dp
     val surfaceModifier = if (dense) {
         modifier.fillMaxWidth()
@@ -104,6 +106,10 @@ fun FileRow(
         } else {
             MaterialTheme.colorScheme.onSurface
         },
+        border = if (dense) null else BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
+        ),
         modifier = surfaceModifier,
     ) {
         Row(
@@ -136,6 +142,16 @@ fun FileRow(
                 item = item,
                 modifier = Modifier.weight(1f),
             )
+
+            if (!dense && !item.isDirectory) {
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = formatBytes(item.sizeBytes),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
 
             if (dragHandle != null) {
                 dragHandle()
@@ -182,12 +198,7 @@ private fun FileRowLeading(
                 .clip(RoundedCornerShape(6.dp)),
         )
     } else {
-        Icon(
-            imageVector = iconForFile(item),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(leadingSize),
-        )
+        JupiterFileBadge(item = item, size = leadingSize)
     }
 }
 
@@ -232,7 +243,7 @@ private fun fileRowSubtitle(item: FileItem): String {
     val primary = if (item.isDirectory) {
         item.childCount?.let { formatItemCount(it) }
     } else {
-        formatBytes(item.sizeBytes)
+        item.extension.takeIf { it.isNotBlank() }?.uppercase() ?: item.type.name
     }
     val time = formatRelativeTime(item.lastModified)
     return if (primary.isNullOrEmpty()) time else "$primary  •  $time"

@@ -29,8 +29,6 @@ import androidx.compose.material.icons.filled.PhonelinkRing
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.outlined.DevicesOther
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,13 +47,17 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterWordmark
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Nearby transfer screen.
  *
- * Pure-UI screen (no ViewModel) that presents an honest "searching for nearby devices"
- * experience. The transport layer for peer-to-peer transfers (Wi-Fi Direct / Bluetooth)
- * is not yet implemented, so the radar animation runs as a visual placeholder and the
+ * Pure-UI screen (no ViewModel) that presents an honest preview of nearby transfer.
+ * The transport layer for peer-to-peer transfers (Wi-Fi Direct / Bluetooth)
+ * is not yet implemented, so the radar animation is decorative and the
  * device list stays empty with a clear, non-fabricated empty state. A "How it works"
  * note explains the intended flow without implying the capability is live.
  *
@@ -66,6 +68,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun NearbyTransferScreen(onBack: () -> Unit) {
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(text = "Nearby Transfer") },
@@ -88,12 +91,16 @@ fun NearbyTransferScreen(onBack: () -> Unit) {
                 .padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            JupiterWordmark()
+
+            Spacer(modifier = Modifier.height(18.dp))
+
             ScanningRadar()
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Searching for nearby devices",
+                text = "Nearby transfer preview",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
@@ -102,8 +109,8 @@ fun NearbyTransferScreen(onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Make sure the other device is nearby with Nearby Transfer open. " +
-                    "Devices will appear here automatically once discovered.",
+                text = "Device discovery and the peer-to-peer transport are not available " +
+                    "in this build yet. This screen previews the intended private transfer flow.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -156,8 +163,8 @@ fun NearbyTransferScreen(onBack: () -> Unit) {
 }
 
 /**
- * Animated radar badge: a pulsing ring expanding outward behind a steady device glyph,
- * communicating an ongoing scan without claiming any specific result.
+ * Decorative radar badge: a pulsing ring behind a steady device glyph. The nearby
+ * transport is not active; the surrounding copy states that explicitly.
  */
 @Composable
 private fun ScanningRadar(modifier: Modifier = Modifier) {
@@ -222,17 +229,12 @@ private fun ScanningRadar(modifier: Modifier = Modifier) {
  */
 @Composable
 private fun NoDevicesCard(modifier: Modifier = Modifier) {
-    Card(
+    JupiterCard(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PaddingValues(horizontal = 24.dp, vertical = 28.dp)),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
@@ -243,16 +245,15 @@ private fun NoDevicesCard(modifier: Modifier = Modifier) {
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "No devices found yet",
+                text = "Device discovery isn't available yet",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Direct device-to-device discovery isn't available yet. Keep this " +
-                    "screen open and nearby devices will be listed here once the feature " +
-                    "is ready.",
+                text = "This build does not scan for or list nearby devices. The list will " +
+                    "become active only after the peer-to-peer transport is implemented.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -271,34 +272,15 @@ private fun HowItWorksStep(
     description: String,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    JupiterCard(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        contentPadding = PaddingValues(JupiterDesign.CompactPadding),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PaddingValues(horizontal = 16.dp, vertical = 16.dp)),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                modifier = Modifier.size(44.dp).clip(CircleShape),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-            }
+            JupiterIconBadge(icon = icon)
             Spacer(modifier = Modifier.width(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(

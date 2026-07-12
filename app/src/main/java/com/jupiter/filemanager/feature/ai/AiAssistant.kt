@@ -4,6 +4,7 @@ import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FilterOption
 import com.jupiter.filemanager.domain.model.StorageOverview
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * A single AI-generated suggestion surfaced to the user.
@@ -23,15 +24,17 @@ data class AiSuggestion(
  *
  * Implementations must never crash the app: when the assistant is not configured
  * or a request cannot be fulfilled, they return [AppResult.Failure] rather than
- * throwing. Consumers should gate AI-specific UI on [isEnabled].
+ * throwing. Consumers that render availability should collect [enabled]; synchronous
+ * action gates may read [isEnabled].
  */
 interface AiAssistant {
 
-    /**
-     * Whether the assistant is configured and available. When `false`, the
-     * suspend operations are expected to return [AppResult.Failure].
-     */
+    /** Live configured-and-enabled state. Preference/key changes must propagate here. */
+    val enabled: StateFlow<Boolean>
+
+    /** Non-blocking snapshot for one-off action gates. */
     val isEnabled: Boolean
+        get() = enabled.value
 
     /**
      * Suggests a cleaner, more descriptive file name for the given [item].

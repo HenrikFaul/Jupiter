@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,8 +28,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.InsertDriveFile
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,8 +51,11 @@ import com.jupiter.filemanager.core.util.formatDate
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.ui.components.ErrorView
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.StatRow
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Detail screen for a single file or folder.
@@ -78,6 +78,7 @@ fun FileDetailsScreen(
     val context = LocalContext.current
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
@@ -156,24 +157,10 @@ private fun FileHeader(file: FileItem) {
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(80.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = if (file.isDirectory) {
-                        Icons.Filled.Folder
-                    } else {
-                        Icons.Outlined.InsertDriveFile
-                    },
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(40.dp),
-                )
-            }
-        }
+        JupiterIconBadge(
+            icon = if (file.isDirectory) Icons.Filled.Folder else Icons.Outlined.InsertDriveFile,
+            size = 80.dp,
+        )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = file.name,
@@ -279,15 +266,11 @@ private fun ActionButton(
 
 @Composable
 private fun PropertiesCard(file: FileItem) {
-    Card(
+    JupiterCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        contentPadding = PaddingValues(horizontal = JupiterDesign.CompactPadding, vertical = 6.dp),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column {
             StatRow(
                 label = "Type",
                 value = typeLabel(file),

@@ -48,7 +48,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterProgressBar
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 import java.util.Locale
 
 /**
@@ -78,6 +82,7 @@ fun ArchiveManagerScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -196,34 +201,17 @@ private fun ArchiveRow(
     archive: FileItem,
     onExtract: () -> Unit,
 ) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+    JupiterCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onExtract),
+        contentPadding = PaddingValues(JupiterDesign.CompactPadding),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.FolderZip,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier
-                        .padding(10.dp)
-                        .size(24.dp),
-                )
-            }
+            JupiterIconBadge(icon = Icons.Filled.FolderZip)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -339,10 +327,7 @@ private fun OperationProgressPanel(
         Spacer(modifier = Modifier.height(24.dp))
         val fraction = progress?.fraction ?: 0f
         if (progress != null && progress.totalBytes > 0L) {
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            JupiterProgressBar(fraction = fraction)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = formatBytes(progress.processedBytes) + " / " +

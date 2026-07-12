@@ -5,7 +5,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,19 +22,27 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +59,8 @@ import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
 import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Full-screen image gallery.
@@ -59,23 +71,44 @@ import java.io.File
  * thumbnail strip beneath for quick navigation. Images are decoded by Coil
  * ([AsyncImage]) directly from the file on disk.
  *
- * Visual language follows the NEXUS brand: a dark image stage, rounded 16dp thumbnails,
- * and the current thumbnail outlined in the vivid-blue primary color.
+ * Visual language follows Jupiter's dark image stage, compact rounded thumbnails,
+ * and the current thumbnail outlined in the teal primary color.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageGalleryScreen(
     onBack: () -> Unit,
+    initialImages: List<FileItem>? = null,
+    initialPath: String? = null,
+    startInSlideshow: Boolean = false,
+    onInitialImagesConsumed: () -> Unit = {},
 ) {
     val viewModel: ImageGalleryViewModel = hiltViewModel()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // Retain the in-memory hand-off for this destination even after the NavHost
+    // clears its one-shot request. The ViewModel receives the same list so a
+    // configuration change keeps the exact filtered order.
+    val launchImages = remember {
+        initialImages
+            ?.filter { !it.isDirectory && it.type == com.jupiter.filemanager.domain.model.FileType.IMAGE }
+            ?.distinctBy { it.path }
+            .orEmpty()
+    }
+
+    LaunchedEffect(Unit) {
+        if (launchImages.isNotEmpty()) {
+            viewModel.useLaunchImages(launchImages, initialPath)
+            onInitialImagesConsumed()
+        }
+    }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Gallery",
+                        text = if (startInSlideshow) "Slideshow" else "Gallery",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -97,7 +130,19 @@ fun ImageGalleryScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            val displayedImages = launchImages.ifEmpty { state.images }
             when {
+                displayedImages.isNotEmpty() -> GalleryBody(
+                    images = displayedImages,
+                    initialIndex = if (launchImages.isNotEmpty()) {
+                        launchImages.indexOfFirst { it.path == initialPath }.coerceAtLeast(0)
+                    } else {
+                        state.initialIndex
+                    },
+                    startInSlideshow = startInSlideshow,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
                 state.isLoading -> LoadingView(modifier = Modifier.fillMaxSize())
 
                 state.error != null -> ErrorView(
@@ -112,11 +157,7 @@ fun ImageGalleryScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                else -> GalleryBody(
-                    images = state.images,
-                    initialIndex = state.initialIndex,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                else -> Unit
             }
         }
     }
@@ -127,6 +168,7 @@ fun ImageGalleryScreen(
 private fun GalleryBody(
     images: List<FileItem>,
     initialIndex: Int,
+    startInSlideshow: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val startPage = initialIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0))
@@ -135,6 +177,20 @@ private fun GalleryBody(
         pageCount = { images.size },
     )
     val thumbState = rememberLazyListState()
+    val navigationScope = rememberCoroutineScope()
+    var isPlaying by rememberSaveable { mutableStateOf(startInSlideshow) }
+
+    // One frame is scheduled at a time. Pausing or leaving this destination
+    // cancels the effect immediately; a swipe/manual navigation resets the full
+    // three-second viewing interval for the newly settled image.
+    LaunchedEffect(isPlaying, pagerState.settledPage, images.size) {
+        if (SlideshowPolicy.canAutoAdvance(isPlaying, images.size)) {
+            delay(SlideshowPolicy.FRAME_INTERVAL_MILLIS)
+            pagerState.animateScrollToPage(
+                SlideshowPolicy.nextIndex(pagerState.settledPage, images.size),
+            )
+        }
+    }
 
     // Keep the thumbnail strip in sync with the currently-paged image.
     LaunchedEffect(pagerState.currentPage) {
@@ -144,7 +200,7 @@ private fun GalleryBody(
     }
 
     Column(
-        modifier = modifier.background(MaterialTheme.colorScheme.surface),
+        modifier = modifier.background(MaterialTheme.colorScheme.background),
     ) {
         // Main image stage.
         HorizontalPager(
@@ -194,7 +250,29 @@ private fun GalleryBody(
             modifier = Modifier.padding(horizontal = 20.dp),
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        SlideshowControls(
+            isPlaying = isPlaying,
+            enabled = images.size > 1,
+            onPrevious = {
+                navigationScope.launch {
+                    pagerState.animateScrollToPage(
+                        SlideshowPolicy.previousIndex(pagerState.settledPage, images.size),
+                    )
+                }
+            },
+            onTogglePlayback = { isPlaying = !isPlaying },
+            onNext = {
+                navigationScope.launch {
+                    pagerState.animateScrollToPage(
+                        SlideshowPolicy.nextIndex(pagerState.settledPage, images.size),
+                    )
+                }
+            },
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Thumbnail strip.
         ThumbnailStrip(
@@ -202,12 +280,63 @@ private fun GalleryBody(
             selectedIndex = pagerState.currentPage,
             listState = thumbState,
             onSelect = { index ->
-                // Snap the pager to the tapped thumbnail.
-                pagerState.requestScrollToPage(index)
+                navigationScope.launch {
+                    pagerState.animateScrollToPage(index)
+                }
             },
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun SlideshowControls(
+    isPlaying: Boolean,
+    enabled: Boolean,
+    onPrevious: () -> Unit,
+    onTogglePlayback: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onPrevious, enabled = enabled) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Previous image",
+                )
+            }
+            IconButton(onClick = onTogglePlayback, enabled = enabled) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause slideshow" else "Resume slideshow",
+                    tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onNext, enabled = enabled) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "Next image",
+                )
+            }
+            Text(
+                text = if (isPlaying && enabled) "Playing · 3 sec" else "Slideshow paused",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+            )
+        }
     }
 }
 

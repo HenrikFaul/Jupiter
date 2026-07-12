@@ -7,19 +7,23 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
+import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.ThemeMode
@@ -47,7 +51,7 @@ import javax.inject.Inject
  * non-blocking and never interrupts the splash/onboarding/permission start flow.
  */
 @AndroidEntryPoint
-class MainActivity : FragmentActivity() {
+class MainActivity : AppCompatActivity() {
 
     /** Schedules/keeps the background index survey alive. */
     @Inject
@@ -88,6 +92,18 @@ class MainActivity : FragmentActivity() {
             val accentColorArgb: Long by mainViewModel.accentColorArgb.collectAsStateWithLifecycle()
             val amoledBlack: Boolean by mainViewModel.amoledBlack.collectAsStateWithLifecycle()
             val dynamicColor: Boolean by mainViewModel.dynamicColor.collectAsStateWithLifecycle()
+            val resolvedDarkTheme = when (themeMode) {
+                ThemeMode.DARK -> true
+                ThemeMode.LIGHT -> false
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+
+            SideEffect {
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !resolvedDarkTheme
+                    isAppearanceLightNavigationBars = !resolvedDarkTheme
+                }
+            }
 
             JupiterTheme(
                 themeMode = themeMode,
@@ -100,6 +116,8 @@ class MainActivity : FragmentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     val navController = rememberNavController()
+                    val outerBackStackEntry by navController.currentBackStackEntryAsState()
+                    val outerRoute = outerBackStackEntry?.destination?.route
 
                     // Widget deep link: the Favorites home-screen widget launches us with
                     // an OPEN_PATH extra; navigate straight to that folder once.
@@ -112,12 +130,16 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
-                    // One-shot: surface the "What's New" sheet for this build once the
-                    // main shell has been reached. Runs after first composition only;
-                    // the view model persists the seen version so it never repeats.
-                    LaunchedEffect(Unit) {
-                        mainViewModel.maybeShowWhatsNew {
-                            navController.navigate(Destination.WhatsNew.route)
+                    // One-shot: never interrupt Splash, Onboarding or Permission. The old
+                    // composition-wide launch raced those gates and could put What's New in
+                    // front of first-run access setup before the main shell existed.
+                    LaunchedEffect(outerRoute) {
+                        if (outerRoute == Destination.Main.route ||
+                            outerRoute == Destination.MainTab.route
+                        ) {
+                            mainViewModel.maybeShowWhatsNew {
+                                navController.navigate(Destination.WhatsNew.route)
+                            }
                         }
                     }
 

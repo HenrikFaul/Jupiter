@@ -16,6 +16,12 @@ enum class SizeFilter(val label: String, val minBytes: Long) {
     MB_100("≥ 100 MB", 100L * 1024 * 1024),
 }
 
+/** Keeps exact byte copies and perceptually similar photos as separate review scopes. */
+enum class DuplicatePresentation {
+    EXACT,
+    SIMILAR,
+}
+
 /**
  * Immutable UI state for the Duplicates screen.
  *
@@ -44,17 +50,28 @@ data class DuplicatesUiState(
     val permissionRequired: Boolean = false,
     val sizeFilter: SizeFilter = SizeFilter.ALL,
     val analyzingPhotos: Boolean = false,
+    // Additive: kept after the complete pre-v0.51 constructor contract for positional callers.
+    val presentation: DuplicatePresentation = DuplicatePresentation.EXACT,
 ) {
     /** True when there are no groups and scanning has finished (and access is granted). */
     val isEmpty: Boolean
         get() = !isScanning && !permissionRequired && !analyzingPhotos && groups.isEmpty()
 
-    /** Groups that pass the active [sizeFilter] (by their largest copy) — what the list renders. */
-    val visibleGroups: List<DuplicateGroup>
+    /** Groups that pass the active [sizeFilter], before the exact/similar tab is applied. */
+    val sizeFilteredGroups: List<DuplicateGroup>
         get() = if (sizeFilter == SizeFilter.ALL) {
             groups
         } else {
             groups.filter { group -> group.files.any { it.sizeBytes >= sizeFilter.minBytes } }
+        }
+
+    /** The only groups that the current tab and size filter make actionable. */
+    val visibleGroups: List<DuplicateGroup>
+        get() = sizeFilteredGroups.filter { group ->
+            when (presentation) {
+                DuplicatePresentation.EXACT -> !group.similar
+                DuplicatePresentation.SIMILAR -> group.similar
+            }
         }
 
     /** Total bytes wasted across every discovered duplicate group. */

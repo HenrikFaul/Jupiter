@@ -28,7 +28,7 @@ data class QuickAccessShortcut(
 )
 
 /**
- * UI state for the redesigned NEXUS-style Home dashboard.
+ * UI state for the redesigned Jupiter Home dashboard.
  *
  * @property volumes the mounted storage volumes (internal storage, SD cards, etc.).
  * @property primaryVolume the primary internal volume, surfaced in the storage overview card.

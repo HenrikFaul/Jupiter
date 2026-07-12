@@ -3,6 +3,7 @@ package com.jupiter.filemanager.feature.preview
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
@@ -27,7 +27,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -41,6 +40,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.ui.components.ErrorView
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.LoadingView
 import java.util.Locale
 
@@ -52,8 +53,7 @@ import java.util.Locale
  * progress slider, and transport controls (skip back 10s / play-pause / skip forward
  * 10s), forwarding intents to the ViewModel.
  *
- * Visual language matches the NEXUS brand: a vivid-blue play affordance, rounded 16dp
- * artwork surface, and generous spacing.
+ * Visual language matches Jupiter's midnight-and-teal surfaces and compact hierarchy.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +64,7 @@ fun MusicPlayerScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -122,29 +123,15 @@ private fun PlayerBody(
     ) {
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Artwork placeholder surface (rounded 16dp, NEXUS brand tint).
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
+        // Honest artwork placeholder: no fabricated album art is rendered.
+        JupiterCard(
             modifier = Modifier
                 .fillMaxWidth(0.78f)
                 .padding(top = 16.dp),
+            contentPadding = PaddingValues(vertical = 40.dp),
         ) {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(96.dp),
-                    )
-                }
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                JupiterIconBadge(icon = Icons.Default.MusicNote, size = 96.dp)
             }
         }
 
@@ -160,7 +147,7 @@ private fun PlayerBody(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // Subtitle: prefer the track artist (NEXUS title/artist pairing); fall back to
+        // Subtitle: prefer the track artist; fall back to
         // the file size when no artist tag is present.
         val sizeText = state.file?.let { formatBytes(it.sizeBytes) }
         val subtitle = state.artist.ifBlank { sizeText.orEmpty() }
