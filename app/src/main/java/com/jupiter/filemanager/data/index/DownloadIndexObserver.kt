@@ -12,8 +12,8 @@ import javax.inject.Singleton
 
 /**
  * Real-time TRIGGER for duplicate detection: registers a [ContentObserver] on the MediaStore
- * "external" files collection and, whenever the system reports a change, kicks the
- * [DedupReconciler] (via [IndexingScheduler.reconcileDedupNow]).
+ * "external" files collection and, whenever the system reports a change, kicks both the
+ * metadata survey and the [DedupReconciler].
  *
  * This deliberately does NOT try to resolve the changed URI into the exact new file. On many
  * devices the observer fires with the bare collection URI (or `onChange` with no URI at all),
@@ -69,6 +69,7 @@ class DownloadIndexObserver @Inject constructor(
         val now = System.currentTimeMillis()
         if (now - lastKickAtMs < DEBOUNCE_MS) return
         lastKickAtMs = now
+        indexingScheduler.ensureIndexed()
         indexingScheduler.reconcileDedupNow()
     }
 

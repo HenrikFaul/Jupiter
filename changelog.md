@@ -689,3 +689,34 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - Az első implementációs push `10bf1fb61d7d9dc44dfe4bd23ffb93cad41e0540` SHA-jához tartozó [Android CI run 29206763733](https://github.com/HenrikFaul/Jupiter/actions/runs/29206763733) **success** conclusionnel zárult: Unit tests 3m42s, Build APKs 11m19s, debug/release artifact és GitHub Release publikálás sikeres. A run WorkManager on-demand annotationje feltárt egy régi manifest-init hibát, ezért elkészült a célzott `fd56becaf9ffd611f402b468cd7732c7459d88f4` follow-up.
 - A WorkManager follow-up után `.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon` ismét **BUILD SUCCESSFUL** (50s, up-to-date cache használatával); 53 suite / 318 teszt / 0 failure/error/skipped. A merged debug manifestben `WorkManagerInitializer=0`, `EmojiCompatInitializer=1`, a lint XML-ben nincs `RemoveWorkManagerInitializer` issue-példány.
 - A follow-up [Android CI run 29207505758](https://github.com/HenrikFaul/Jupiter/actions/runs/29207505758) szintén **success**: Unit tests 1m42s, Build APKs 2m50s, debug/release artifact és GitHub Release publikálás sikeres. A WorkManager annotation eltűnt; csak a GitHub Actions Node 20→24 infrastruktúra-deprecáció maradt. A teljes kör közvetlenül `origin/main`-re került.
+
+## [jupiter:0.52.0] - 2026-07-12
+
+**Scope / miért:** a csatolt követelmény-extrakt P0/P1 indexelési és duplikációs hiányainak célzott pótlása: az app neve és márkajelzése maradjon **Jupiter**, az index folyamatosabban frissüljön, az új fájlok foreground/observer/periodic úton is hamar bekerüljenek, és a Similar duplikáció ne csak fotókra korlátozódjon.
+
+### Added
+- **[data/index]** `StructuralFingerprintBackfillWorker`: a meglévő könyvtár text/code SimHash, archive/APK member-tree, video keyframe, PDF render és audio envelope fingerprintjeit háttérben tölti fel, így a nem-kép near-duplicate rétegek nem csak újonnan érkező fájlokra működnek.
+- **[data/index, feature/cleanup]** `nearDuplicateStructuralGroups()` repository API + Similar tab bekötés: a Duplicates képernyő most a perceptuális fotócsoportok mellett text/code, archive/APK, video, PDF és audio hasonló csoportokat is megjelenít, `similar = true` scope-ban.
+- **[test]** `NearDuplicateStructuralGroupTest`: Robolectric + in-memory Room bizonyíték arra, hogy text/archive/video strukturális/media csoportok ténylegesen bekerülnek a review-listába, nem csak arrival notificationként léteznek.
+
+### Changed
+- **[data/index/runtime]** A MediaStore observer többé nem csak dedup-reconcile triggert ad: változásjelre `ensureIndexed()` is fut, tehát az index-metaadat survey is azonnal kap kick-et. Foregroundon szintén mindig `ensureIndexed()` fut KEEP policyvel, így a korábbi komplett generáció olvasható marad, miközben a háttérben frissül.
+- **[data/index/runtime]** A periodikus index-frissítő 12 óráról a WorkManager minimumához igazított 15 perces battery-not-low ütemre váltott. Ez a zárt app mellett létrejött/törölt/módosított fájlokat sokkal hamarabb reconciliálja.
+- **[data/index]** Sikeres authoritative full scan után a rendszer előmelegíti az exact dedup jelölt-hasheket (`hashCollidingSizes(4 KiB)`), majd mind a kép-perceptuális, mind a nem-kép strukturális/media backfillt láncolja.
+- **[build/docs]** `versionCode` 4, `versionName` 0.52.0; README, changelog, versioning és lessons frissítve.
+
+### Fixed
+- **[branding]** Ellenőrizve: `app_name`, launcher/activity label, package és látható wordmark továbbra is **Jupiter**; nincs futó app-szintű `Jupiscan` névhasználat. A csatolt követelmény-extrakt Jupiscan elnevezése követelményforrásként kezelt, nem terméknévként.
+- **[dedup/ui]** A Similar tab korábban érdemben fotóközpontú volt; a kód már tartalmazott text/archive/video/PDF/audio fingerprint forrásokat, de ezek meglévő könyvtárra nem futottak proaktívan és nem kerültek általános csoportlistába. Most a háttér-backfill és a repository grouping ezt lezárja.
+- **[freshness]** Egy MediaStore jel vagy app-foreground nem hagyatkozik kizárólag a 12 órás frissítésre; az index azonnal kap KEEP survey-kicket, miközben a dedup reconciler továbbra is checkpointból dolgozik.
+
+### Known issues
+- **[platform]** Android nem garantál valódi, azonnali process-wakeupot minden zárt-app fájlváltozásra. A megvalósított modell: élő processben ContentObserver, app-foregroundon azonnali catch-up, és 15 perces WorkManager periodic; OEM/Doze ezt késleltetheti.
+- **[dedup]** A Similar tab strukturális/media csoportjai a háttér-fingerprint lefedettségétől függenek; undecodable vagy DRM/encrypted media `UNHASHABLE`, és nem kerül automatikus törlési bizonyítékként használatba. Exact törlési döntés továbbra is teljes-tartalom hash alapján történik.
+
+### Verification
+- `git pull --ff-only origin main` — már naprakész `main`, munka közben meglévő untracked `versioning.zip` érintetlen.
+- `.\gradlew.bat :app:compileDebugKotlin --no-daemon` — **BUILD SUCCESSFUL**.
+- `.\gradlew.bat :app:testDebugUnitTest --tests "com.jupiter.filemanager.data.index.NearDuplicateStructuralGroupTest" --no-daemon` — **BUILD SUCCESSFUL**.
+- `.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon` — **BUILD SUCCESSFUL**; XML összesítés: **54 suite / 319 teszt / 0 failure / 0 error / 0 skipped**.
+- `git diff --check` — tiszta (csak CRLF-normalizációs figyelmeztetések); `rg "Jupiscan|JupiScan|jupiscan" app` — nincs találat az app-forrásban.

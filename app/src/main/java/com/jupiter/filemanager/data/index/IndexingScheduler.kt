@@ -81,7 +81,7 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
-     * Keeps the index fresh long-term: a periodic (12 h) [IndexRefreshKickWorker] that
+     * Keeps the index fresh long-term: a periodic 15-minute [IndexRefreshKickWorker] that
      * re-enqueues the one-time survey via [ensureIndexed], so changes made while the app is
      * closed (deletes/moves by other apps) are re-surveyed without any user action. KEEP
      * policy: already scheduled → untouched. Battery-not-low so it never drains a dying
@@ -92,7 +92,7 @@ class IndexingScheduler @Inject constructor(
             workManager.enqueueUniquePeriodicWork(
                 PERIODIC_REFRESH_WORK_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<IndexRefreshKickWorker>(12, TimeUnit.HOURS)
+                PeriodicWorkRequestBuilder<IndexRefreshKickWorker>(15, TimeUnit.MINUTES)
                     .setConstraints(
                         Constraints.Builder().setRequiresBatteryNotLow(true).build(),
                     )
@@ -126,6 +126,26 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
+     * Ensures the non-image similarity descriptors converge in the background, so text/code,
+     * archive/APK, video, PDF, and audio near-duplicates are not limited to newly-arrived files.
+     */
+    fun ensureStructuralBackfill() {
+        try {
+            workManager.enqueueUniqueWork(
+                StructuralFingerprintBackfillWorker.UNIQUE_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<StructuralFingerprintBackfillWorker>()
+                    .setConstraints(
+                        Constraints.Builder().setRequiresBatteryNotLow(true).build(),
+                    )
+                    .build(),
+            )
+        } catch (_: Exception) {
+            // Best-effort.
+        }
+    }
+
+    /**
      * Runs the duplicate-detection catch-up ([DedupReconciler]): processes every MediaStore file
      * newer than the checkpoint (including ones that arrived while the app was dead) through the
      * detector. KEEP coalesces the chatty ContentObserver signals into at most one queued run.
@@ -148,8 +168,8 @@ class IndexingScheduler @Inject constructor(
     }
 
     /**
-     * Cancels any pending/running index survey AND the periodic refresh AND the perceptual
-     * backfill AND the dedup reconcile (e.g. when the user disables indexing), so nothing keeps
+     * Cancels any pending/running index survey AND the periodic refresh AND both fingerprint
+     * backfills AND the dedup reconcile (e.g. when the user disables indexing), so nothing keeps
      * running after the feature is turned off. Best-effort.
      */
     fun cancel() {
@@ -157,6 +177,7 @@ class IndexingScheduler @Inject constructor(
             workManager.cancelUniqueWork(IndexingWorker.UNIQUE_WORK_NAME)
             workManager.cancelUniqueWork(PERIODIC_REFRESH_WORK_NAME)
             workManager.cancelUniqueWork(PerceptualHashBackfillWorker.UNIQUE_WORK_NAME)
+            workManager.cancelUniqueWork(StructuralFingerprintBackfillWorker.UNIQUE_WORK_NAME)
             workManager.cancelUniqueWork(DedupReconcileWorker.UNIQUE_WORK_NAME)
         } catch (_: Exception) {
             // Best-effort.

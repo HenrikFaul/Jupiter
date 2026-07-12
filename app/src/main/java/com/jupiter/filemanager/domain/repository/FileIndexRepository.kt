@@ -186,6 +186,14 @@ interface FileIndexRepository {
      */
     suspend fun nearDuplicateImageGroups(threshold: Int): List<DuplicateGroup>
 
+    /**
+     * Clusters every already-fingerprinted non-image similarity layer into review groups:
+     * near-identical text/code, same-content archives/APKs, and media descriptors for video, PDF,
+     * and audio. The returned groups are marked `similar = true` so the Duplicates screen keeps
+     * them separate from exact byte-identical cleanup.
+     */
+    suspend fun nearDuplicateStructuralGroups(): List<DuplicateGroup>
+
     /** How many indexed images still lack a perceptual fingerprint (0 = the whole library is covered). */
     suspend fun imagesNeedingPerceptualHashCount(): Int
 

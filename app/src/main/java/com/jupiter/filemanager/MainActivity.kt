@@ -160,13 +160,16 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             runCatching {
                 val enabled = settings.indexingEnabled.first()
-                if (enabled && !indexStateRepository.isMetadataComplete()) {
-                    indexingScheduler.ensureIndexed()
-                }
                 if (enabled) {
+                    // Foreground is the user's "give me current answers now" moment: KEEP means
+                    // this never stacks, and read paths keep serving the previous complete
+                    // generation while the fresh survey reconciles additions/deletes in back.
+                    indexingScheduler.ensureIndexed()
+                    indexingScheduler.schedulePeriodicRefresh()
                     // Keep the perceptual-fingerprint backfill converging (KEEP: no-op when
                     // one is already queued/running or nothing is missing).
                     indexingScheduler.ensurePerceptualBackfill()
+                    indexingScheduler.ensureStructuralBackfill()
                     // Catch up duplicate detection on files that arrived while the app was
                     // dead — the real-time observer can't see those. Cheap when nothing is new.
                     indexingScheduler.reconcileDedupNow()

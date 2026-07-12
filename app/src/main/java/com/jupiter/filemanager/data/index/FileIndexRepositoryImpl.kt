@@ -116,7 +116,7 @@ class FileIndexRepositoryImpl @Inject constructor(
             toEntry(item, now).copy(
                 contentHash = if (identityKept) prior?.contentHash else null,
                 // Preserved on unchanged identity for the same reason as contentHash —
-                // otherwise every 12 h survey would wipe all fingerprints and force the
+                // otherwise every periodic survey would wipe all fingerprints and force the
                 // backfill to re-decode the whole photo library.
                 perceptualHash = if (identityKept) prior?.perceptualHash else null,
                 structuralHash = if (identityKept) prior?.structuralHash else null,
@@ -723,6 +723,126 @@ class FileIndexRepositoryImpl @Inject constructor(
             out
         }
 
+    override suspend fun nearDuplicateStructuralGroups(): List<DuplicateGroup> =
+        withContext(ioDispatcher) {
+            val groups = ArrayList<DuplicateGroup>()
+            groups += exactStructuralGroups(ARCHIVE_TYPE_NAMES, prefix = "archive")
+            groups += hammingStructuralGroups(
+                typeNames = TEXT_TYPE_NAMES,
+                threshold = StructuralHash.TEXT_NEAR_THRESHOLD,
+                prefix = "text",
+            )
+            groups += hammingStructuralGroups(
+                typeNames = VIDEO_TYPE_NAMES,
+                threshold = StructuralHash.VIDEO_NEAR_THRESHOLD,
+                prefix = "video",
+            )
+            groups += hammingStructuralGroups(
+                typeNames = PDF_TYPE_NAMES,
+                threshold = StructuralHash.PDF_NEAR_THRESHOLD,
+                prefix = "pdf",
+            )
+            groups += hammingStructuralGroups(
+                typeNames = AUDIO_TYPE_NAMES,
+                threshold = StructuralHash.AUDIO_NEAR_THRESHOLD,
+                prefix = "audio",
+            )
+            groups
+        }
+
+    /** Groups equal structural hashes, used for same-content repacked archives/APKs. */
+    private suspend fun exactStructuralGroups(
+        typeNames: List<String>,
+        prefix: String,
+    ): List<DuplicateGroup> {
+        val rows = dao.structuralHashesOfTypes(typeNames, StructuralHash.UNHASHABLE)
+        val out = ArrayList<DuplicateGroup>()
+        for ((hash, groupRows) in rows.groupBy { it.structuralHash }) {
+            currentCoroutineContext().ensureActive()
+            if (groupRows.size < 2) continue
+            val alive = existingOrPruned(dao.entriesForPaths(groupRows.map { it.path }).map(::toFileItem))
+            if (alive.size >= 2) {
+                out += DuplicateGroup(
+                    hash = "$prefix:$hash",
+                    files = alive.sortedByDescending { it.sizeBytes },
+                    similar = true,
+                )
+            }
+        }
+        return out
+    }
+
+    /**
+     * Union-finds near structural/media hashes by Hamming distance. These sets are normally tiny
+     * compared with the photo library, and the proactive backfill stores only one 64-bit descriptor
+     * per comparable file.
+     */
+    private suspend fun hammingStructuralGroups(
+        typeNames: List<String>,
+        threshold: Int,
+        prefix: String,
+    ): List<DuplicateGroup> {
+        val rows = dao.structuralHashesOfTypes(typeNames, StructuralHash.UNHASHABLE)
+        val n = rows.size
+        if (n < 2) return emptyList()
+
+        val parent = IntArray(n) { it }
+        val rank = IntArray(n)
+        fun find(x: Int): Int {
+            var r = x
+            while (parent[r] != r) {
+                parent[r] = parent[parent[r]]
+                r = parent[r]
+            }
+            return r
+        }
+        fun union(a: Int, b: Int) {
+            val ra = find(a)
+            val rb = find(b)
+            if (ra == rb) return
+            when {
+                rank[ra] < rank[rb] -> parent[ra] = rb
+                rank[ra] > rank[rb] -> parent[rb] = ra
+                else -> {
+                    parent[rb] = ra
+                    rank[ra]++
+                }
+            }
+        }
+
+        var budget = MAX_STRUCTURAL_PAIR_COMPARISONS
+        for (i in 0 until n) {
+            currentCoroutineContext().ensureActive()
+            for (j in i + 1 until n) {
+                if (budget-- <= 0L) break
+                if (find(i) == find(j)) continue
+                if (java.lang.Long.bitCount(rows[i].structuralHash xor rows[j].structuralHash) <= threshold) {
+                    union(i, j)
+                }
+            }
+            if (budget <= 0L) break
+        }
+
+        val clusters = LinkedHashMap<Int, MutableList<String>>()
+        for (i in 0 until n) {
+            clusters.getOrPut(find(i)) { mutableListOf() }.add(rows[i].path)
+        }
+        val out = ArrayList<DuplicateGroup>()
+        for ((clusterId, paths) in clusters.values.withIndex()) {
+            if (paths.size < 2) continue
+            currentCoroutineContext().ensureActive()
+            val alive = existingOrPruned(dao.entriesForPaths(paths).map(::toFileItem))
+            if (alive.size >= 2) {
+                out += DuplicateGroup(
+                    hash = "$prefix:$clusterId:${alive.first().path}",
+                    files = alive.sortedByDescending { it.sizeBytes },
+                    similar = true,
+                )
+            }
+        }
+        return out
+    }
+
     override suspend fun hashCollidingSizes(minSizeBytes: Long) = withContext(ioDispatcher) {
         for (size in dao.collidingSizes(minSizeBytes)) {
             currentCoroutineContext().ensureActive()
@@ -822,6 +942,9 @@ class FileIndexRepositoryImpl @Inject constructor(
          * hash distribution, after which pass-1 exact-dHash grouping still stands. ~200M ≈ a second.
          */
         const val MAX_NEAR_PAIR_COMPARISONS = 200_000_000L
+
+        /** Backstop for text/video/pdf/audio near grouping; exact archive grouping has no pair loop. */
+        const val MAX_STRUCTURAL_PAIR_COMPARISONS = 25_000_000L
 
         /**
          * Files below this size never trigger a duplicate ALERT: empty/near-empty files

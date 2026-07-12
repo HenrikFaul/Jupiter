@@ -77,7 +77,7 @@ class DuplicatesViewModel @Inject constructor(
      */
     private var lastExactGroups: List<DuplicateGroup> = emptyList()
 
-    /** Poll job that re-queries image near-dup groups while the photo fingerprint backfill runs. */
+    /** Poll job that re-queries similar groups while the fingerprint backfills run. */
     private var photoAnalysisJob: Job? = null
 
     /**
@@ -103,8 +103,8 @@ class DuplicatesViewModel @Inject constructor(
     }
 
     /**
-     * Publishes [lastExactGroups] merged with the image near-duplicate groups available RIGHT NOW,
-     * dropping any image already shown in an exact group so nothing appears twice.
+     * Publishes [lastExactGroups] merged with the near-duplicate groups available RIGHT NOW,
+     * dropping any file already shown in an exact group so nothing appears twice.
      */
     private suspend fun publishMerged(isScanning: Boolean?) {
         val exact = lastExactGroups
@@ -112,12 +112,15 @@ class DuplicatesViewModel @Inject constructor(
             .flatMap { it.files.asSequence() }
             .map { it.path }
             .toSet()
-        val imageGroups = runCatching {
+        val similarGroups = runCatching {
             indexRepository.nearDuplicateImageGroups(PerceptualHash.DEFAULT_NEAR_THRESHOLD)
+        }.getOrDefault(emptyList()) + runCatching {
+            indexRepository.nearDuplicateStructuralGroups()
         }.getOrDefault(emptyList())
+        val visibleSimilar = similarGroups
             .map { group -> group.copy(files = group.files.filterNot { it.path in exactPaths }) }
             .filter { it.files.size > 1 }
-        publishGroups(exact + imageGroups, isScanning = isScanning)
+        publishGroups(exact + visibleSimilar, isScanning = isScanning)
     }
 
     /**
@@ -242,11 +245,9 @@ class DuplicatesViewModel @Inject constructor(
                     if (cause == null) {
                         // Exact byte-identical groups (all file types) come from the walk above.
                         lastExactGroups = collected.toList()
-                        // Merge in whatever VISUAL near-duplicate IMAGE groups are available now (same
-                        // photo re-sized/re-encoded → different bytes/SHA-1, so only the perceptual
-                        // dHash detector can group them). Coverage grows as the fingerprint backfill
-                        // (kicked at scan start) runs — trackPhotoAnalysis keeps re-publishing until
-                        // the whole library is analyzed, so photo duplicates appear without a rescan.
+                        // Merge whatever SIMILAR groups are available now: photos, text/code,
+                        // archives/APKs, video, PDF, and audio descriptors. Coverage grows as the
+                        // fingerprint backfills run, so similar duplicates appear without a rescan.
                         publishMerged(isScanning = false)
                         scanCache.saveGroups(_uiState.value.groups)
                         // Probe quality only after the scan finishes, so probing never

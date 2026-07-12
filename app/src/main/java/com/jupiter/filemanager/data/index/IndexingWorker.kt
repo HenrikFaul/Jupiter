@@ -95,9 +95,14 @@ class IndexingWorker @AssistedInject constructor(
             indexRepository.sweepStaleGenerations(gen)
             val total = seeded + added
             indexStateRepository.completeScan(gen, total.toLong())
+            // Warm the exact-duplicate cache after the authoritative survey: only size-colliding
+            // files are fully hashed, so repeated duplicate cleanup opens without re-reading the
+            // whole device, while exact delete decisions still use a strong full-content hash.
+            indexRepository.hashCollidingSizes(MIN_DUPLICATE_SIZE_BYTES)
             // The survey just (re)indexed images whose perceptual fingerprint is still
-            // missing — chain the backfill so near-duplicate detection covers them.
+            // missing — chain the backfills so near-duplicate detection covers existing files.
             indexingScheduler.ensurePerceptualBackfill()
+            indexingScheduler.ensureStructuralBackfill()
             Result.success(outputOf(total, total))
         } catch (cancellation: CancellationException) {
             // Cooperative cancellation: leave the index NOT complete (state stays RUNNING) so
@@ -262,5 +267,8 @@ class IndexingWorker @AssistedInject constructor(
 
         /** Number of entries buffered before a single batched upsert. */
         private const val BATCH_SIZE: Int = 500
+
+        /** Same duplicate floor as cleanup/arrival alerts: tiny files are noise. */
+        private const val MIN_DUPLICATE_SIZE_BYTES: Long = 4L * 1024L
     }
 }

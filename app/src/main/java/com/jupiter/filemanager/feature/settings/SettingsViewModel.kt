@@ -208,6 +208,8 @@ class SettingsViewModel @Inject constructor(
                 runCatching { downloadIndexObserver.start() }
                 indexingScheduler.rebuildNow()
                 indexingScheduler.schedulePeriodicRefresh()
+                indexingScheduler.ensurePerceptualBackfill()
+                indexingScheduler.ensureStructuralBackfill()
             } else {
                 // Disabling means STOP EVERYTHING: tear down the live MediaStore observer (it used
                 // to keep firing after disable), cancel any running survey, clear the cached rows,
