@@ -107,6 +107,21 @@
         android:theme="@style/Theme.Jupiter"
         tools:targetApi="31">
 
+        <!--
+            JupiterApp implements WorkManager Configuration.Provider so Hilt's
+            injected WorkerFactory is supplied during on-demand initialization.
+            Remove only WorkManager's AndroidX Startup entry; the shared provider
+            and its other initializers (for example EmojiCompat) stay merged.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
