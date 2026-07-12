@@ -2,6 +2,7 @@ package com.jupiter.filemanager.data.index
 
 import com.jupiter.filemanager.data.permission.StorageAccessGate
 import com.jupiter.filemanager.di.IoDispatcher
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -38,6 +39,7 @@ class DedupReconciler @Inject constructor(
     private val arrivalInspector: ArrivalInspector,
     private val checkpointStore: DedupCheckpointStore,
     private val storageAccess: StorageAccessGate,
+    private val indexStateRepository: IndexStateRepository,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) {
 
@@ -69,7 +71,10 @@ class DedupReconciler @Inject constructor(
             // either way, leave the checkpoint at 0 and retry on a later trigger (once a real
             // library is visible, the baseline is set correctly and nothing is retro-alerted).
             val baseline = newFileSource.maxObservedId()
-            if (baseline > 0L) checkpointStore.setCheckpointId(baseline)
+            if (baseline > 0L) {
+                checkpointStore.setCheckpointId(baseline)
+                indexStateRepository.recordDeltaSync(version = null, generation = baseline)
+            }
             return 0
         }
 
@@ -90,6 +95,7 @@ class DedupReconciler @Inject constructor(
 
             since = DedupCheckpoint.advance(since, batchMax)
             checkpointStore.setCheckpointId(since)
+            indexStateRepository.recordDeltaSync(version = null, generation = since)
 
             if (batch.size < BATCH_SIZE) break // drained
             if (inspected >= MAX_PER_RUN) break // fairness cap; next trigger continues

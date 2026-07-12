@@ -1,9 +1,12 @@
 package com.jupiter.filemanager.data.index
 
 import com.jupiter.filemanager.data.permission.StorageAccessGate
+import com.jupiter.filemanager.domain.repository.IndexStateRepository
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -53,6 +56,21 @@ class DedupReconcilerTest {
         override fun hasFullAccess() = granted
     }
 
+    private class FakeIndexStateRepository : IndexStateRepository {
+        val deltaGenerations = mutableListOf<Long>()
+        override fun observe(): Flow<IndexState?> = flowOf(null)
+        override suspend fun current(): IndexState? = null
+        override suspend fun isMetadataComplete() = false
+        override suspend fun isUsable() = false
+        override suspend fun beginScan() = 1L
+        override suspend fun completeScan(generation: Long, filesSeen: Long) = Unit
+        override suspend fun failScan(error: String?) = Unit
+        override suspend fun recordDeltaSync(version: String?, generation: Long) {
+            deltaGenerations += generation
+        }
+        override suspend fun reset() = Unit
+    }
+
     private fun file(id: Long) = MediaStoreIndexSource.NewFile(
         FileItem(
             path = "/storage/emulated/0/Download/file$id.bin",
@@ -70,10 +88,19 @@ class DedupReconcilerTest {
     fun `first run establishes baseline without inspecting the existing library`() = runTest(dispatcher) {
         val store = FakeCheckpointStore(checkpoint = 0L)
         val inspector = RecordingInspector()
-        val r = DedupReconciler(FakeNewFileSource(maxId = 5_000L), inspector, store, FakeGate(true), dispatcher)
+        val indexState = FakeIndexStateRepository()
+        val r = DedupReconciler(
+            FakeNewFileSource(maxId = 5_000L),
+            inspector,
+            store,
+            FakeGate(true),
+            indexState,
+            dispatcher,
+        )
 
         assertEquals(0, r.reconcile())
         assertEquals("checkpoint set to current max id", 5_000L, store.checkpoint)
+        assertEquals(listOf(5_000L), indexState.deltaGenerations)
         assertTrue("nothing inspected on baseline", inspector.seen.isEmpty())
     }
 
@@ -82,11 +109,13 @@ class DedupReconcilerTest {
         val store = FakeCheckpointStore(checkpoint = 5_000L)
         val inspector = RecordingInspector()
         val source = FakeNewFileSource(maxId = 5_002L, files = listOf(file(5_001L), file(5_002L)))
-        val r = DedupReconciler(source, inspector, store, FakeGate(true), dispatcher)
+        val indexState = FakeIndexStateRepository()
+        val r = DedupReconciler(source, inspector, store, FakeGate(true), indexState, dispatcher)
 
         assertEquals(2, r.reconcile())
         assertEquals(listOf(5_001L, 5_002L), inspector.seen.map { it.name.removePrefix("file").removeSuffix(".bin").toLong() })
         assertEquals(5_002L, store.checkpoint)
+        assertEquals(listOf(5_002L), indexState.deltaGenerations)
 
         // Nothing new on a second pass → no work, no re-inspection.
         inspector.seen.clear()
@@ -101,7 +130,7 @@ class DedupReconcilerTest {
         val inspector = RecordingInspector()
         val ids = (101L..450L).toList()
         val source = FakeNewFileSource(maxId = 450L, files = ids.map { file(it) })
-        val r = DedupReconciler(source, inspector, store, FakeGate(true), dispatcher)
+        val r = DedupReconciler(source, inspector, store, FakeGate(true), FakeIndexStateRepository(), dispatcher)
 
         assertEquals(350, r.reconcile())
         assertEquals(350, inspector.seen.size)
@@ -112,7 +141,14 @@ class DedupReconcilerTest {
     fun `does nothing when indexing is disabled`() = runTest(dispatcher) {
         val store = FakeCheckpointStore(enabled = false, checkpoint = 0L)
         val inspector = RecordingInspector()
-        val r = DedupReconciler(FakeNewFileSource(maxId = 5_000L), inspector, store, FakeGate(true), dispatcher)
+        val r = DedupReconciler(
+            FakeNewFileSource(maxId = 5_000L),
+            inspector,
+            store,
+            FakeGate(true),
+            FakeIndexStateRepository(),
+            dispatcher,
+        )
 
         assertEquals(0, r.reconcile())
         assertEquals(0L, store.checkpoint)
@@ -123,7 +159,14 @@ class DedupReconcilerTest {
     fun `does nothing when storage access is not granted`() = runTest(dispatcher) {
         val store = FakeCheckpointStore(checkpoint = 0L)
         val inspector = RecordingInspector()
-        val r = DedupReconciler(FakeNewFileSource(maxId = 5_000L), inspector, store, FakeGate(granted = false), dispatcher)
+        val r = DedupReconciler(
+            FakeNewFileSource(maxId = 5_000L),
+            inspector,
+            store,
+            FakeGate(granted = false),
+            FakeIndexStateRepository(),
+            dispatcher,
+        )
 
         assertEquals(0, r.reconcile())
         assertEquals("no baseline pinned before access", 0L, store.checkpoint)
@@ -134,7 +177,14 @@ class DedupReconcilerTest {
     @Test
     fun `empty or unreadable MediaStore does not poison the baseline`() = runTest(dispatcher) {
         val store = FakeCheckpointStore(checkpoint = 0L)
-        val r = DedupReconciler(FakeNewFileSource(maxId = 0L), RecordingInspector(), store, FakeGate(true), dispatcher)
+        val r = DedupReconciler(
+            FakeNewFileSource(maxId = 0L),
+            RecordingInspector(),
+            store,
+            FakeGate(true),
+            FakeIndexStateRepository(),
+            dispatcher,
+        )
 
         assertEquals(0, r.reconcile())
         assertEquals("checkpoint stays 0, not pinned to 1", 0L, store.checkpoint)

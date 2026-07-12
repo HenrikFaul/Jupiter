@@ -4,14 +4,18 @@ import android.content.Context
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.jupiter.filemanager.core.util.DefaultPathPolicy
+import com.jupiter.filemanager.core.util.PathPolicy
 import com.jupiter.filemanager.data.index.ArrivalInspector
 import com.jupiter.filemanager.data.index.DedupCheckpointStore
+import com.jupiter.filemanager.data.index.DedupDecisionDao
 import com.jupiter.filemanager.data.index.DuplicateDetector
 import com.jupiter.filemanager.data.index.FileIndexDao
 import com.jupiter.filemanager.data.index.FileIndexDatabase
 import com.jupiter.filemanager.data.index.FileIndexRepositoryImpl
 import com.jupiter.filemanager.data.index.AndroidMediaFingerprintSource
 import com.jupiter.filemanager.data.index.IndexStateDao
+import com.jupiter.filemanager.data.index.IndexReadinessRepositoryImpl
 import com.jupiter.filemanager.data.index.IndexStateRepositoryImpl
 import com.jupiter.filemanager.data.index.MediaFingerprintSource
 import com.jupiter.filemanager.data.index.MediaStoreIndexSource
@@ -21,6 +25,7 @@ import com.jupiter.filemanager.data.permission.StorageAccessGate
 import com.jupiter.filemanager.data.permission.StorageAccessManager
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.IndexStateRepository
+import com.jupiter.filemanager.domain.repository.IndexReadinessRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -61,6 +66,30 @@ object IndexModule {
         }
     }
 
+    /**
+     * v5 → v6: records pipeline/delta state in the co-located index_state row and adds an
+     * idempotent duplicate-decision table. This is an in-place migration; the expensive index and
+     * fingerprints survive, and duplicate notifications gain restart-proof suppression.
+     */
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE index_state ADD COLUMN checkpointJson TEXT")
+            db.execSQL("ALTER TABLE index_state ADD COLUMN mediaStoreVersion TEXT")
+            db.execSQL("ALTER TABLE index_state ADD COLUMN lastMediaStoreGeneration INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE index_state ADD COLUMN lastDeltaSyncAt INTEGER NOT NULL DEFAULT 0")
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `dedup_decision` (" +
+                    "`decisionKey` TEXT NOT NULL, " +
+                    "`kind` TEXT NOT NULL, " +
+                    "`newPath` TEXT NOT NULL, " +
+                    "`existingPaths` TEXT NOT NULL, " +
+                    "`algorithmVersion` INTEGER NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`decisionKey`))",
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideFileIndexDatabase(
@@ -68,7 +97,7 @@ object IndexModule {
     ): FileIndexDatabase =
         Room.databaseBuilder(context, FileIndexDatabase::class.java, "jupiter_index.db")
             .addMigrations(MIGRATION_4_5)
-            .fallbackToDestructiveMigration()
+            .addMigrations(MIGRATION_5_6)
             .build()
 
     @Provides
@@ -78,6 +107,10 @@ object IndexModule {
     @Provides
     fun provideIndexStateDao(database: FileIndexDatabase): IndexStateDao =
         database.indexStateDao()
+
+    @Provides
+    fun provideDedupDecisionDao(database: FileIndexDatabase): DedupDecisionDao =
+        database.dedupDecisionDao()
 }
 
 /**
@@ -99,6 +132,11 @@ abstract class IndexBindingsModule {
     ): IndexStateRepository
 
     @Binds
+    abstract fun bindIndexReadinessRepository(
+        impl: IndexReadinessRepositoryImpl,
+    ): IndexReadinessRepository
+
+    @Binds
     abstract fun bindNewFileSource(impl: MediaStoreIndexSource): NewFileSource
 
     @Binds
@@ -116,4 +154,7 @@ abstract class IndexBindingsModule {
 
     @Binds
     abstract fun bindStorageAccessGate(impl: StorageAccessManager): StorageAccessGate
+
+    @Binds
+    abstract fun bindPathPolicy(impl: DefaultPathPolicy): PathPolicy
 }

@@ -45,6 +45,9 @@ interface IndexStateRepository {
     /** Records a failed scan (status FAILED); the previous complete generation stays usable. */
     suspend fun failScan(error: String?)
 
+    /** Records a MediaStore/delta reconciliation marker for freshness/readiness diagnostics. */
+    suspend fun recordDeltaSync(version: String?, generation: Long)
+
     /** Resets the state to EMPTY (e.g. when indexing is disabled / the index is cleared). */
     suspend fun reset()
 }

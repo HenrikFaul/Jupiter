@@ -45,7 +45,7 @@ class DuplicateDetectorTest {
         repo = FileIndexRepositoryImpl(db.fileIndexDao(), dispatcher)
         detector = DuplicateDetector(
             ctx, repo, PerceptualHashSource(), StructuralFingerprintSource(),
-            FakeMediaFingerprintSource(), dispatcher,
+            FakeMediaFingerprintSource(), db.dedupDecisionDao(), dispatcher,
         )
         tempDir = java.nio.file.Files.createTempDirectory("jupiter-detector").toFile()
     }
@@ -81,6 +81,19 @@ class DuplicateDetectorTest {
         assertTrue(
             "the alert points at the pre-existing original",
             alert?.existing?.any { it.path == original.absolutePath } == true,
+        )
+    }
+
+    @Test
+    fun sameArrivalDecisionIsPersistentlySuppressedOnSecondPass() = runTest(dispatcher) {
+        val payload = ByteArray(9000) { (it % 199).toByte() }
+        val original = File(tempDir, "report.pdf").apply { writeBytes(payload) }
+        val copy = File(tempDir, "report (1).pdf").apply { writeBytes(payload) }
+        repo.indexFile(item(original))
+
+        assertEquals(DuplicateKind.EXACT, detector.onFileArrived(item(copy))?.kind)
+        assertNull("the canonical pair decision is stored, so restart/replay does not alert again",
+            detector.onFileArrived(item(copy)),
         )
     }
 

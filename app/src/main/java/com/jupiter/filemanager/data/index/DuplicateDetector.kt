@@ -19,6 +19,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -84,6 +85,7 @@ class DuplicateDetector @Inject constructor(
     private val perceptualHashSource: PerceptualHashSource,
     private val structuralFingerprintSource: StructuralFingerprintSource,
     private val mediaFingerprintSource: MediaFingerprintSource,
+    private val dedupDecisionDao: DedupDecisionDao,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : ArrivalInspector {
 
@@ -367,10 +369,50 @@ class DuplicateDetector @Inject constructor(
         }
     }
 
-    private fun emit(alert: DuplicateAlert): DuplicateAlert {
+    private suspend fun emit(alert: DuplicateAlert): DuplicateAlert? {
+        if (!recordDecision(alert)) return null
         _alerts.tryEmit(alert)
         notify(alert)
         return alert
+    }
+
+    private suspend fun recordDecision(alert: DuplicateAlert): Boolean {
+        val existingPaths = alert.existing.map { it.path }.distinct().sorted()
+        val key = canonicalDecisionKey(
+            newPath = alert.newFile.path,
+            existingPaths = existingPaths,
+            kind = alert.kind,
+        )
+        val inserted = dedupDecisionDao.insert(
+            DedupDecision(
+                decisionKey = key,
+                kind = alert.kind.name,
+                newPath = alert.newFile.path,
+                existingPaths = existingPaths.joinToString(separator = "\n"),
+                algorithmVersion = DECISION_ALGORITHM_VERSION,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        return inserted != -1L
+    }
+
+    private fun canonicalDecisionKey(
+        newPath: String,
+        existingPaths: List<String>,
+        kind: DuplicateKind,
+    ): String {
+        val canonicalPaths = (existingPaths + newPath).sorted()
+        val raw = buildString {
+            append(kind.name)
+            append('|')
+            append(DECISION_ALGORITHM_VERSION)
+            canonicalPaths.forEach {
+                append('|')
+                append(it)
+            }
+        }
+        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+        return digest.joinToString(separator = "") { "%02x".format(it) }
     }
 
     private fun notify(alert: DuplicateAlert) {
@@ -433,6 +475,7 @@ class DuplicateDetector @Inject constructor(
     private companion object {
         const val CHANNEL_ID = "jupiter_duplicate_alerts"
         const val SIMILAR_ID_SALT = 0x5A5A5A5A
+        const val DECISION_ALGORITHM_VERSION = 1
 
         /** Rows fingerprinted per batch while draining the perceptual-hash backlog on demand. */
         const val FINGERPRINT_BATCH = 100

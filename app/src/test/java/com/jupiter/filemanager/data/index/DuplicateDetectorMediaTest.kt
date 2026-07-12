@@ -69,7 +69,7 @@ class DuplicateDetectorMediaTest {
     )
 
     private fun detectorWith(fake: FakeMediaFingerprintSource) = DuplicateDetector(
-        ctx, repo, PerceptualHashSource(), StructuralFingerprintSource(), fake, dispatcher,
+        ctx, repo, PerceptualHashSource(), StructuralFingerprintSource(), fake, db.dedupDecisionDao(), dispatcher,
     )
 
     private val base = 0x1234_5678_9ABC_DEF0L

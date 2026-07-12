@@ -23,6 +23,11 @@ enum class IndexStatus { EMPTY, RUNNING, COMPLETE, DIRTY, FAILED }
  *   0 when none has. Consumers should only trust the index when metadataStatus == COMPLETE.
  * @property scanStartedAt / scanCompletedAt epoch-millis bookends of the active/last scan.
  * @property filesSeen number of files the active/last scan wrote.
+ * @property checkpointJson resumable scan cursor / dirty-queue state when a future worker can
+ *   resume a partial run instead of restarting from scratch. Null means no resumable cursor.
+ * @property mediaStoreVersion opaque MediaStore version observed during the last reconciliation.
+ * @property lastMediaStoreGeneration opaque highest MediaStore generation/change marker observed.
+ * @property lastDeltaSyncAt epoch-millis of the last delta reconciliation attempt.
  * @property lastError a human-readable failure reason, or null.
  */
 @Entity(tableName = "index_state")
@@ -34,6 +39,10 @@ data class IndexState(
     val scanStartedAt: Long = 0L,
     val scanCompletedAt: Long = 0L,
     val filesSeen: Long = 0L,
+    val checkpointJson: String? = null,
+    val mediaStoreVersion: String? = null,
+    val lastMediaStoreGeneration: Long = 0L,
+    val lastDeltaSyncAt: Long = 0L,
     val lastError: String? = null,
 ) {
     val status: IndexStatus

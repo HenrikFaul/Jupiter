@@ -288,8 +288,9 @@ class FileOperationsManager @Inject constructor(
             }
 
             // BEST-EFFORT live index update. Wrapped so an index failure can never change the
-            // outcome or safety of the copy/move itself. A COPY indexes each created root; a MOVE
-            // records the rename (old path removed, new path indexed) for each moved root.
+            // outcome or safety of the copy/move itself. COPY indexes the FULL created tree
+            // immediately (not only the root); MOVE records a subtree rename when the source was
+            // already indexed, preserving cached hashes for descendants.
             runCatching {
                 for ((item, target) in topLevelTargets) {
                     if (!target.exists()) continue
@@ -297,7 +298,7 @@ class FileOperationsManager @Inject constructor(
                     if (type == FileOperationType.MOVE) {
                         indexRepository.onMovedOrRenamed(item.path, newItem)
                     } else {
-                        indexRepository.indexFile(newItem)
+                        indexCreatedTree(target)
                     }
                 }
             }
@@ -492,6 +493,14 @@ class FileOperationsManager @Inject constructor(
             }
             throw IOException("Failed to create directory: " + target.absolutePath)
         }
+    }
+
+    /** Indexes a newly-created file or every descendant of a newly-created directory. */
+    private suspend fun indexCreatedTree(root: File) {
+        val items = fileSystemDataSource.walkTopDown(root.absolutePath)
+            .mapNotNull { file -> runCatching { fileSystemDataSource.toFileItem(file) }.getOrNull() }
+            .toList()
+        if (items.isNotEmpty()) indexRepository.upsert(items)
     }
 
     /** Deletes [file] and, if it is a directory, all of its contents. Returns true on full success. */

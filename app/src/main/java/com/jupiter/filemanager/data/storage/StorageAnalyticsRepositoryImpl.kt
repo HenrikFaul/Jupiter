@@ -2,6 +2,7 @@ package com.jupiter.filemanager.data.storage
 
 import com.jupiter.filemanager.core.result.AppError
 import com.jupiter.filemanager.core.result.AppResult
+import com.jupiter.filemanager.core.util.PathPolicy
 import com.jupiter.filemanager.data.file.FileSystemDataSource
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.CategoryUsage
@@ -41,6 +42,7 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
     private val volumeProvider: StorageVolumeProvider,
     private val indexRepository: FileIndexRepository,
     private val indexStateRepository: IndexStateRepository,
+    private val pathPolicy: PathPolicy,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : StorageAnalyticsRepository {
 
@@ -421,7 +423,7 @@ class StorageAnalyticsRepositoryImpl @Inject constructor(
      * path segments to avoid false positives on similarly-named user folders.
      */
     private fun isExcludedPath(path: String): Boolean =
-        com.jupiter.filemanager.core.util.StorageExclusions.isExcluded(path)
+        !pathPolicy.isUserVisible(path)
 
     /** True when [file] is an ordinary, readable, non-directory file. */
     private fun isRegularFile(file: File): Boolean = try {

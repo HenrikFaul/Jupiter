@@ -80,6 +80,18 @@ class IndexStateRepositoryImpl @Inject constructor(
         )
     }
 
+    override suspend fun recordDeltaSync(version: String?, generation: Long) =
+        withContext(ioDispatcher) {
+            val existing = dao.get(volume)
+            if (existing == null) dao.upsert(IndexState(volumeId = volume))
+            dao.updateDeltaState(
+                volumeId = volume,
+                version = version,
+                generation = generation,
+                at = System.currentTimeMillis(),
+            )
+        }
+
     override suspend fun reset() = withContext(ioDispatcher) {
         dao.upsert(IndexState(volumeId = volume, metadataStatus = IndexStatus.EMPTY.name))
     }

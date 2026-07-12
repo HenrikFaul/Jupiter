@@ -236,6 +236,30 @@ interface FileIndexDao {
     @Query("SELECT COUNT(*) FROM file_index")
     fun count(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0")
+    suspend fun countFiles(): Int
+
+    @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND contentHash IS NOT NULL")
+    suspend fun countFilesWithContentHash(): Int
+
+    @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName = :imageTypeName")
+    suspend fun countImages(imageTypeName: String): Int
+
+    @Query(
+        "SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName = :imageTypeName " +
+            "AND perceptualHash IS NOT NULL AND phash IS NOT NULL AND ahash IS NOT NULL",
+    )
+    suspend fun countImagesWithDescriptors(imageTypeName: String): Int
+
+    @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName IN (:typeNames)")
+    suspend fun countStructuralCandidates(typeNames: List<String>): Int
+
+    @Query(
+        "SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName IN (:typeNames) " +
+            "AND structuralHash IS NOT NULL",
+    )
+    suspend fun countStructuralReady(typeNames: List<String>): Int
+
     /**
      * Number of indexed **files** (directories excluded). Used as a fast, one-shot
      * "has the survey run yet?" probe so read paths can serve instant results from

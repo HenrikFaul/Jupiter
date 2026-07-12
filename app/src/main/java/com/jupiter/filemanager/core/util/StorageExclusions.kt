@@ -1,7 +1,5 @@
 package com.jupiter.filemanager.core.util
 
-import java.util.Locale
-
 /**
  * The single source of truth for storage paths Jupiter must NEVER surface to the user, applied at
  * EVERY file-enumeration boundary (MediaStore category/album queries, the index survey, the
@@ -29,13 +27,8 @@ object StorageExclusions {
 
     /** True when [path] lies inside any excluded directory (matched on full, case-insensitive segments). */
     fun isExcluded(path: String): Boolean {
-        if (path.isEmpty() || path.startsWith("content://", ignoreCase = true)) return false
-
-        // `File.absolutePath` uses `\\` in JVM/Robolectric tests on Windows, while Android and
-        // MediaStore generally use `/`. Normalize first so the one policy has identical behaviour
-        // at every enumeration boundary; the surrounding slashes still keep this a full-segment
-        // match (for example, `my.trash.notes` remains visible).
-        val lower = path.replace('\\', '/').lowercase(Locale.US)
-        return EXCLUDED_SEGMENTS.any { lower.contains("/$it/") || lower.endsWith("/$it") }
+        // Keep this object as the pure compatibility façade, but delegate the decision to the
+        // same classifier used through DI by repositories/view-models.
+        return DefaultPathPolicy().classify(path) != PathClass.USER_VISIBLE
     }
 }

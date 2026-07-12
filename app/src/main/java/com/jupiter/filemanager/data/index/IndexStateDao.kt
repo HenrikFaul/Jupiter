@@ -20,4 +20,19 @@ interface IndexStateDao {
 
     @Query("DELETE FROM index_state WHERE volumeId = :volumeId")
     suspend fun delete(volumeId: String)
+
+    @Query(
+        "UPDATE index_state SET mediaStoreVersion = :version, " +
+            "lastMediaStoreGeneration = :generation, lastDeltaSyncAt = :at " +
+            "WHERE volumeId = :volumeId",
+    )
+    suspend fun updateDeltaState(
+        volumeId: String,
+        version: String?,
+        generation: Long,
+        at: Long,
+    )
+
+    @Query("UPDATE index_state SET checkpointJson = :checkpointJson WHERE volumeId = :volumeId")
+    suspend fun updateCheckpoint(volumeId: String, checkpointJson: String?)
 }

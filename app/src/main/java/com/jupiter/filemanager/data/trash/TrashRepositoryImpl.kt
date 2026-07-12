@@ -136,7 +136,7 @@ class TrashRepositoryImpl @Inject constructor(
             // index failure can never turn a successful restore into a reported failure.
             runCatching {
                 if (destination.exists()) {
-                    indexRepository.indexFile(fileSystemDataSource.toFileItem(destination))
+                    indexRestoredTree(destination)
                 }
             }
             AppResult.Success(Unit)
@@ -260,6 +260,14 @@ class TrashRepositoryImpl @Inject constructor(
             return sourceChildren == targetChildren
         }
         return target.isFile && target.length() == source.length()
+    }
+
+    /** Indexes the restored file or the full restored directory subtree. */
+    private suspend fun indexRestoredTree(root: File) {
+        val items = fileSystemDataSource.walkTopDown(root.absolutePath)
+            .mapNotNull { file -> runCatching { fileSystemDataSource.toFileItem(file) }.getOrNull() }
+            .toList()
+        if (items.isNotEmpty()) indexRepository.upsert(items)
     }
 
     /**

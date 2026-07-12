@@ -720,3 +720,33 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `.\gradlew.bat :app:testDebugUnitTest --tests "com.jupiter.filemanager.data.index.NearDuplicateStructuralGroupTest" --no-daemon` — **BUILD SUCCESSFUL**.
 - `.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon` — **BUILD SUCCESSFUL**; XML összesítés: **54 suite / 319 teszt / 0 failure / 0 error / 0 skipped**.
 - `git diff --check` — tiszta (csak CRLF-normalizációs figyelmeztetések); `rg "Jupiscan|JupiScan|jupiscan" app` — nincs találat az app-forrásban.
+
+## [jupiter:0.53.0] - 2026-07-13
+### Added
+- **[data/index/schema]** Room index DB v6: új `dedup_decision` tábla canonical döntéskulccsal, valamint `index_state` delta/checkpoint mezők (`checkpointJson`, `mediaStoreVersion`, `lastMediaStoreGeneration`, `lastDeltaSyncAt`). A v5→v6 migráció in-place, nem dobja el a drágán újraszámolható index/hashing adatokat.
+- **[data/index/readiness]** Egységes `StorageReadiness` read model és `IndexReadinessRepository`: metadata, exact-hash, image-descriptor és structural-descriptor coverage külön `Coverage` státusszal. Ez a közös szerződés váltja ki a képernyőnként eltérő „kész-e az index?” logikát a következő UI-kötéseknél.
+- **[core/path-policy]** DI-zott `PathPolicy` / `DefaultPathPolicy`, amely a `.Trash`, app-private és temporary útvonalakat ugyanazon classifierrel osztályozza; a legacy `StorageExclusions` ugyanarra a policy-ra delegál.
+
+### Changed
+- **[data/index/migration]** Az index adatbázis már nem használ általános `fallbackToDestructiveMigration()`-t. Az ismert v4→v5 és v5→v6 utak explicit migrációval mennek, hogy a descriptor/hash cache ne törlődjön frissítéskor.
+- **[data/file-ops]** Sikeres COPY után a teljes létrejött célfa indexelődik, nem csak a gyökér. MOVE továbbra is a meglévő atomi subtree path rewrite-ot használja, így hash-ek megmaradnak.
+- **[data/trash]** Restore után a teljes visszaállított subtree indexelődik, nem csak a root rekord.
+- **[data/delta]** A dedup reconciler a sikeres baseline / checkpoint lapozás után a Room `index_state` sorba is rögzíti a delta marker állapotot.
+- **[build]** `versionCode` 5, `versionName` 0.53.0.
+
+### Fixed
+- **[dedup/notifications]** Ugyanaz a duplikációs döntés nem küld újra alertet/notificationt observer burst, WorkManager replay vagy process restart után: a `DuplicateDetector` előbb perzisztálja a canonical pair/group + decision type + algorithm version kulcsot, és csak új insert esetén emittál.
+- **[subtree/index]** Copy/restore esetén megszűnt az a rés, hogy a fájlrendszeren létező leszármazottak csak a következő teljes scan után jelentek meg az index-alapú Search/Cleanup/Analytics felületeken.
+
+### Known issues
+- **[device-bound]** A dokumentumban kért 40k képes, 95/99 percentilis eszközbenchmark és reboot/process-kill instrumentációs bizonyítás továbbra is készülék/emulátor-farm adatot igényel. A repo jelenleg unit/Robolectric regresszióval és LSH/pair-budget kódvédelemmel bizonyít; a fizikai benchmark külön release gate marad.
+- **[delta]** A v0.53 kör rögzíti a delta marker state-et és idempotenssé teszi a dedup-arrival útvonalat, de a teljes MediaStore `getVersion`/generation alapú metadata delta + delete/rename/move reconciliation még következő körös architektúra-feladat.
+- **[mutation]** Copy/restore subtree indexelés megvan, de a teljes operation journal/saga crash-recovery még nincs végigvezetve minden fájlműveleten.
+
+### Verification
+- `git pull --ff-only origin main` — already up to date; meglévő untracked `versioning.zip` érintetlen.
+- `.\gradlew.bat :app:compileDebugKotlin --no-daemon` — **BUILD SUCCESSFUL**.
+- `.\gradlew.bat :app:testDebugUnitTest --no-daemon` — **BUILD SUCCESSFUL**.
+- `.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon` — **BUILD SUCCESSFUL**.
+- XML összesítés: **54 suite / 320 teszt / 0 failure / 0 error / 0 skipped**.
+- `git diff --check` — tiszta (csak CRLF-normalizációs figyelmeztetések).
