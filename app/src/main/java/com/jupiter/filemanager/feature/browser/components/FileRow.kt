@@ -34,6 +34,7 @@ import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.ui.components.iconForFile
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * A single row in the file browser list.
@@ -83,19 +84,27 @@ fun FileRow(
     val verticalPadding = if (dense) 8.dp else 12.dp
     val leadingSize = if (dense) 32.dp else 40.dp
     val textGap = if (dense) 8.dp else 16.dp
+    val surfaceModifier = if (dense) {
+        modifier.fillMaxWidth()
+    } else {
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    }
 
     Surface(
+        shape = if (dense) RoundedCornerShape(0.dp) else JupiterDesign.CompactCardShape,
         color = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
-            MaterialTheme.colorScheme.surface
+            MaterialTheme.colorScheme.surfaceContainer
         },
         contentColor = if (selected) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurface
         },
-        modifier = modifier.fillMaxWidth(),
+        modifier = surfaceModifier,
     ) {
         Row(
             modifier = Modifier

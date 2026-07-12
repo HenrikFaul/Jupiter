@@ -82,6 +82,9 @@ fun JupiterNavHost(
     // the generic preview screen.
     fun openByType(item: FileItem) {
         val route = when (item.type) {
+            // A folder is a navigation target, never a previewable file. This matters for
+            // global-search and Home results, which both delegate through this one gateway.
+            FileType.FOLDER -> Destination.Browser.create(item.path)
             FileType.IMAGE -> Destination.ImageGallery.create(item.path)
             FileType.VIDEO -> Destination.VideoPlayer.create(item.path)
             FileType.AUDIO -> Destination.MusicPlayer.create(item.path)

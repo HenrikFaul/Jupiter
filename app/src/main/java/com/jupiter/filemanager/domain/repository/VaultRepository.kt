@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.domain.repository
 
+import android.net.Uri
 import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.model.FileItem
 
@@ -25,6 +26,16 @@ interface VaultRepository {
      * resulting vault [FileItem].
      */
     suspend fun importToVault(sourcePath: String): AppResult<FileItem>
+
+    /**
+     * Encrypts and imports the document addressed by [sourceUri] into the vault.
+     *
+     * The URI is intentionally passed through unchanged: implementations must read it via
+     * [android.content.ContentResolver] rather than attempting to derive a filesystem path.
+     * This supports documents selected through Android's Storage Access Framework, including
+     * providers that do not expose a local path.
+     */
+    suspend fun importToVault(sourceUri: Uri): AppResult<FileItem>
 
     /**
      * Decrypts [vaultItem] and writes it to [destinationDir], returning the

@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jupiter.filemanager.core.util.formatBytes
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * A section header with an optional trailing "See All" style action.
@@ -84,9 +85,13 @@ fun ToolTile(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = JupiterDesign.CompactCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -98,7 +103,7 @@ fun ToolTile(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                shape = CircleShape,
+                shape = JupiterDesign.IconBadgeShape,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.size(44.dp),
             ) {

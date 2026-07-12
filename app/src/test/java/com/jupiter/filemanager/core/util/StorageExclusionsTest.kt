@@ -49,6 +49,22 @@ class StorageExclusionsTest {
     @Test
     fun contentUrisAndEmptyAreNotExcluded() {
         assertFalse(StorageExclusions.isExcluded("content://media/external/images/media/123"))
+        // A content URI is not a filesystem path, even if an opaque provider segment resembles
+        // an excluded directory. It must remain delegated to the URI-capable caller.
+        assertFalse(StorageExclusions.isExcluded("content://provider/Android/.Trash/item"))
         assertFalse(StorageExclusions.isExcluded(""))
+    }
+
+    @Test
+    fun windowsStyleFilePathsUseTheSameSegmentPolicy() {
+        // JVM/Robolectric File.absolutePath uses backslashes on Windows. This is the same physical
+        // hierarchy as Samsung's Android/.Trash path and must not bypass the shared policy.
+        assertTrue(
+            StorageExclusions.isExcluded(
+                "C:\\storage\\emulated\\0\\Android\\.Trash\\com.sec.android.app.myfiles\\item.apk",
+            ),
+        )
+        assertTrue(StorageExclusions.isExcluded("C:\\storage\\emulated\\0\\Android\\data\\com.x\\cache"))
+        assertFalse(StorageExclusions.isExcluded("C:\\storage\\emulated\\0\\Documents\\my.trash.notes\\keep.txt"))
     }
 }

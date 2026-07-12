@@ -227,7 +227,7 @@ fun FileBrowserScreen(
                     selectedCount = uiState.selectedPaths.size,
                     onClose = { viewModel.clearSelection() },
                     onDelete = {
-                        // Confirm before the (permanent) delete; the selection is
+                        // Confirm before moving items to Recycle Bin; the selection is
                         // already established, so summarise it by count.
                         deleteConfirmation = DeleteConfirmation(
                             count = uiState.selectedPaths.size,
@@ -431,6 +431,7 @@ fun FileBrowserScreen(
                                     selectionMode = uiState.selectionMode,
                                     onItemClick = onItemClick,
                                     onItemLongClick = onItemLongClick,
+                                    onOverflowClick = { item -> actionTarget = item },
                                 )
                             }
                         }
@@ -589,7 +590,7 @@ private fun openWithExternalApp(context: Context, item: FileItem) {
 }
 
 /**
- * A permanent delete awaiting user confirmation. The actual items to delete are
+ * A Recycle-Bin move awaiting user confirmation. The actual items to delete are
  * the current ViewModel selection (established before the dialog is shown); this
  * only carries what is needed to phrase the confirmation prompt.
  *
@@ -605,8 +606,8 @@ private data class DeleteConfirmation(
 )
 
 /**
- * Confirmation dialog shown before a permanent delete, mirroring the
- * [RenameDialog] presentation. Deletes are irreversible, so the listing is only
+ * Confirmation dialog shown before moving items to Recycle Bin, mirroring the
+ * [RenameDialog] presentation. Items remain recoverable, and the listing is only
  * removed when the user explicitly confirms here.
  */
 @Composable
@@ -616,17 +617,17 @@ private fun DeleteConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     val message = if (confirmation.count == 1 && confirmation.name != null) {
-        "Permanently delete \"" + confirmation.name + "\"? This cannot be undone."
+        "Move \"" + confirmation.name + "\" to Recycle Bin? You can restore it later."
     } else {
-        "Permanently delete " + confirmation.count + " items? This cannot be undone."
+        "Move " + confirmation.count + " items to Recycle Bin? You can restore them later."
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = "Delete") },
+        title = { Text(text = "Move to Recycle Bin") },
         text = { Text(text = message) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text(text = "Delete")
+                Text(text = "Move")
             }
         },
         dismissButton = {
@@ -1046,6 +1047,7 @@ private fun FileList(
     selectionMode: Boolean,
     onItemClick: (FileItem) -> Unit,
     onItemLongClick: (FileItem) -> Unit,
+    onOverflowClick: (FileItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -1062,6 +1064,7 @@ private fun FileList(
                 selectionMode = selectionMode,
                 onClick = { onItemClick(item) },
                 onLongClick = { onItemLongClick(item) },
+                onOverflowClick = { onOverflowClick(item) },
                 modifier = Modifier.fillMaxWidth(),
             )
         }

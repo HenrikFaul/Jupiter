@@ -16,11 +16,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,14 +38,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -51,9 +61,9 @@ import com.jupiter.filemanager.ui.components.SectionHeader
 import com.jupiter.filemanager.ui.components.iconForFile
 
 /**
- * Search screen: a query field with an optional natural-language toggle, a
- * streamed results list (reusing the browser's [FileRow]), and empty/loading/error
- * states.
+ * Search screen: a query field, persistent local recent searches, meaningful
+ * result-scope chips (including the existing AI/natural-language mode), a streamed
+ * results list (reusing the browser's [FileRow]), and empty/loading/error states.
  *
  * The screen is pure UI: all work runs in [SearchViewModel]. Tapping a result
  * delegates to [onOpenFile] (directories included — the caller decides how to
@@ -74,7 +84,9 @@ fun SearchScreen(
         uiState = uiState,
         onQueryChange = viewModel::onQueryChange,
         onSearch = viewModel::search,
-        onToggleNaturalLanguage = viewModel::toggleNaturalLanguage,
+        onSelectFilter = viewModel::selectFilter,
+        onSelectRecentSearch = viewModel::selectRecentSearch,
+        onClearRecentSearches = viewModel::clearRecentSearches,
         onClear = viewModel::clear,
         onOpenFile = onOpenFile,
         onBack = onBack,
@@ -91,7 +103,9 @@ private fun SearchScreenContent(
     uiState: SearchUiState,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
-    onToggleNaturalLanguage: () -> Unit,
+    onSelectFilter: (SearchResultFilter) -> Unit,
+    onSelectRecentSearch: (String) -> Unit,
+    onClearRecentSearches: () -> Unit,
     onClear: () -> Unit,
     onOpenFile: (FileItem) -> Unit,
     onBack: () -> Unit,
@@ -128,9 +142,20 @@ private fun SearchScreenContent(
                 onClear = onClear,
             )
 
-            NaturalLanguageToggleRow(
-                enabled = uiState.naturalLanguage,
-                onToggle = onToggleNaturalLanguage,
+            if (uiState.recentSearches.isNotEmpty()) {
+                RecentSearchesRow(
+                    recentSearches = uiState.recentSearches,
+                    onSelectSearch = { query ->
+                        keyboardController?.hide()
+                        onSelectRecentSearch(query)
+                    },
+                    onClearAll = onClearRecentSearches,
+                )
+            }
+
+            SearchFilterChips(
+                selectedFilter = uiState.selectedFilter,
+                onSelect = onSelectFilter,
             )
 
             if (uiState.aiInterpreting) {
@@ -197,37 +222,98 @@ private fun SearchInputBar(
     )
 }
 
+@Composable
+private fun RecentSearchesRow(
+    recentSearches: List<String>,
+    onSelectSearch: (String) -> Unit,
+    onClearAll: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 4.dp, top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Recent searches",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onClearAll) {
+                Text(text = "Clear all")
+            }
+        }
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(
+                items = recentSearches,
+                key = { it },
+            ) { query ->
+                AssistChip(
+                    onClick = { onSelectSearch(query) },
+                    label = { Text(text = query, maxLines = 1) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
 /**
- * Row with a label and a [Switch] controlling natural-language interpretation.
+ * Mockup-aligned search scopes. They are not decorative: the selected value is
+ * applied by [SearchViewModel] to both index-backed and live filesystem results.
  */
 @Composable
-private fun NaturalLanguageToggleRow(
-    enabled: Boolean,
-    onToggle: () -> Unit,
+private fun SearchFilterChips(
+    selectedFilter: SearchResultFilter,
+    onSelect: (SearchResultFilter) -> Unit,
 ) {
-    Row(
+    LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = 12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Natural language",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "Interpret your query with the AI assistant",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        items(
+            items = SearchResultFilter.entries,
+            key = { it.name },
+        ) { filter ->
+            FilterChip(
+                selected = selectedFilter == filter,
+                onClick = { onSelect(filter) },
+                label = { Text(text = filter.label) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = searchFilterIcon(filter),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
             )
         }
-        Switch(
-            checked = enabled,
-            onCheckedChange = { onToggle() },
-        )
     }
+}
+
+private fun searchFilterIcon(filter: SearchResultFilter): ImageVector = when (filter) {
+    SearchResultFilter.ALL -> Icons.Filled.Apps
+    SearchResultFilter.FILES -> Icons.Filled.InsertDriveFile
+    SearchResultFilter.FOLDERS -> Icons.Filled.Folder
+    SearchResultFilter.PDFS -> Icons.Filled.PictureAsPdf
+    SearchResultFilter.IMAGES -> Icons.Filled.Image
+    SearchResultFilter.AI_SEARCH -> Icons.Filled.AutoAwesome
 }
 
 /**
@@ -321,7 +407,9 @@ private fun SearchResults(
             LazyColumn(modifier = modifier) {
                 item {
                     SectionHeader(
-                        title = if (uiState.naturalLanguage) "AI Results" else "Results",
+                        // Do not imply generated content: every row below is a real
+                        // file-system/index entry, including when AI interpreted the query.
+                        title = "Results",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 }

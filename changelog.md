@@ -618,3 +618,27 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 ### Notes
 - A 15 pontos spec ellen teljes auditált állapottábla a versioning fájlban: mi volt már kész korábbról (index_state Room-tábla, generation-sweep, MediaStore+reconciliation survey, exact/perceptual szétválasztás), mit javít ez a kör (identitás, rescan, enable/disable, stack, quick hash, migráció+indexek), és mi marad őszintén hátra (multi-volume, resume-checkpoint, delete-delta-sync, IndexMutationCoordinator, videó-szekvencia/audio-chroma, bájt-verifikáció törlés előtt).
 - `app/build.gradle.kts`: `versionName` → 0.49.0.
+
+## [jupiter:0.50.0] - 2026-07-12
+### Added
+- **Egységes, adatvezérelt sötét–türkiz design rendszer** (ui/theme + ui/components + fő képernyők): a mellékelt képernyőtervek vizuális nyelve alapján közös kártya-, ikonjelvény-, pill-, tárhelygyűrű- és lebegő navigációs komponensek készültek. A Home, fájlböngésző, kategóriák/fotók, duplikátumok, app-tárhely, Kuka és Settings ezeket valódi eszközadatokkal használja; a terméknév továbbra is **Jupiter** maradt.
+- **Használható keresési előzmények és scope-szűrők** (feature/search + data/preferences): az utolsó 8 elküldött keresés csak helyben, deduplikálva tárolódik; All / Files / Folders / PDFs / Images / AI search chip-ek ugyanúgy szűrnek indexelt és élő találatot. Fájlútvonal, találati kivonat vagy AI-válasz nem kerül az előzményekbe.
+- **Valós fotó-kategória finomítások** (feature/categories): Camera / Screenshots / Downloads útvonal-alapú szűrők, `lastModified` szerinti dátumcsoportos négyrácsos galéria és stale-query védelem. Nem került hamis „Similar” galéria-szűrő a felületre.
+- **Biztonságos Vault-import** (feature/vault): a korábbi nem működő Add helyett Android Storage Access Framework dokumentumválasztó nyílik; a kiválasztott `content://` adatfolyam titkosítva kerül a Vaultba, az eredeti forrás megmarad.
+- **Kuka és App storage jobb vezérlése**: Restore all összesítő, egyedi végleges törlés megerősítése, valamint valódi app-lista-szűrők (All / Largest / Cache-heavy) és mért app-tárhelyet mutató állapotkártyák.
+
+### Fixed
+- **Copy / Move célütközés immár nem írhat felül adatot** (data/file): a teljes átviteli terv az első írás előtt elutasít minden meglévő vagy egymással ütköző célt; az egyedi írás atomikus `CREATE_NEW`, ezért versenyhelyzetben sem csonkíthat egy korábbi fájlt. Sikertelen/cancelled művelet csak az általa létrehozott részleges célt takarítja el, Move esetén a forrás megmarad.
+- **Samsung `.Trash` kizárás platformfüggetlen** (core/util + data/index): a közös `StorageExclusions` már Windows/Robolectric `\\` útvonalakat is normalizál, és a deduplikáció is ezt az egy policy-t használja. Így a keresés és a dedup nem ajánl fel Kuka- vagy thumbnail-fájlt megnyitásra.
+- **Navigációs és műveleti zsákutcák**: Search/Home mappák a böngészőbe nyílnak; a Home tényleges fájlra a típushoz tartozó nézőt indítja; a fájlsor hárompontos menüje működik; a Duplicate cleanup kiválasztása a minőségi „keep best” sorrendet tartja meg, és a megerősítés helyesen Kuka-mozgatást jelez.
+- **Settings útvonalak és őszinte beállítások**: a meglévő Storage analysis / Transfer center / Vault / Cloud hub / Automation sorok tényleges route-ot kapnak; az inert Cache sort eltávolítottuk, nem tettünk mögöttes funkció nélküli App language, PIN vagy auto-lock kapcsolót a képernyőre.
+
+### Changed
+- Az első indítás alapértelmezése a márkázott sötét téma, a dinamikus Material You szín pedig explicit opt-in; a korábbi felhasználói beállítások továbbra is megmaradnak.
+- A README a valós működést és a külső/eszözfüggő korlátokat írja le; a félrevezető NEXUS, Smart Merge és „minden UI-complete” állítások kikerültek.
+- `app/build.gradle.kts`: `versionCode` → 2, `versionName` → 0.50.0.
+
+### Verification
+- `./gradlew.bat :app:assembleDebug :app:testDebugUnitTest` — **BUILD SUCCESSFUL**; a v0.50.0 debug APK elkészült, a teljes JVM tesztcsomag **274 teszt / 0 hiba / 0 failure** eredménnyel zöld.
+- A tesztkör először két valós `.Trash` kizárási hibát talált Windows-os útvonalszeparátorral; a közös policy javítása és a célzott Windows/content-URI tesztek után a teljes csomag zöld.
+- `git diff --check` tiszta. Eszköz/emulátor- és GitHub Actions-futtatás ebben a körben nem történt, ezért ezekre nem állítunk zöld CI-eredményt.

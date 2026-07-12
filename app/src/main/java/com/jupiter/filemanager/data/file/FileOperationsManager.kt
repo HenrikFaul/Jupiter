@@ -11,6 +11,9 @@ import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import com.jupiter.filemanager.domain.repository.TrashRepository
 import java.io.File
 import java.io.IOException
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -180,8 +183,18 @@ class FileOperationsManager @Inject constructor(
                 totalBytes += planEntry(source, target, plan)
                 topLevelTargets.add(item to target)
             }
+
+            // A transfer must never silently overwrite a file or folder that was already
+            // present at its destination. Validate the ENTIRE plan before the first output is
+            // created so a later collision cannot leave an earlier selected item copied/moved
+            // while the operation reports failure. This also rejects two selected roots that
+            // would resolve to the same target name.
+            validateNoTargetConflicts(plan)
         } catch (ce: CancellationException) {
             throw ce
+        } catch (e: DestinationConflictException) {
+            emit(failed(type, e.message ?: "A destination item already exists."))
+            return@flow
         } catch (e: SecurityException) {
             emit(failed(type, AppError.AccessDenied(e.message ?: destinationPath).displayMessage))
             return@flow
@@ -227,18 +240,20 @@ class FileOperationsManager @Inject constructor(
                 }
 
                 if (planned.isDirectory) {
-                    if (!planned.target.exists() && !planned.target.mkdirs()) {
-                        emit(
-                            failed(type, "Failed to create directory: " + planned.target.absolutePath),
-                        )
-                        return@flow
-                    }
+                    createDirectoryNoOverwrite(planned.target)
                     continue
                 }
 
                 // Ensure parent directory exists for the file.
                 planned.target.parentFile?.let { parent ->
-                    if (!parent.exists()) parent.mkdirs()
+                    if (!parent.exists() && !parent.mkdirs()) {
+                        throw IOException("Failed to create directory: " + parent.absolutePath)
+                    }
+                    if (!parent.isDirectory) {
+                        throw DestinationConflictException(
+                            "Destination already exists: " + parent.absolutePath,
+                        )
+                    }
                 }
 
                 processedBytes = copyFileStreaming(
@@ -300,6 +315,8 @@ class FileOperationsManager @Inject constructor(
             )
         } catch (ce: CancellationException) {
             throw ce
+        } catch (e: DestinationConflictException) {
+            emit(failed(type, e.message ?: "A destination item already exists."))
         } catch (e: SecurityException) {
             emit(failed(type, AppError.AccessDenied(e.message ?: destinationPath).displayMessage))
         } catch (e: IOException) {
@@ -330,15 +347,32 @@ class FileOperationsManager @Inject constructor(
         // truncate the source to 0 bytes. The planner already guards this, but a defensive check
         // here prevents data loss should a same-path entry ever reach this far.
         if (source.canonicalFile == target.canonicalFile) {
-            emit(
-                failed(type, "Cannot ${type.name.lowercase()} \"${source.name}\" onto itself."),
+            throw DestinationConflictException(
+                "Cannot ${type.name.lowercase()} \"${source.name}\" onto itself.",
             )
-            return cumulative
         }
 
+        // CREATE_NEW opens the destination atomically only when no entry already exists.
+        // This is intentionally a second line of defense after the whole-plan preflight:
+        // another process may create a conflicting file between planning and copying. Unlike
+        // File.outputStream(), it can never truncate that pre-existing file.
+        var createdTarget = false
         try {
             source.inputStream().buffered(BUFFER_SIZE).use { input ->
-                target.outputStream().buffered(BUFFER_SIZE).use { output ->
+                val rawOutput = try {
+                    Files.newOutputStream(
+                        target.toPath(),
+                        StandardOpenOption.CREATE_NEW,
+                        StandardOpenOption.WRITE,
+                    )
+                } catch (collision: FileAlreadyExistsException) {
+                    throw DestinationConflictException(
+                        "Destination already exists: " + target.absolutePath,
+                        collision,
+                    )
+                }
+                createdTarget = true
+                rawOutput.buffered(BUFFER_SIZE).use { output ->
                     val buffer = ByteArray(BUFFER_SIZE)
                     while (true) {
                         if (!currentCoroutineContext().isActive) {
@@ -364,10 +398,12 @@ class FileOperationsManager @Inject constructor(
                     output.flush()
                 }
             }
-        } catch (ce: CancellationException) {
-            // Delete the partial destination so a cancelled copy/move leaves no half-written file.
-            runCatching { target.delete() }
-            throw ce
+        } catch (error: Throwable) {
+            // We only ever remove a target this invocation created. A conflicting pre-existing
+            // target must remain byte-for-byte untouched even when the transfer is cancelled or
+            // fails after the collision is noticed.
+            if (createdTarget) runCatching { target.delete() }
+            throw error
         }
         // Preserve last-modified timestamp where possible.
         runCatching { target.setLastModified(source.lastModified()) }
@@ -423,6 +459,41 @@ class FileOperationsManager @Inject constructor(
         return source.length()
     }
 
+    /**
+     * Rejects any plan whose output would overwrite a pre-existing filesystem entry or another
+     * output in the same operation. This runs after every source has been expanded but before the
+     * first write, preserving the all-or-nothing *preflight* guarantee for collision failures.
+     */
+    private fun validateNoTargetConflicts(plan: List<PlannedFile>) {
+        val plannedPaths = HashSet<String>(plan.size)
+        for (planned in plan) {
+            val canonicalTarget = planned.target.canonicalFile
+            if (canonicalTarget.exists()) {
+                throw DestinationConflictException(
+                    "Destination already exists: " + canonicalTarget.absolutePath,
+                )
+            }
+            if (!plannedPaths.add(canonicalTarget.path)) {
+                throw DestinationConflictException(
+                    "Multiple selected items would use destination: " + canonicalTarget.absolutePath,
+                )
+            }
+        }
+    }
+
+    /** Creates one planned directory without merging into or replacing an existing entry. */
+    private fun createDirectoryNoOverwrite(target: File) {
+        if (target.exists()) {
+            throw DestinationConflictException("Destination already exists: " + target.absolutePath)
+        }
+        if (!target.mkdir()) {
+            if (target.exists()) {
+                throw DestinationConflictException("Destination already exists: " + target.absolutePath)
+            }
+            throw IOException("Failed to create directory: " + target.absolutePath)
+        }
+    }
+
     /** Deletes [file] and, if it is a directory, all of its contents. Returns true on full success. */
     private fun deleteRecursively(file: File): Boolean {
         if (file.isDirectory) {
@@ -463,4 +534,10 @@ class FileOperationsManager @Inject constructor(
         val target: File,
         val isDirectory: Boolean,
     )
+
+    /** Distinguishes an intentional no-overwrite rejection from an ordinary IO failure. */
+    private class DestinationConflictException(
+        message: String,
+        cause: Throwable? = null,
+    ) : IOException(message, cause)
 }

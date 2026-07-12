@@ -66,6 +66,7 @@ fun JupiterTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = JupiterTypography,
+        shapes = JupiterShapes,
         content = content,
     )
 }

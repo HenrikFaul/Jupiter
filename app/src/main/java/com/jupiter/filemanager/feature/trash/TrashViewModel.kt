@@ -22,6 +22,8 @@ import javax.inject.Inject
  *
  *  - [restore] moves an item back to its original location (never overwriting an
  *    existing file — the repository restores alongside as `"name (restored)"`).
+ *  - [restoreAll] restores a snapshot of the current bin serially, preserving the
+ *    repository's no-overwrite rule for every item.
  *  - [deletePermanently] removes a single item from the bin for good.
  *  - [emptyAll] permanently clears the entire bin.
  *
@@ -44,6 +46,37 @@ class TrashViewModel @Inject constructor(
     /** Restores the trashed item with the given [id] back to its original location. */
     fun restore(id: String) {
         runAction { trashRepository.restore(id) }
+    }
+
+    /**
+     * Restores every item that was in the bin when the action was requested.
+     *
+     * This deliberately runs serially: each restore can create parent folders or choose a
+     * non-conflicting "(restored)" name, and serial execution prevents two entries with the same
+     * original name from racing to choose the same target. A failure leaves that item's payload in
+     * the Recycle Bin; successful restores are never rolled back or overwritten.
+     */
+    fun restoreAll() {
+        if (_uiState.value.busy) return
+        val ids = _uiState.value.items.map { it.id }
+        if (ids.isEmpty()) return
+
+        _uiState.value = _uiState.value.copy(busy = true, errorMessage = null)
+        viewModelScope.launch {
+            var failed = 0
+            for (id in ids) {
+                when (trashRepository.restore(id)) {
+                    is AppResult.Success -> Unit
+                    is AppResult.Failure -> failed++
+                }
+            }
+            _uiState.value = _uiState.value.copy(
+                busy = false,
+                errorMessage = if (failed == 0) null else {
+                    "$failed item" + if (failed == 1) " could not be restored." else "s could not be restored."
+                },
+            )
+        }
     }
 
     /** Permanently deletes the trashed item with the given [id]. */

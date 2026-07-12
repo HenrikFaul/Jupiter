@@ -33,6 +33,8 @@ import javax.inject.Inject
  * @property error a user-facing error message, or null when there is none.
  * @property naturalLanguage whether natural-language interpretation is enabled.
  * @property aiInterpreting whether the AI assistant is currently parsing the query.
+ * @property selectedFilter the user-selected scope applied equally to indexed and live results.
+ * @property recentSearches persisted, on-device-only submitted query history (newest first).
  */
 data class SearchUiState(
     val query: String = "",
@@ -41,6 +43,8 @@ data class SearchUiState(
     val error: String? = null,
     val naturalLanguage: Boolean = false,
     val aiInterpreting: Boolean = false,
+    val selectedFilter: SearchResultFilter = SearchResultFilter.ALL,
+    val recentSearches: List<String> = emptyList(),
 )
 
 /**
@@ -74,6 +78,19 @@ class SearchViewModel @Inject constructor(
     /** Job for the in-flight search so a new search cancels the previous one. */
     private var searchJob: Job? = null
 
+    /** Monotonic request token so a cancelled search can never overwrite a newer one. */
+    private var searchGeneration: Long = 0
+
+    init {
+        viewModelScope.launch {
+            settings.recentSearches
+                .catch { emit(emptyList()) }
+                .collect { recentSearches ->
+                    _uiState.update { it.copy(recentSearches = recentSearches) }
+                }
+        }
+    }
+
     /** Updates the current query text without triggering a search. */
     fun onQueryChange(q: String) {
         _uiState.update { it.copy(query = q) }
@@ -81,14 +98,72 @@ class SearchViewModel @Inject constructor(
 
     /** Toggles natural-language interpretation of the query. */
     fun toggleNaturalLanguage() {
-        _uiState.update { it.copy(naturalLanguage = !it.naturalLanguage) }
+        _uiState.update { state ->
+            val enabled = !state.naturalLanguage
+            state.copy(
+                naturalLanguage = enabled,
+                selectedFilter = when {
+                    enabled -> SearchResultFilter.AI_SEARCH
+                    state.selectedFilter == SearchResultFilter.AI_SEARCH -> SearchResultFilter.ALL
+                    else -> state.selectedFilter
+                },
+            )
+        }
+    }
+
+    /**
+     * Selects a visible search scope. Changing a scope re-runs a non-blank query
+     * without duplicating its history entry.
+     */
+    fun selectFilter(filter: SearchResultFilter) {
+        val current = _uiState.value
+        val naturalLanguage = filter.enablesNaturalLanguage
+        if (current.selectedFilter == filter && current.naturalLanguage == naturalLanguage) return
+
+        _uiState.update {
+            it.copy(
+                selectedFilter = filter,
+                naturalLanguage = naturalLanguage,
+            )
+        }
+        if (current.query.isNotBlank()) {
+            executeSearch(rememberQuery = false)
+        }
+    }
+
+    /** Restores a locally persisted recent query and immediately executes it. */
+    fun selectRecentSearch(query: String) {
+        val normalized = query.trim()
+        if (normalized.isEmpty()) return
+        onQueryChange(normalized)
+        // Re-submitting an older term promotes it to the top without creating a
+        // duplicate because SettingsDataStore de-duplicates case-insensitively.
+        executeSearch(rememberQuery = true)
+    }
+
+    /** Removes every locally persisted search term; file index data is unaffected. */
+    fun clearRecentSearches() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { settings.clearRecentSearches() }
+        }
     }
 
     /** Clears the query, results, and any in-flight search. */
     fun clear() {
+        searchGeneration += 1
         searchJob?.cancel()
         searchJob = null
-        _uiState.value = SearchUiState()
+        // Keep local history and the selected scope intact: clear is the text-field
+        // affordance, not a request to erase private on-device search history.
+        _uiState.update {
+            it.copy(
+                query = "",
+                results = emptyList(),
+                isSearching = false,
+                error = null,
+                aiInterpreting = false,
+            )
+        }
     }
 
     /**
@@ -97,7 +172,9 @@ class SearchViewModel @Inject constructor(
      * A blank query is ignored. Any running search is cancelled before the new
      * one starts. Results are collected incrementally into the UI state.
      */
-    fun search() {
+    fun search() = executeSearch(rememberQuery = true)
+
+    private fun executeSearch(rememberQuery: Boolean) {
         val rawQuery = _uiState.value.query.trim()
         if (rawQuery.isEmpty()) {
             _uiState.update {
@@ -111,9 +188,19 @@ class SearchViewModel @Inject constructor(
             return
         }
 
+        if (rememberQuery) {
+            viewModelScope.launch(Dispatchers.IO) {
+                // A history-write failure must never alter or abort the real search.
+                runCatching { settings.addRecentSearch(rawQuery) }
+            }
+        }
+
+        val selectedFilter = _uiState.value.selectedFilter
+        val naturalLanguageRequested = _uiState.value.naturalLanguage
+        val generation = ++searchGeneration
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            _uiState.update {
+            updateForSearch(generation) {
                 it.copy(
                     isSearching = true,
                     aiInterpreting = false,
@@ -131,17 +218,19 @@ class SearchViewModel @Inject constructor(
                     .getOrDefault(false)
                 enabled to complete
             }
+            if (!isCurrentSearch(generation)) return@launch
 
             // AUTHORITATIVE INDEX PATH: once the index has been fully built, a plain-text
             // search is served from Room ONLY — no filesystem walk. This is the fix for
             // "search re-scans the whole volume every time": after a completed index the
             // storage tree is never traversed for a normal search.
-            val naturalLanguage = _uiState.value.naturalLanguage &&
+            val naturalLanguage = naturalLanguageRequested &&
                 withContext(Dispatchers.IO) { aiAssistant.isEnabled }
             if (indexEnabled && indexComplete && !naturalLanguage) {
                 val indexed = runCatching { indexRepository.search(rawQuery).first() }
                     .getOrDefault(emptyList())
-                _uiState.update {
+                    .filter(selectedFilter::matches)
+                updateForSearch(generation) {
                     it.copy(results = indexed, isSearching = false, aiInterpreting = false)
                 }
                 return@launch
@@ -153,14 +242,23 @@ class SearchViewModel @Inject constructor(
             val instant: List<FileItem> = if (indexEnabled) {
                 runCatching { indexRepository.search(rawQuery).first() }
                     .getOrDefault(emptyList())
+                    .filter(selectedFilter::matches)
             } else {
                 emptyList()
             }
+            if (!isCurrentSearch(generation)) return@launch
             if (instant.isNotEmpty()) {
-                _uiState.update { it.copy(results = instant) }
+                updateForSearch(generation) { it.copy(results = instant) }
             }
 
-            val filter = resolveFilter(rawQuery)
+            val filter = selectedFilter.applyTo(
+                resolveFilter(
+                    rawQuery = rawQuery,
+                    naturalLanguage = naturalLanguage,
+                    generation = generation,
+                ),
+            )
+            if (!isCurrentSearch(generation)) return@launch
             val rootPath = fileRepository.rootDirectory()
 
             // Accumulator for the authoritative live walk. Starts empty so files
@@ -173,7 +271,7 @@ class SearchViewModel @Inject constructor(
                 .catch { throwable ->
                     // On walk failure keep any instant index results already shown
                     // rather than clearing them, so the user still sees something.
-                    _uiState.update {
+                    updateForSearch(generation) {
                         it.copy(
                             isSearching = false,
                             aiInterpreting = false,
@@ -182,17 +280,21 @@ class SearchViewModel @Inject constructor(
                     }
                 }
                 .onCompletion {
+                    if (!isCurrentSearch(generation)) return@onCompletion
                     // If the live walk produced nothing (e.g. no storage access)
                     // but the index had matches, fall back to the index results.
                     if (!walkEmitted && instant.isNotEmpty()) {
-                        _uiState.update {
+                        updateForSearch(generation) {
                             it.copy(isSearching = false, aiInterpreting = false, results = instant)
                         }
                     } else {
-                        _uiState.update { it.copy(isSearching = false, aiInterpreting = false) }
+                        updateForSearch(generation) {
+                            it.copy(isSearching = false, aiInterpreting = false)
+                        }
                     }
                 }
                 .collect { item ->
+                    if (!selectedFilter.matches(item)) return@collect
                     if (!walkEmitted) {
                         // First live result: clear the instant index snapshot so the
                         // walk's authoritative results replace it cleanly.
@@ -200,7 +302,7 @@ class SearchViewModel @Inject constructor(
                         collected.clear()
                     }
                     collected.add(item)
-                    _uiState.update { it.copy(results = collected.toList()) }
+                    updateForSearch(generation) { it.copy(results = collected.toList()) }
                 }
         }
     }
@@ -212,22 +314,34 @@ class SearchViewModel @Inject constructor(
      * query is parsed via [AiAssistant.parseNaturalQuery]; on failure (or when AI
      * is unavailable) the method falls back to a plain substring filter.
      */
-    private suspend fun resolveFilter(rawQuery: String): FilterOption {
+    private suspend fun resolveFilter(
+        rawQuery: String,
+        naturalLanguage: Boolean,
+        generation: Long,
+    ): FilterOption {
         val plainFilter = FilterOption(query = rawQuery, showHidden = false)
 
-        // Read availability off the main thread. isEnabled is backed by a cached
-        // value, so this never blocks; reading it on IO keeps the contract explicit.
-        val aiAvailable = withContext(Dispatchers.IO) { aiAssistant.isEnabled }
-        if (!_uiState.value.naturalLanguage || !aiAvailable) {
+        if (!naturalLanguage) {
             return plainFilter
         }
 
-        _uiState.update { it.copy(aiInterpreting = true) }
+        updateForSearch(generation) { it.copy(aiInterpreting = true) }
         val parsed = when (val result = aiAssistant.parseNaturalQuery(rawQuery)) {
             is AppResult.Success -> result.data
             is AppResult.Failure -> plainFilter
         }
-        _uiState.update { it.copy(aiInterpreting = false) }
+        updateForSearch(generation) { it.copy(aiInterpreting = false) }
         return parsed
+    }
+
+    private fun isCurrentSearch(generation: Long): Boolean = generation == searchGeneration
+
+    private inline fun updateForSearch(
+        generation: Long,
+        transform: (SearchUiState) -> SearchUiState,
+    ) {
+        if (isCurrentSearch(generation)) {
+            _uiState.update(transform)
+        }
     }
 }

@@ -1,6 +1,9 @@
 package com.jupiter.filemanager.data.vault
 
+import android.content.ContentResolver
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.security.crypto.EncryptedFile
 import androidx.security.crypto.MasterKey
 import com.jupiter.filemanager.core.result.AppError
@@ -14,6 +17,7 @@ import com.jupiter.filemanager.domain.repository.VaultRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.util.Properties
 import java.util.UUID
 import javax.inject.Inject
@@ -109,55 +113,70 @@ class VaultRepositoryImpl @Inject constructor(
                     return@withContext AppResult.Failure(AppError.AccessDenied(sourcePath))
                 }
 
-                ensureVaultDir()
-
-                val id = UUID.randomUUID().toString()
-                val encFile = File(vaultDir, id + ENC_SUFFIX)
-                val metaFile = File(vaultDir, id + META_SUFFIX)
-
-                val originalName = source.name.ifEmpty { id }
-                val originalSize = runCatching { source.length() }.getOrDefault(0L)
-                val originalModified =
-                    runCatching { source.lastModified() }.getOrDefault(System.currentTimeMillis())
-
-                // Encrypt the plaintext into the .enc entry.
-                val encrypted = buildEncryptedFile(encFile)
-                try {
-                    source.inputStream().use { input ->
-                        encrypted.openFileOutput().use { output ->
-                            input.copyTo(output)
-                            output.flush()
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Roll back a partially written entry so the vault stays consistent.
-                    encFile.delete()
-                    throw e
+                source.inputStream().use { input ->
+                    AppResult.Success(
+                        encryptInputIntoVault(
+                            input = input,
+                            originalName = safeDisplayName(source.name),
+                            originalModified = source.lastModified().takeIf { it > 0L }
+                                ?: System.currentTimeMillis(),
+                        ),
+                    )
                 }
-
-                // Persist the metadata sidecar describing the original file.
-                try {
-                    writeMetadata(metaFile, originalName, originalSize, originalModified)
-                } catch (e: Exception) {
-                    encFile.delete()
-                    metaFile.delete()
-                    throw e
-                }
-
-                AppResult.Success(
-                    fileItemFor(
-                        entry = encFile,
-                        originalName = originalName,
-                        originalSize = originalSize,
-                        originalModified = originalModified,
-                    ),
-                )
             } catch (e: SecurityException) {
                 AppResult.Failure(AppError.AccessDenied(sourcePath))
             } catch (e: IOException) {
                 AppResult.Failure(AppError.Io(e.message ?: "Failed to import file.", e))
             } catch (e: Exception) {
                 AppResult.Failure(AppError.Unknown(e.message ?: "Failed to import file.", e))
+            }
+        }
+
+    /**
+     * Imports a document selected through Android's Storage Access Framework.
+     *
+     * A document URI is deliberately consumed through [ContentResolver.openInputStream], not
+     * converted to a path. The plaintext stream is copied directly into an [EncryptedFile],
+     * and the source URI/provider is never modified or deleted.
+    */
+    override suspend fun importToVault(sourceUri: Uri): AppResult<FileItem> =
+        withContext(dispatcher) {
+            try {
+                if (sourceUri.scheme != ContentResolver.SCHEME_CONTENT) {
+                    return@withContext AppResult.Failure(
+                        AppError.Io("The selected document could not be opened safely."),
+                    )
+                }
+
+                val originalName = displayNameFor(sourceUri)
+                val input = context.contentResolver.openInputStream(sourceUri)
+                    ?: return@withContext AppResult.Failure(
+                        AppError.Io("The selected document is unavailable or cannot be read."),
+                    )
+
+                input.use {
+                    AppResult.Success(
+                        encryptInputIntoVault(
+                            input = it,
+                            originalName = originalName,
+                            // The Storage Access Framework does not guarantee a last-modified
+                            // field for arbitrary providers, so preserve the import time.
+                            originalModified = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+            } catch (e: SecurityException) {
+                AppResult.Failure(
+                    AppError.Io("Permission to read the selected document was denied.", e),
+                )
+            } catch (e: IOException) {
+                AppResult.Failure(
+                    AppError.Io(e.message ?: "Could not read the selected document.", e),
+                )
+            } catch (e: Exception) {
+                AppResult.Failure(
+                    AppError.Unknown(e.message ?: "Failed to import the selected document.", e),
+                )
             }
         }
 
@@ -185,7 +204,9 @@ class VaultRepositoryImpl @Inject constructor(
                 )
             }
 
-            val targetName = vaultItem.name.ifEmpty { encFile.nameWithoutExtension }
+            val targetName = safeDisplayName(
+                vaultItem.name.ifEmpty { encFile.nameWithoutExtension },
+            )
             val destination = uniqueDestination(destDir, targetName)
 
             val encrypted = buildEncryptedFile(encFile)
@@ -266,9 +287,99 @@ class VaultRepositoryImpl @Inject constructor(
     /** Ensures the vault directory exists, creating it (and parents) when needed. */
     private fun ensureVaultDir() {
         val dir = vaultDir
-        if (!dir.exists()) {
-            dir.mkdirs()
+        if (!dir.exists() && !dir.mkdirs() && !dir.isDirectory()) {
+            throw IOException("Could not create encrypted vault storage.")
         }
+        if (!dir.isDirectory) {
+            throw IOException("Encrypted vault storage is not a directory.")
+        }
+    }
+
+    /**
+     * Copies [input] into a newly-created encrypted vault entry and returns its display item.
+     *
+     * The caller owns [input] and must close it. If either the ciphertext or metadata write
+     * fails, every partial vault artifact is removed; the caller's source is read-only and is
+     * never deleted or altered.
+     */
+    private fun encryptInputIntoVault(
+        input: InputStream,
+        originalName: String,
+        originalModified: Long,
+    ): FileItem {
+        ensureVaultDir()
+
+        val id = UUID.randomUUID().toString()
+        val encFile = File(vaultDir, id + ENC_SUFFIX)
+        val metaFile = File(vaultDir, id + META_SUFFIX)
+        val encrypted = buildEncryptedFile(encFile)
+
+        val originalSize = try {
+            encrypted.openFileOutput().use { output ->
+                input.copyTo(output).also { output.flush() }
+            }
+        } catch (e: Exception) {
+            // Keep the vault internally consistent if the provider stream or encryption fails.
+            encFile.delete()
+            throw e
+        }
+
+        try {
+            writeMetadata(metaFile, originalName, originalSize, originalModified)
+        } catch (e: Exception) {
+            encFile.delete()
+            metaFile.delete()
+            throw e
+        }
+
+        return fileItemFor(
+            entry = encFile,
+            originalName = originalName,
+            originalSize = originalSize,
+            originalModified = originalModified,
+        )
+    }
+
+    /**
+     * Gets a provider supplied display name when available. The provider is not required to
+     * expose this column, so a stable safe fallback is used instead of treating that as an
+     * import failure.
+     */
+    private fun displayNameFor(sourceUri: Uri): String {
+        val providerName = runCatching {
+            context.contentResolver.query(
+                sourceUri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameColumn >= 0 && cursor.moveToFirst() && !cursor.isNull(nameColumn)) {
+                    cursor.getString(nameColumn)
+                } else {
+                    null
+                }
+            }
+        }.getOrNull()
+        return safeDisplayName(providerName)
+    }
+
+    /**
+     * Converts provider-controlled display metadata into a single safe filename. In particular,
+     * it rejects path separators, traversal names and NULs before metadata is ever used for an
+     * export destination.
+     */
+    private fun safeDisplayName(rawName: String?): String {
+        val basename = rawName.orEmpty()
+            .trim()
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .trim()
+            .take(MAX_DISPLAY_NAME_LENGTH)
+        return basename.takeIf {
+            it.isNotEmpty() && it != "." && it != ".." && !it.contains('\u0000')
+        } ?: DEFAULT_IMPORTED_FILE_NAME
     }
 
     /**
@@ -293,7 +404,8 @@ class VaultRepositoryImpl @Inject constructor(
         val metadata = readMetadata(metaFile)
 
         val fallbackName = entry.nameWithoutExtension
-        val originalName = metadata?.name?.takeIf { it.isNotEmpty() } ?: fallbackName
+        val metadataName = metadata?.name?.takeIf { it.isNotEmpty() }
+        val originalName = safeDisplayName(metadataName ?: fallbackName)
         // The ciphertext length is a reasonable approximation when metadata is absent.
         val approxCiphertextSize = runCatching { entry.length() }.getOrDefault(0L)
         val originalSize = metadata?.sizeBytes ?: approxCiphertextSize
@@ -421,5 +533,8 @@ class VaultRepositoryImpl @Inject constructor(
         const val META_KEY_NAME: String = "name"
         const val META_KEY_SIZE: String = "size"
         const val META_KEY_MODIFIED: String = "modified"
+
+        const val DEFAULT_IMPORTED_FILE_NAME: String = "Imported file"
+        const val MAX_DISPLAY_NAME_LENGTH: Int = 180
     }
 }

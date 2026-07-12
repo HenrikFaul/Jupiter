@@ -19,18 +19,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Cached
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,13 +42,16 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +60,7 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -61,9 +69,25 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.domain.model.AppStorageInfo
+import com.jupiter.filemanager.domain.model.AppStorageOverview
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
+import com.jupiter.filemanager.ui.components.JupiterPill
+import com.jupiter.filemanager.ui.components.JupiterStorageRing
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
+
+/** Local presentation filters; they never mutate the streamed platform measurements. */
+private enum class AppStorageFilter {
+    AllApps,
+    Largest,
+    CacheHeavy,
+}
+
+private const val LARGEST_APPS_LIMIT = 10
 
 /**
  * Per-app storage breakdown. Accounts for the app-private space (`Android/data`, APKs,
@@ -101,19 +125,42 @@ fun AppStorageScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("App storage") },
+                title = {
+                    Text(
+                        text = "App storage",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::load, enabled = !uiState.isLoading) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        IconButton(onClick = viewModel::load, enabled = !uiState.isLoading) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                        }
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+                ),
             )
         },
     ) { innerPadding ->
@@ -172,26 +219,42 @@ private fun AppActionsSheet(
         }.getOrNull()
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
         ) {
-            Text(
-                text = app.label,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${formatBytes(app.totalBytes)} · app ${formatBytes(app.appBytes)} · " +
-                    "data ${formatBytes(app.dataBytesExcludingCache)} · " +
-                    "cache ${formatBytes(app.cacheBytes)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                JupiterIconBadge(
+                    icon = Icons.Filled.Android,
+                    contentDescription = null,
+                    size = 48.dp,
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = app.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${formatBytes(app.totalBytes)} · app ${formatBytes(app.appBytes)} · " +
+                            "data ${formatBytes(app.dataBytesExcludingCache)} · " +
+                            "cache ${formatBytes(app.cacheBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             Spacer(Modifier.height(12.dp))
 
             SheetAction(
@@ -259,9 +322,10 @@ private fun SheetAction(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(JupiterDesign.CompactCardShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -286,132 +350,447 @@ private fun SheetAction(
 
 @Composable
 private fun AppStorageContent(
-    overview: com.jupiter.filemanager.domain.model.AppStorageOverview?,
+    overview: AppStorageOverview?,
     scanning: Boolean,
     onAppClick: (AppStorageInfo) -> Unit,
     modifier: Modifier,
 ) {
     if (overview == null) return
+
+    var selectedFilterName by rememberSaveable { mutableStateOf(AppStorageFilter.AllApps.name) }
+    val selectedFilter = AppStorageFilter.values().firstOrNull { it.name == selectedFilterName }
+        ?: AppStorageFilter.AllApps
+    val visibleApps = remember(overview.apps, selectedFilter) {
+        appsForFilter(overview.apps, selectedFilter)
+    }
+
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (scanning) {
-            item(key = "scanning") { ScanningBanner(overview) }
-        }
         item(key = "total") {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
+            AppStorageSummaryCard(
+                overview = overview,
+                scanning = scanning,
+            )
+        }
+        if (scanning) {
+            item(key = "scanning") {
+                AppStorageProgressCard(
+                    overview = overview,
+                    // A refresh deliberately keeps the complete previous list on screen until
+                    // the new stream finishes. In that short period [overview] is not the live
+                    // progress frame, so use an indeterminate treatment rather than claiming
+                    // the retained 100% value is the new scan's progress.
+                    hasLiveProgress = overview.scanning,
+                )
+            }
+        }
+        item(key = "filters") {
+            AppStorageFilterBar(
+                selectedFilter = selectedFilter,
+                onFilterSelected = { selectedFilterName = it.name },
+            )
+        }
+
+        if (visibleApps.isEmpty()) {
+            item(key = "filter_empty") { AppStorageFilterEmptyState(selectedFilter) }
+        } else {
+            itemsIndexed(
+                items = visibleApps,
+                key = { _, app -> "app_${app.packageName}" },
+            ) { index, app ->
+                AppRow(
+                    app = app,
+                    rank = index + 1,
+                    onClick = { onAppClick(app) },
+                )
+            }
+        }
+
+        // Keep the Android privacy model explanation available without crowding out the
+        // actionable storage list the supplied design prioritises above the fold.
+        item(key = "explainer") {
+            AppPrivacyExplainer()
+        }
+    }
+}
+
+@Composable
+private fun AppStorageSummaryCard(
+    overview: AppStorageOverview,
+    scanning: Boolean,
+) {
+    val measurementLabel = when {
+        scanning && overview.scanning && overview.totalCount > 0 ->
+            "${overview.scannedCount} of ${overview.totalCount} apps measured"
+        scanning -> "Refreshing app storage"
+        else -> "used by ${overview.apps.size} apps"
+    }
+
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(20.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // This ring represents the measured app-storage category, not a percentage of the
+            // phone: AppStorageOverview intentionally has no device-capacity denominator. A full
+            // ring once a non-zero category is measured avoids inventing a misleading capacity.
+            JupiterStorageRing(
+                fraction = if (overview.totalBytes > 0L) 1f else 0f,
+                size = 112.dp,
+                strokeWidth = 12.dp,
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = formatBytes(overview.totalBytes),
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
                     )
                     Text(
-                        text = "used by ${overview.apps.size} apps" +
-                            if (overview.cacheBytes > 0) {
-                                " · ${formatBytes(overview.cacheBytes)} clearable cache"
-                            } else {
-                                ""
-                            },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        text = "used",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(16.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Total app storage",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    JupiterIconBadge(
+                        icon = Icons.Filled.PieChart,
+                        contentDescription = null,
+                        size = 40.dp,
+                    )
+                }
+                Text(
+                    text = formatBytes(overview.totalBytes),
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                Text(
+                    text = measurementLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (overview.cacheBytes > 0L) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                        Text(
+                            text = "${formatBytes(overview.cacheBytes)} clearable cache",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The determinate, on-device scan treatment shown above any streamed partial results. */
+@Composable
+private fun AppStorageProgressCard(
+    overview: AppStorageOverview,
+    hasLiveProgress: Boolean,
+) {
+    val hasTotal = hasLiveProgress && overview.totalCount > 0
+    val progress = if (hasTotal) overview.progress else 0f
+    val progressPercent = (progress * 100).roundToInt()
+
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            JupiterStorageRing(
+                fraction = progress,
+                size = 88.dp,
+                strokeWidth = 8.dp,
+            ) {
+                Text(
+                    text = if (hasTotal) "$progressPercent%" else "…",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = if (hasTotal) {
+                        "${overview.scannedCount} / ${overview.totalCount} apps scanned"
+                    } else {
+                        "Refreshing app storage"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = if (hasLiveProgress) {
+                        "Scanning app storage"
+                    } else {
+                        "Keeping the last complete results visible"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (hasTotal) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(JupiterDesign.PillShape),
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(JupiterDesign.PillShape),
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Shield,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "Scanning safely on device",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
-        item(key = "explainer") {
-            AppPrivacyExplainer()
+    }
+}
+
+@Composable
+private fun AppStorageFilterBar(
+    selectedFilter: AppStorageFilter,
+    onFilterSelected: (AppStorageFilter) -> Unit,
+) {
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            AppStorageFilter.values().forEach { filter ->
+                AppStorageFilterChip(
+                    filter = filter,
+                    selected = filter == selectedFilter,
+                    onClick = { onFilterSelected(filter) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
-        val max = overview.apps.firstOrNull()?.totalBytes?.coerceAtLeast(1L) ?: 1L
-        items(overview.apps, key = { it.packageName }) { app ->
-            AppRow(
-                app = app,
-                fractionOfMax = app.totalBytes.toFloat() / max.toFloat(),
-                onClick = { onAppClick(app) },
+    }
+}
+
+@Composable
+private fun AppStorageFilterChip(
+    filter: AppStorageFilter,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val (label, icon) = when (filter) {
+        AppStorageFilter.AllApps -> "All apps" to Icons.Filled.Apps
+        AppStorageFilter.Largest -> "Largest" to Icons.Filled.TrendingUp
+        AppStorageFilter.CacheHeavy -> "Cache-heavy" to Icons.Filled.Cached
+    }
+    JupiterPill(
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Applies only local, reversible presentation filtering to the already-streamed real values. */
+private fun appsForFilter(
+    apps: List<AppStorageInfo>,
+    filter: AppStorageFilter,
+): List<AppStorageInfo> = when (filter) {
+    AppStorageFilter.AllApps -> apps.sortedByDescending(AppStorageInfo::totalBytes)
+    // A bounded top set gives this chip a genuinely different, useful view while keeping every
+    // installed package available under All apps.
+    AppStorageFilter.Largest -> apps.sortedByDescending(AppStorageInfo::totalBytes).take(LARGEST_APPS_LIMIT)
+    AppStorageFilter.CacheHeavy -> apps
+        .filter { it.cacheBytes > 0L }
+        .sortedWith(
+            compareByDescending<AppStorageInfo> { it.cacheBytes }
+                .thenByDescending { it.totalBytes },
+        )
+}
+
+@Composable
+private fun AppStorageFilterEmptyState(filter: AppStorageFilter) {
+    val message = when (filter) {
+        AppStorageFilter.AllApps -> "No installed apps could be measured yet."
+        AppStorageFilter.Largest -> "No measured apps are available yet."
+        AppStorageFilter.CacheHeavy -> "No apps with clearable cache were found."
+    }
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(18.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JupiterIconBadge(
+                icon = Icons.Filled.Android,
+                contentDescription = null,
+                size = 44.dp,
+            )
+            Spacer(Modifier.width(14.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
 
 @Composable
-private fun AppRow(app: AppStorageInfo, fractionOfMax: Float, onClick: () -> Unit) {
-    Card(modifier = Modifier
-        .fillMaxWidth()
-        .clickable(onClick = onClick)) {
+private fun AppRow(
+    app: AppStorageInfo,
+    rank: Int,
+    onClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    // The app's launcher icon, resolved OFF the main thread (getApplicationIcon decodes a
+    // drawable — doing it on the composition thread janks the frame when the list first appears).
+    val icon by produceState<android.graphics.drawable.Drawable?>(null, app.packageName) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { context.packageManager.getApplicationIcon(app.packageName) }.getOrNull()
+        }
+    }
+    val fallback = rememberVectorPainter(Icons.Filled.Android)
+
+    JupiterCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+    ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val context = LocalContext.current
-            // The app's launcher icon, resolved OFF the main thread (getApplicationIcon decodes a
-            // drawable — doing it on the composition thread janks the frame when the list first
-            // appears). Starts null (shows the Android fallback) and swaps in when ready.
-            val icon by produceState<android.graphics.drawable.Drawable?>(null, app.packageName) {
-                value = withContext(Dispatchers.IO) {
-                    runCatching { context.packageManager.getApplicationIcon(app.packageName) }.getOrNull()
-                }
-            }
-            val fallback = rememberVectorPainter(Icons.Filled.Android)
+            Text(
+                text = rank.toString(),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(28.dp),
+            )
+            Spacer(Modifier.width(8.dp))
             AsyncImage(
                 model = ImageRequest.Builder(context).data(icon).crossfade(true).build(),
                 contentDescription = null,
                 placeholder = fallback,
                 error = fallback,
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+                    .size(52.dp)
+                    .clip(JupiterDesign.IconBadgeShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = app.label,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(4.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fractionOfMax.coerceIn(0f, 1f))
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-                // "data" excludes the cache (platform dataBytes includes it), matching how
-                // system Settings splits the same numbers — the three parts sum to the total.
+                // "Data" excludes cache (platform dataBytes includes it), matching Settings.
                 Text(
-                    text = "app ${formatBytes(app.appBytes)} · " +
-                        "data ${formatBytes(app.dataBytesExcludingCache)} · " +
-                        "cache ${formatBytes(app.cacheBytes)}",
+                    text = "Data ${formatBytes(app.dataBytesExcludingCache)} · " +
+                        "Cache ${formatBytes(app.cacheBytes)} · APK ${formatBytes(app.appBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(8.dp))
             Text(
                 text = formatBytes(app.totalBytes),
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Open ${app.label} actions",
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -428,30 +807,36 @@ private fun AppRow(app: AppStorageInfo, fractionOfMax: Float, onClick: () -> Uni
  */
 @Composable
 private fun AppPrivacyExplainer() {
-    Card(
+    JupiterCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        contentPadding = PaddingValues(16.dp),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Why files here can't be browsed",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+        Row(verticalAlignment = Alignment.Top) {
+            JupiterIconBadge(
+                icon = Icons.Outlined.Folder,
+                contentDescription = null,
+                size = 42.dp,
             )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "Since Android 11, other apps' Android/data and Android/obb folders are " +
-                    "sealed off from every file manager — even with All files access. Installed " +
-                    "APKs and app caches aren't browsable by any non-root file manager either. On " +
-                    "most phones that hidden space is the biggest part of what's used. No app can " +
-                    "open those files (only a rooted device can), so Jupiter measures their size " +
-                    "per app here instead of listing them as files.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "Why files here can't be browsed",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Since Android 11, other apps' Android/data and Android/obb folders are " +
+                        "sealed off from every file manager — even with All files access. Installed " +
+                        "APKs and app caches aren't browsable by any non-root file manager either. On " +
+                        "most phones that hidden space is the biggest part of what's used. No app can " +
+                        "open those files (only a rooted device can), so Jupiter measures their size " +
+                        "per app here instead of listing them as files.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -462,71 +847,84 @@ private fun AppPrivacyExplainer() {
  * prompt or a blank screen up. Falls back to an indeterminate bar until the package total is known.
  */
 @Composable
-private fun ScanningView(overview: com.jupiter.filemanager.domain.model.AppStorageOverview?, modifier: Modifier) {
+private fun ScanningView(overview: AppStorageOverview?, modifier: Modifier) {
     val total = overview?.totalCount ?: 0
     val scanned = overview?.scannedCount ?: 0
+    val hasProgress = total > 0
+    val progress = overview?.progress ?: 0f
+
     Column(
-        modifier = modifier.padding(24.dp),
+        modifier = modifier.padding(horizontal = 20.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(
-            text = "Scanning app storage…",
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = "Measuring how much space each installed app uses. The biggest apps appear first.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
-        )
-        if (total > 0) {
-            LinearProgressIndicator(
-                progress = { overview?.progress ?: 0f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp)),
-            )
-            Text(
-                text = "$scanned / $total apps",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        } else {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)))
-        }
-    }
-}
-
-/** Compact in-list indicator that the scan is still running while partial results are shown. */
-@Composable
-private fun ScanningBanner(overview: com.jupiter.filemanager.domain.model.AppStorageOverview) {
-    val total = overview.totalCount
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    ) {
-        Text(
-            text = if (total > 0) {
-                "Scanning… ${overview.scannedCount} / $total apps (${(overview.progress * 100).toInt()}%)"
-            } else {
-                "Scanning…"
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(6.dp))
-        if (total > 0) {
-            LinearProgressIndicator(
-                progress = { overview.progress },
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp)),
-            )
-        } else {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp)))
+        JupiterCard(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(24.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                JupiterStorageRing(
+                    fraction = progress,
+                    size = 112.dp,
+                    strokeWidth = 10.dp,
+                ) {
+                    Text(
+                        text = if (hasProgress) "${(progress * 100).roundToInt()}%" else "…",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(Modifier.height(20.dp))
+                Text(
+                    text = "Scanning app storage…",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Measuring how much space each installed app uses. The biggest apps appear first.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 18.dp),
+                )
+                if (hasProgress) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(JupiterDesign.PillShape),
+                    )
+                    Text(
+                        text = "$scanned / $total apps scanned",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(JupiterDesign.PillShape),
+                    )
+                }
+                Row(
+                    modifier = Modifier.padding(top = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Scanning safely on device",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -535,36 +933,47 @@ private fun ScanningBanner(overview: com.jupiter.filemanager.domain.model.AppSto
 private fun UsageAccessRequired(modifier: Modifier) {
     val context = LocalContext.current
     Column(
-        modifier = modifier.padding(24.dp),
+        modifier = modifier.padding(horizontal = 20.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Android,
-            contentDescription = null,
-            modifier = Modifier.size(48.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = "See what apps are using",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 12.dp),
-        )
-        Text(
-            text = "Most of a full phone is app storage (games, app data and caches) that " +
-                "Android hides from file managers. Grant Jupiter \"Usage access\" to show a " +
-                "per-app breakdown and account for that space.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        Button(
-            onClick = {
-                runCatching { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
-            },
-            modifier = Modifier.padding(top = 16.dp),
+        JupiterCard(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(24.dp),
         ) {
-            Text("Grant Usage access")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                JupiterIconBadge(
+                    icon = Icons.Filled.Apps,
+                    contentDescription = null,
+                    size = 64.dp,
+                )
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    text = "See what apps are using",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = "Most of a full phone is app storage (games, app data and caches) that " +
+                        "Android hides from file managers. Grant Jupiter \"Usage access\" to show a " +
+                        "per-app breakdown and account for that space.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Button(
+                    onClick = {
+                        runCatching { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 20.dp),
+                ) {
+                    Text("Grant Usage access")
+                }
+            }
         }
     }
 }

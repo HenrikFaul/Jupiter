@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.feature.vault
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
@@ -36,8 +37,9 @@ data class VaultUiState(
  * On creation the ViewModel queries [VaultRepository.isVaultInitialized] to determine
  * whether the encrypted vault already exists. The vault stays locked until [unlock] is
  * called, at which point its contents are loaded via [refresh]. Files can be brought in
- * from the regular file system with [importFile], pulled back out with [exportItem], and
- * permanently removed with [deleteItem].
+ * from the regular file system with [importFile] or Android's document picker with
+ * [importDocument], pulled back out with [exportItem], and permanently removed with
+ * [deleteItem].
  *
  * All encryption and IO is performed inside the repository's suspend functions on a
  * background dispatcher; this ViewModel only orchestrates collection on `viewModelScope`
@@ -109,6 +111,27 @@ class VaultViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             when (val result = vaultRepository.importToVault(sourcePath)) {
+                is AppResult.Success -> reloadAfterMutation()
+                is AppResult.Failure -> _uiState.update {
+                    it.copy(isLoading = false, error = result.error.displayMessage)
+                }
+            }
+        }
+    }
+
+    /**
+     * Encrypts and imports a document selected through Android's Storage Access Framework.
+     *
+     * The URI is passed directly to the repository, which opens it with the application's
+     * [android.content.ContentResolver]. It is never interpreted as a filesystem path, so
+     * cloud-backed and other virtual document providers work safely as well. No-ops while the
+     * vault is locked.
+     */
+    fun importDocument(sourceUri: Uri) {
+        if (!_uiState.value.isUnlocked) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            when (val result = vaultRepository.importToVault(sourceUri)) {
                 is AppResult.Success -> reloadAfterMutation()
                 is AppResult.Failure -> _uiState.update {
                     it.copy(isLoading = false, error = result.error.displayMessage)

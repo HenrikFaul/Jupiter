@@ -1,22 +1,33 @@
 package com.jupiter.filemanager.feature.settings
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable as clickableModifier
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable as selectableModifier
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable as toggleableModifier
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
@@ -27,28 +38,27 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -72,33 +82,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.domain.model.ThemeMode
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.navigation.Destination
 import com.jupiter.filemanager.ui.theme.AccentColor
 import com.jupiter.filemanager.ui.theme.AccentPalette
-import androidx.compose.foundation.clickable as clickableModifier
-import androidx.compose.foundation.selection.selectable as selectableModifier
 
 /**
- * Settings screen exposing the user-facing application preferences.
+ * The user-facing settings hub.
  *
- * Renders a theme-mode selector (System / Light / Dark) plus toggles for
- * showing hidden files, enabling the dual-pane browser and the AI assistant,
- * a masked Claude API-key field, a Personalization section (accent color,
- * AMOLED black, dynamic color), a Privacy opt-in for anonymous analytics, a
- * Jupiter Pro entry point, followed by a static About section. All persistence
- * is delegated to [SettingsViewModel]; this composable contains no file or
- * preference IO.
- *
- * @param onOpenRoute navigates to a named route (e.g. the Pro paywall).
- * @param onBack invoked when the user dismisses the screen.
+ * The screen intentionally contains only preferences and destinations that are
+ * backed by the application today. Each interaction continues to delegate to
+ * [SettingsViewModel] or to the already-wired navigation route; this file only
+ * provides the grouped-card presentation used across the Jupiter design system.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,14 +113,19 @@ fun SettingsScreen(
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Settings") },
+                title = {
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.headlineLarge,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -124,6 +134,12 @@ fun SettingsScreen(
                         )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
                 scrollBehavior = scrollBehavior,
             )
         },
@@ -132,201 +148,208 @@ fun SettingsScreen(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
         ) {
-            SettingsSectionHeader(title = "Appearance")
-            ThemeModeSelector(
-                selected = uiState.themeMode,
-                onSelected = viewModel::setThemeMode,
-            )
+            SettingsGroup(title = "Appearance") {
+                ThemeModeSelector(
+                    selected = uiState.themeMode,
+                    onSelected = viewModel::setThemeMode,
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SettingsGroup(title = "Personalization") {
+                AccentColorPicker(
+                    selectedArgb = uiState.accentColorArgb,
+                    onAccentSelected = viewModel::setAccentColorArgb,
+                )
+                SettingsGroupDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Filled.DarkMode,
+                    title = "AMOLED black",
+                    subtitle = "Use pure-black backgrounds in dark theme",
+                    checked = uiState.amoledBlack,
+                    onCheckedChange = viewModel::setAmoledBlack,
+                )
+                SettingsGroupDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Palette,
+                    title = "Dynamic color",
+                    subtitle = "Match your wallpaper colors on Android 12+",
+                    checked = uiState.dynamicColor,
+                    onCheckedChange = viewModel::setDynamicColor,
+                )
+            }
 
-            SettingsSectionHeader(title = "Personalization")
-            AccentColorPicker(
-                selectedArgb = uiState.accentColorArgb,
-                onAccentSelected = viewModel::setAccentColorArgb,
-            )
-            SettingsSwitchRow(
-                icon = Icons.Filled.DarkMode,
-                title = "AMOLED black",
-                subtitle = "Use pure-black backgrounds in dark theme",
-                checked = uiState.amoledBlack,
-                onCheckedChange = viewModel::setAmoledBlack,
-            )
-            SettingsSwitchRow(
-                icon = Icons.Filled.Palette,
-                title = "Dynamic color",
-                subtitle = "Match your wallpaper colors on Android 12+",
-                checked = uiState.dynamicColor,
-                onCheckedChange = viewModel::setDynamicColor,
-            )
+            SettingsGroup(title = "Browsing") {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Visibility,
+                    title = "Show hidden files",
+                    subtitle = "Display files and folders that start with a dot",
+                    checked = uiState.showHidden,
+                    onCheckedChange = viewModel::setShowHidden,
+                )
+                SettingsGroupDivider()
+                SettingsSwitchRow(
+                    icon = Icons.Filled.ViewColumn,
+                    title = "Dual-pane layout",
+                    subtitle = "Show two file panes side by side on wide screens",
+                    checked = uiState.dualPaneEnabled,
+                    onCheckedChange = viewModel::setDualPane,
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SettingsGroup(title = "AI assistant") {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.SmartToy,
+                    title = "Enable AI assistant",
+                    subtitle = "Smart suggestions for naming, search and cleanup",
+                    checked = uiState.aiEnabled,
+                    onCheckedChange = viewModel::setAiEnabled,
+                )
+                SettingsGroupDivider()
+                AiApiKeyField(
+                    apiKey = uiState.aiApiKey,
+                    onApiKeyChange = viewModel::setAiApiKey,
+                )
+            }
 
-            SettingsSectionHeader(title = "Browsing")
-            SettingsSwitchRow(
-                icon = Icons.Filled.Visibility,
-                title = "Show hidden files",
-                subtitle = "Display files and folders that start with a dot",
-                checked = uiState.showHidden,
-                onCheckedChange = viewModel::setShowHidden,
-            )
-            SettingsSwitchRow(
-                icon = Icons.Filled.ViewColumn,
-                title = "Dual-pane layout",
-                subtitle = "Show two file panes side by side on wide screens",
-                checked = uiState.dualPaneEnabled,
-                onCheckedChange = viewModel::setDualPane,
-            )
+            SettingsGroup(title = "Privacy") {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Insights,
+                    title = "Help improve Jupiter",
+                    subtitle = "Share anonymous usage data (opt-in)",
+                    checked = uiState.analyticsOptIn,
+                    onCheckedChange = viewModel::setAnalyticsOptIn,
+                )
+                SettingsGroupDivider()
+                SettingsNavigationRow(
+                    icon = Icons.Filled.Shield,
+                    title = "Your data & privacy",
+                    subtitle = "See what Jupiter accesses, where your data lives, and how it's protected",
+                    onClick = { onOpenRoute(Destination.DataTransparency.route) },
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SettingsGroup(title = "Jupiter Pro") {
+                SettingsNavigationRow(
+                    icon = Icons.Filled.Star,
+                    title = "Jupiter Pro",
+                    subtitle = "Support development and explore Pro benefits",
+                    onClick = { onOpenRoute(Destination.Paywall.route) },
+                )
+            }
 
-            SettingsSectionHeader(title = "Assistant")
-            SettingsSwitchRow(
-                icon = Icons.Filled.SmartToy,
-                title = "Enable AI assistant",
-                subtitle = "Smart suggestions for naming, search and cleanup",
-                checked = uiState.aiEnabled,
-                onCheckedChange = viewModel::setAiEnabled,
-            )
+            SettingsGroup(title = "Storage") {
+                SettingsNavigationRow(
+                    icon = Icons.Filled.Storage,
+                    title = "Storage analysis",
+                    subtitle = "Review usage and reclaim space",
+                    onClick = { onOpenRoute(Destination.StorageAnalytics.route) },
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SettingsGroup(title = "Recycle Bin") {
+                SettingsNavigationRow(
+                    icon = Icons.Filled.DeleteSweep,
+                    title = "Open Recycle Bin",
+                    subtitle = "Restore or permanently remove trashed files",
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    onClick = { onOpenRoute(Destination.Trash.route) },
+                )
+                SettingsGroupDivider()
+                TrashAutoDeleteSelector(
+                    selectedDays = uiState.trashAutoDeleteDays,
+                    onSelected = viewModel::setTrashAutoDeleteDays,
+                )
+            }
 
-            SettingsSectionHeader(title = "AI assistant")
-            AiApiKeyField(
-                apiKey = uiState.aiApiKey,
-                onApiKeyChange = viewModel::setAiApiKey,
-            )
+            SettingsGroup(title = "Indexing") {
+                SettingsSwitchRow(
+                    icon = Icons.Filled.Bolt,
+                    title = "Index files for fast search",
+                    subtitle = "Cache file metadata so search is instant instead of re-scanning storage every time",
+                    checked = uiState.indexingEnabled,
+                    onCheckedChange = viewModel::setIndexingEnabled,
+                )
+                SettingsGroupDivider()
+                IndexStatusRow(
+                    indexedCount = uiState.indexedCount,
+                    indexing = uiState.indexing,
+                    progressPercent = uiState.indexProgressPercent,
+                    progressCurrent = uiState.indexProgressCurrent,
+                    progressTotal = uiState.indexProgressTotal,
+                    enabled = uiState.indexingEnabled,
+                    onRebuild = viewModel::rebuildIndex,
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SettingsGroup(title = "Transfers") {
+                SettingsNavigationRow(
+                    icon = Icons.Filled.SwapHoriz,
+                    title = "Transfer history",
+                    subtitle = "View recent copy, move and send tasks",
+                    onClick = { onOpenRoute(Destination.TransferCenter.route) },
+                )
+            }
 
-            SettingsSectionHeader(title = "Privacy")
-            SettingsSwitchRow(
-                icon = Icons.Filled.Insights,
-                title = "Help improve Jupiter",
-                subtitle = "Share anonymous usage data (opt-in)",
-                checked = uiState.analyticsOptIn,
-                onCheckedChange = viewModel::setAnalyticsOptIn,
-            )
-            SettingsNavigationRow(
-                icon = Icons.Filled.Shield,
-                title = "Your data & privacy",
-                subtitle = "See what Jupiter accesses, where your data lives, and how " +
-                    "it's protected",
-                onClick = { onOpenRoute(Destination.DataTransparency.route) },
-            )
+            SettingsGroup(title = "Security") {
+                SettingsNavigationRow(
+                    icon = Icons.Filled.Lock,
+                    title = "Vault security",
+                    subtitle = "Unlock encrypted files with biometric or device credential",
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    onClick = { onOpenRoute(Destination.Vault.route) },
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SettingsGroup(title = "Cloud") {
+                SettingsNavigationRow(
+                    icon = Icons.Filled.Cloud,
+                    title = "Connected accounts",
+                    subtitle = "Manage linked cloud storage providers",
+                    onClick = { onOpenRoute(Destination.CloudHub.route) },
+                )
+            }
 
-            SettingsSectionHeader(title = "Jupiter Pro")
-            SettingsNavigationRow(
-                icon = Icons.Filled.Star,
-                title = "Jupiter Pro",
-                subtitle = "Support development and explore Pro benefits",
-                onClick = { onOpenRoute(Destination.Paywall.route) },
-            )
+            SettingsGroup(title = "Automation") {
+                SettingsNavigationRow(
+                    icon = Icons.Filled.PlayArrow,
+                    title = "Rules",
+                    subtitle = "Automate sorting and cleanup tasks",
+                    onClick = { onOpenRoute(Destination.Automation.route) },
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Storage")
-            SettingsNavigationRow(
-                icon = Icons.Filled.Storage,
-                title = "Storage analysis",
-                subtitle = "Review usage and reclaim space",
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Recycle Bin")
-            SettingsNavigationRow(
-                icon = Icons.Filled.DeleteSweep,
-                title = "Open Recycle Bin",
-                subtitle = "Restore or permanently remove trashed files",
-                onClick = { onOpenRoute(Destination.Trash.route) },
-            )
-            TrashAutoDeleteSelector(
-                selectedDays = uiState.trashAutoDeleteDays,
-                onSelected = viewModel::setTrashAutoDeleteDays,
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Indexing")
-            SettingsSwitchRow(
-                icon = Icons.Filled.Bolt,
-                title = "Index files for fast search",
-                subtitle = "Cache file metadata so search is instant instead of " +
-                    "re-scanning storage every time",
-                checked = uiState.indexingEnabled,
-                onCheckedChange = viewModel::setIndexingEnabled,
-            )
-            IndexStatusRow(
-                indexedCount = uiState.indexedCount,
-                indexing = uiState.indexing,
-                progressPercent = uiState.indexProgressPercent,
-                progressCurrent = uiState.indexProgressCurrent,
-                progressTotal = uiState.indexProgressTotal,
-                enabled = uiState.indexingEnabled,
-                onRebuild = viewModel::rebuildIndex,
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Transfers")
-            SettingsNavigationRow(
-                icon = Icons.Filled.SwapHoriz,
-                title = "Transfer history",
-                subtitle = "View recent copy, move and send tasks",
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Security")
-            SettingsNavigationRow(
-                icon = Icons.Filled.Lock,
-                title = "App lock",
-                subtitle = "Require authentication to open Jupiter",
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Cloud")
-            SettingsNavigationRow(
-                icon = Icons.Filled.Cloud,
-                title = "Connected accounts",
-                subtitle = "Manage linked cloud storage providers",
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Automation")
-            SettingsNavigationRow(
-                icon = Icons.Filled.PlayArrow,
-                title = "Rules",
-                subtitle = "Automate sorting and cleanup tasks",
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "Advanced")
-            SettingsNavigationRow(
-                icon = Icons.Filled.DeleteSweep,
-                title = "Cache",
-                subtitle = "Clear thumbnails and temporary data",
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            SettingsSectionHeader(title = "About")
-            AboutSection()
+            SettingsGroup(title = "About") {
+                AboutSection()
+            }
         }
     }
 }
 
-/**
- * Small caption-style header that introduces a group of related settings.
- */
+/** A titled, rounded settings card matching the supplied dark Jupiter references. */
+@Composable
+private fun SettingsGroup(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 18.dp),
+    ) {
+        SettingsSectionHeader(title = title)
+        JupiterCard(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(0.dp),
+            content = content,
+        )
+    }
+}
+
+/** A quiet group label; the card remains the visual focus. */
 @Composable
 private fun SettingsSectionHeader(
     title: String,
@@ -334,20 +357,22 @@ private fun SettingsSectionHeader(
 ) {
     Text(
         text = title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(
-            start = 16.dp,
-            end = 16.dp,
-            top = 16.dp,
-            bottom = 8.dp,
-        ),
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = modifier.padding(start = 12.dp, bottom = 8.dp),
     )
 }
 
-/**
- * Radio-style selector for the three [ThemeMode] options.
- */
+/** Divider alignment leaves a clear leading-icon column, like the reference design. */
+@Composable
+private fun SettingsGroupDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 80.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
+    )
+}
+
+/** Radio-style selector for the three [ThemeMode] options. */
 @Composable
 private fun ThemeModeSelector(
     selected: ThemeMode,
@@ -355,19 +380,20 @@ private fun ThemeModeSelector(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.selectableGroup()) {
-        ThemeMode.entries.forEach { mode ->
+        ThemeMode.entries.forEachIndexed { index, mode ->
             ThemeModeRow(
                 mode = mode,
                 selected = mode == selected,
                 onSelect = { onSelected(mode) },
             )
+            if (index < ThemeMode.entries.lastIndex) {
+                SettingsGroupDivider()
+            }
         }
     }
 }
 
-/**
- * A single selectable theme-mode row.
- */
+/** One accessible theme choice with an unmistakable selected state. */
 @Composable
 private fun ThemeModeRow(
     mode: ThemeMode,
@@ -378,6 +404,7 @@ private fun ThemeModeRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .defaultMinSize(minHeight = 72.dp)
             .selectableModifier(
                 selected = selected,
                 onClick = onSelect,
@@ -386,16 +413,14 @@ private fun ThemeModeRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = iconForThemeMode(mode),
+        JupiterIconBadge(
+            icon = iconForThemeMode(mode),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp),
+            size = 48.dp,
         )
+        Spacer(modifier = Modifier.width(14.dp))
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 16.dp),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -426,9 +451,8 @@ private val TRASH_AUTO_DELETE_OPTIONS: List<Pair<String, Int>> = listOf(
 )
 
 /**
- * Radio selector for how long items stay in the Recycle Bin before being auto-deleted. "Never" (the
- * default) means nothing is ever removed automatically — items only leave the bin when the user
- * restores or empties them.
+ * Radio selector for the functional Recycle Bin retention policy. A selection is persisted through
+ * the view model; it is not merely visual state.
  */
 @Composable
 private fun TrashAutoDeleteSelector(
@@ -439,33 +463,46 @@ private fun TrashAutoDeleteSelector(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Filled.DeleteSweep,
+            JupiterIconBadge(
+                icon = Icons.Filled.DeleteSweep,
+                tint = MaterialTheme.colorScheme.tertiary,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
+                size = 48.dp,
             )
-            Text(
-                text = "Auto-delete trashed items",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp),
-            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Auto-delete trashed items",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Keep items for the selected retention period",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        Column(modifier = Modifier.selectableGroup()) {
+        Column(
+            modifier = Modifier
+                .selectableGroup()
+                .padding(start = 62.dp),
+        ) {
             TRASH_AUTO_DELETE_OPTIONS.forEach { (label, days) ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
                         .selectableModifier(
                             selected = days == selectedDays,
                             onClick = { onSelected(days) },
                             role = Role.RadioButton,
                         )
-                        .padding(vertical = 10.dp),
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -481,13 +518,7 @@ private fun TrashAutoDeleteSelector(
     }
 }
 
-/**
- * Horizontal row of selectable accent-color swatches plus a "default" option.
- *
- * The "default" swatch (argb 0L) keeps the dynamic/brand color so the existing
- * look is preserved unless the user explicitly picks an accent. The currently
- * selected swatch is marked with a check.
- */
+/** Accent swatches for the persisted accent preference. */
 @Composable
 private fun AccentColorPicker(
     selectedArgb: Long,
@@ -497,34 +528,41 @@ private fun AccentColorPicker(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Filled.Colorize,
+            JupiterIconBadge(
+                icon = Icons.Filled.Colorize,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
+                size = 48.dp,
             )
-            Text(
-                text = "Accent color",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp),
-            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Accent color",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = selectedAccentName(selectedArgb),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 62.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AccentSwatch(
                 color = MaterialTheme.colorScheme.primary,
                 selected = selectedArgb == 0L,
-                contentDescription = "Default accent",
+                contentDescription = "Jupiter default accent",
                 onClick = { onAccentSelected(0L) },
             )
             AccentPalette.forEach { accent: AccentColor ->
@@ -539,9 +577,7 @@ private fun AccentColorPicker(
     }
 }
 
-/**
- * A single circular accent swatch. Shows a check overlay when [selected].
- */
+/** A 48 dp accent selector with radio semantics and a clear selected mark. */
 @Composable
 private fun AccentSwatch(
     color: Color,
@@ -552,8 +588,13 @@ private fun AccentSwatch(
 ) {
     Surface(
         modifier = modifier
-            .size(40.dp)
-            .clickableModifier(onClickLabel = contentDescription) { onClick() },
+            .size(48.dp)
+            .semantics { this.contentDescription = contentDescription }
+            .selectableModifier(
+                selected = selected,
+                onClick = onClick,
+                role = Role.RadioButton,
+            ),
         shape = CircleShape,
         color = color,
         border = if (selected) {
@@ -564,12 +605,12 @@ private fun AccentSwatch(
     ) {
         if (selected) {
             Box(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Filled.Check,
-                    contentDescription = null,
+                    contentDescription = contentDescription,
                     tint = MaterialTheme.colorScheme.surface,
                     modifier = Modifier.size(20.dp),
                 )
@@ -578,10 +619,7 @@ private fun AccentSwatch(
     }
 }
 
-/**
- * A labelled switch row used for boolean preferences. The whole row is
- * clickable and toggles the switch.
- */
+/** A full-row, accessible switch preference with the shared badge treatment. */
 @Composable
 private fun SettingsSwitchRow(
     icon: ImageVector,
@@ -590,24 +628,29 @@ private fun SettingsSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickableModifier { onCheckedChange(!checked) }
+            .defaultMinSize(minHeight = 76.dp)
+            .toggleableModifier(
+                value = checked,
+                onValueChange = onCheckedChange,
+                role = Role.Switch,
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = icon,
+        JupiterIconBadge(
+            icon = icon,
+            tint = iconTint,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp),
+            size = 48.dp,
         )
+        Spacer(modifier = Modifier.width(14.dp))
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 16.dp),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -621,19 +664,17 @@ private fun SettingsSwitchRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Spacer(modifier = Modifier.width(8.dp))
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.padding(start = 8.dp),
+            onCheckedChange = null,
         )
     }
 }
 
 /**
- * Status line for the persistent file index: shows how many entries are cached
- * (with an inline spinner while a rebuild is running) alongside a "Rebuild"
- * action. The rebuild button is disabled while indexing is off or already in
- * progress so repeated taps can't stack work.
+ * Live status for the persistent file index. Rebuild remains disabled while indexing is off or
+ * already running, so this card cannot queue redundant work.
  */
 @Composable
 private fun IndexStatusRow(
@@ -649,8 +690,8 @@ private fun IndexStatusRow(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(
@@ -697,13 +738,10 @@ private fun IndexStatusRow(
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
-                Text(
-                    text = "Rebuild",
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Rebuild")
             }
         }
-        // Determinate bar once the worker has published a total; indeterminate until then.
         if (indexing) {
             if (progressPercent != null) {
                 LinearProgressIndicator(
@@ -718,13 +756,9 @@ private fun IndexStatusRow(
 }
 
 /**
- * A masked text field for the Claude API key plus an explanatory note.
- *
- * The field keeps a local draft so typing stays responsive while the persisted
- * value is written through [onApiKeyChange]. The draft is re-seeded from
- * [apiKey] whenever the persisted value changes (e.g. on first load), and the
- * contents are obscured by default with a show/hide toggle. No key material is
- * logged or transmitted here; persistence is handled by the view model.
+ * A masked text field for the real Claude API key. The draft is deliberately
+ * local so typing remains responsive while every change is persisted by the
+ * view model.
  */
 @Composable
 private fun AiApiKeyField(
@@ -735,8 +769,6 @@ private fun AiApiKeyField(
     var draft by remember { mutableStateOf(apiKey) }
     var revealed by rememberSaveable { mutableStateOf(false) }
 
-    // Re-seed the local draft when the persisted key changes (initial load or
-    // external update) without clobbering in-progress edits to the same value.
     LaunchedEffect(apiKey) {
         if (apiKey != draft) {
             draft = apiKey
@@ -746,7 +778,7 @@ private fun AiApiKeyField(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         OutlinedTextField(
@@ -791,46 +823,44 @@ private fun AiApiKeyField(
             ),
         )
         Text(
-            text = "Your key is stored on-device only and never leaves your " +
-                "phone except to call Claude. It enables Claude-powered search, " +
-                "smart naming and automation rules.",
+            text = "Your key is stored on-device only and never leaves your phone except to call " +
+                "Claude. It enables Claude-powered search, smart naming and automation rules.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
-/**
- * A labelled row that navigates to a sub-screen. Visually mirrors
- * [SettingsSwitchRow] but uses a trailing chevron instead of a switch.
- * The [onClick] defaults to a no-op so sections can be surfaced before
- * their backing destinations are wired up.
- */
+/** A functional, full-row destination with a chevron affordance. */
 @Composable
 private fun SettingsNavigationRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {},
+    iconTint: Color = MaterialTheme.colorScheme.primary,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickableModifier { onClick() }
+            .defaultMinSize(minHeight = 76.dp)
+            .clickableModifier(
+                role = Role.Button,
+                onClick = onClick,
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = icon,
+        JupiterIconBadge(
+            icon = icon,
+            tint = iconTint,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp),
+            size = 48.dp,
         )
+        Spacer(modifier = Modifier.width(14.dp))
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 16.dp),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -844,83 +874,87 @@ private fun SettingsNavigationRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Spacer(modifier = Modifier.width(8.dp))
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp),
         )
     }
 }
 
-/**
- * Static informational block describing the application.
- */
+/** Static information about Jupiter; no faux navigation/action is attached. */
 @Composable
 private fun AboutSection(
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Folder,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(40.dp),
-        )
-        Column(
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .padding(start = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "Jupiter File Manager",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+            JupiterIconBadge(
+                icon = Icons.Filled.Folder,
+                contentDescription = null,
+                size = 56.dp,
             )
-            Text(
-                text = "Version $APP_VERSION",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "Jupiter File Manager",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Version $APP_VERSION",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "A fast, private, native file manager for Android.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 80.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
             )
+            Spacer(modifier = Modifier.width(14.dp))
             Text(
-                text = "A fast, private, native file manager for Android.",
+                text = "All operations run on-device. No data leaves your phone.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
         }
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Info,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
-        )
-        Text(
-            text = "All operations run on-device. No data leaves your phone.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Start,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 16.dp),
-        )
     }
 }
 
 private const val APP_VERSION = "1.0.0"
+
+private fun selectedAccentName(argb: Long): String = when (argb) {
+    0L -> "Jupiter default"
+    else -> AccentPalette.firstOrNull { it.argb == argb }?.name ?: "Custom accent"
+}
 
 /** Human-readable label for a [ThemeMode]. */
 private fun labelForThemeMode(mode: ThemeMode): String = when (mode) {

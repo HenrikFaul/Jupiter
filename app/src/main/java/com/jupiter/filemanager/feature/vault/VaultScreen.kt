@@ -3,6 +3,8 @@ package com.jupiter.filemanager.feature.vault
 import android.content.Context
 import android.content.ContextWrapper
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
@@ -33,10 +35,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -58,8 +64,8 @@ import com.jupiter.filemanager.ui.components.iconForFile
  *
  * While locked it presents a lock icon and an "Unlock" button. Tapping it requires a
  * successful [BiometricPrompt] authentication (biometric or device credential) before the
- * vault is unlocked. Once unlocked it shows the list of encrypted vault entries with an
- * import affordance (the real file picker is a placeholder for now) and per-item delete.
+ * vault is unlocked. Once unlocked it shows the list of encrypted vault entries with a system
+ * document-picker import affordance and per-item delete.
  *
  * Security note: authentication is mandatory. If the hosting activity is not a
  * [FragmentActivity] (so no [BiometricPrompt] can be attached), the vault stays LOCKED and
@@ -71,6 +77,18 @@ fun VaultScreen(onBack: () -> Unit) {
     val viewModel: VaultViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val documentPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        // OpenDocument returns a content URI. Forward it untouched so the repository can read
+        // from the provider stream; never infer a filesystem path from a URI.
+        if (uri != null) viewModel.importDocument(uri)
+    }
+
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { snackbarHostState.showSnackbar(it) }
+    }
 
     Scaffold(
         topBar = {
@@ -90,21 +108,17 @@ fun VaultScreen(onBack: () -> Unit) {
             if (uiState.isUnlocked) {
                 androidx.compose.material3.FloatingActionButton(
                     onClick = {
-                        // Placeholder: a real implementation would launch a system file
-                        // picker (ACTION_OPEN_DOCUMENT) and pass the resolved path to
-                        // viewModel.importFile(...). Until that picker is wired up we
-                        // simply surface a hint so the action is discoverable.
-                        Toast.makeText(
-                            context,
-                            "Pick a file to import (file picker placeholder).",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        // Keep imports serial: one selected document is encrypted before the
+                        // user can open another picker. Cancellation yields a null URI and
+                        // intentionally leaves the vault unchanged.
+                        if (!uiState.isLoading) documentPicker.launch(arrayOf("*/*"))
                     },
                 ) {
                     Icon(imageVector = Icons.Filled.Add, contentDescription = "Import file")
                 }
             }
         },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { innerPadding ->
         Box(
             modifier = Modifier

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material3.AlertDialog
@@ -85,9 +86,15 @@ import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.model.MediaQuality
 import com.jupiter.filemanager.ui.components.EmptyView
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.components.JupiterPill
 import com.jupiter.filemanager.ui.components.iconForFile
 import java.io.File
 import kotlinx.coroutines.launch
+
+private enum class DuplicatePresentation {
+    EXACT,
+    SIMILAR,
+}
 
 /**
  * Lists duplicate file groups detected on the primary storage volume. Each group
@@ -110,6 +117,7 @@ fun DuplicatesScreen(
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     var showConfirm by remember { mutableStateOf(false) }
+    var presentation by remember { mutableStateOf(DuplicatePresentation.EXACT) }
 
     // When the user returns from the system settings screen after we asked for
     // All-Files-Access, re-run the scan so a just-granted permission recovers.
@@ -141,12 +149,13 @@ fun DuplicatesScreen(
                     }
                 },
                 actions = {
-                    // Toggle: select every extra copy when nothing is selected, otherwise clear the
-                    // whole selection. One button does both (the ✓✓ used to only ever select).
+                    // Toggle: select every removable copy while retaining the quality-ranked BEST
+                    // in each group, otherwise clear the whole selection.
                     val hasSelection = state.selectedCount > 0
                     IconButton(
                         onClick = {
-                            if (hasSelection) viewModel.clearSelection() else viewModel.selectAllExtras()
+                            if (hasSelection) viewModel.clearSelection()
+                            else viewModel.selectDuplicatesKeepingBest()
                         },
                     ) {
                         Icon(
@@ -158,7 +167,7 @@ fun DuplicatesScreen(
                             contentDescription = if (hasSelection) {
                                 "Clear selection"
                             } else {
-                                "Select all extra copies"
+                                "Select duplicates and keep the best copy"
                             },
                         )
                     }
@@ -213,6 +222,9 @@ fun DuplicatesScreen(
                 }
 
                 else -> {
+                    val presentedGroups = state.visibleGroups.filter { group ->
+                        if (presentation == DuplicatePresentation.SIMILAR) group.similar else !group.similar
+                    }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
@@ -220,9 +232,17 @@ fun DuplicatesScreen(
                     ) {
                         item {
                             SummaryCard(
-                                groupCount = state.groups.size,
-                                wastedBytes = state.totalWastedBytes,
+                                groupCount = presentedGroups.size,
+                                wastedBytes = presentedGroups.sumOf { it.wastedBytes },
                                 isScanning = state.isScanning,
+                            )
+                        }
+                        item {
+                            DuplicatePresentationSelector(
+                                selected = presentation,
+                                exactCount = state.visibleGroups.count { !it.similar },
+                                similarCount = state.visibleGroups.count { it.similar },
+                                onSelect = { presentation = it },
                             )
                         }
                         if (state.analyzingPhotos) {
@@ -234,7 +254,28 @@ fun DuplicatesScreen(
                                 onSelect = viewModel::setSizeFilter,
                             )
                         }
-                        items(state.visibleGroups, key = { it.hash }) { group ->
+                        if (presentedGroups.isEmpty()) {
+                            item {
+                                EmptyView(
+                                    title = if (presentation == DuplicatePresentation.SIMILAR) {
+                                        "No similar photos yet"
+                                    } else {
+                                        "No exact duplicates"
+                                    },
+                                    message = if (presentation == DuplicatePresentation.SIMILAR) {
+                                        "Photo analysis continues in the background and will surface matches here."
+                                    } else {
+                                        "Switch to Similar photos to review visually matching images."
+                                    },
+                                    icon = if (presentation == DuplicatePresentation.SIMILAR) {
+                                        Icons.Outlined.Image
+                                    } else {
+                                        Icons.Outlined.ContentCopy
+                                    },
+                                )
+                            }
+                        }
+                        items(presentedGroups, key = { it.hash }) { group ->
                             DuplicateGroupCard(
                                 group = group,
                                 selectedPaths = state.selectedPaths,
@@ -259,8 +300,9 @@ fun DuplicatesScreen(
             title = { Text("Delete ${state.selectedCount} file" + if (state.selectedCount == 1) "" else "s") },
             text = {
                 Text(
-                    "This will permanently delete the selected copies and reclaim " +
-                        "${formatBytes(state.selectedReclaimableBytes)}. This cannot be undone.",
+                    "This moves the selected copies to Recycle Bin and makes " +
+                        "${formatBytes(state.selectedReclaimableBytes)} available. You can restore " +
+                        "them from Recycle Bin before they are permanently removed.",
                 )
             },
             confirmButton = {
@@ -270,7 +312,7 @@ fun DuplicatesScreen(
                         viewModel.deleteSelected()
                     },
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text("Move to Recycle Bin", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
@@ -279,6 +321,55 @@ fun DuplicatesScreen(
                 }
             },
         )
+    }
+}
+
+/** Exact copies and perceptually similar photos remain visibly and logically separate. */
+@Composable
+private fun DuplicatePresentationSelector(
+    selected: DuplicatePresentation,
+    exactCount: Int,
+    similarCount: Int,
+    onSelect: (DuplicatePresentation) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        JupiterPill(
+            selected = selected == DuplicatePresentation.EXACT,
+            onClick = { onSelect(DuplicatePresentation.EXACT) },
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(
+                text = "Exact files ($exactCount)",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                textAlign = TextAlign.Center,
+            )
+        }
+        JupiterPill(
+            selected = selected == DuplicatePresentation.SIMILAR,
+            onClick = { onSelect(DuplicatePresentation.SIMILAR) },
+            modifier = Modifier.weight(1f),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "Similar photos ($similarCount)",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+        }
     }
 }
 

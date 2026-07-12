@@ -57,7 +57,10 @@ import com.jupiter.filemanager.core.util.formatBytes
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.TrashItem
 import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.ui.components.JupiterCard
+import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.LoadingView
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Recycle Bin (Trash).
@@ -80,6 +83,7 @@ fun TrashScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showEmptyConfirm by remember { mutableStateOf(false) }
+    var pendingPermanentDelete by remember { mutableStateOf<TrashItem?>(null) }
 
     LaunchedEffect(uiState.errorMessage) {
         val message = uiState.errorMessage
@@ -102,6 +106,15 @@ fun TrashScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = viewModel::restoreAll,
+                        enabled = !uiState.busy && uiState.items.isNotEmpty(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Restore,
+                            contentDescription = "Restore all items",
+                        )
+                    }
                     IconButton(
                         onClick = { showEmptyConfirm = true },
                         enabled = !uiState.busy && uiState.items.isNotEmpty(),
@@ -136,13 +149,23 @@ fun TrashScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    item(key = "trash_summary") {
+                        TrashSummaryCard(
+                            itemCount = uiState.items.size,
+                            totalBytes = uiState.items.sumOf { it.sizeBytes },
+                            autoDeleteDays = uiState.autoDeleteDays,
+                            enabled = !uiState.busy,
+                            onRestoreAll = viewModel::restoreAll,
+                            onEmpty = { showEmptyConfirm = true },
+                        )
+                    }
                     items(items = uiState.items, key = { it.id }) { item ->
                         TrashItemCard(
                             item = item,
                             autoDeleteDays = uiState.autoDeleteDays,
                             enabled = !uiState.busy,
                             onRestore = { viewModel.restore(item.id) },
-                            onDeletePermanently = { viewModel.deletePermanently(item.id) },
+                            onDeletePermanently = { pendingPermanentDelete = item },
                         )
                     }
                 }
@@ -182,6 +205,111 @@ fun TrashScreen(
                 }
             },
         )
+    }
+
+    pendingPermanentDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingPermanentDelete = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Filled.DeleteForever,
+                    contentDescription = null,
+                )
+            },
+            title = { Text(text = "Delete permanently?") },
+            text = {
+                Text(
+                    text = "${item.name} will be permanently deleted from Recycle Bin. " +
+                        "This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingPermanentDelete = null
+                        viewModel.deletePermanently(item.id)
+                    },
+                ) {
+                    Text(text = "Delete permanently", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPermanentDelete = null }) {
+                    Text(text = "Cancel")
+                }
+            },
+        )
+    }
+}
+
+/** Live overview card — all values come from the actual Recycle Bin flow. */
+@Composable
+private fun TrashSummaryCard(
+    itemCount: Int,
+    totalBytes: Long,
+    autoDeleteDays: Int,
+    enabled: Boolean,
+    onRestoreAll: () -> Unit,
+    onEmpty: () -> Unit,
+) {
+    JupiterCard(contentPadding = PaddingValues(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JupiterIconBadge(
+                icon = Icons.Filled.DeleteOutline,
+                tint = MaterialTheme.colorScheme.primary,
+                contentDescription = null,
+                size = 64.dp,
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (autoDeleteDays > 0) {
+                        "Auto-delete after $autoDeleteDays days"
+                    } else {
+                        "Recycle Bin"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "$itemCount item" + if (itemCount == 1) "" else "s" +
+                        " • ${formatBytes(totalBytes)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedButton(
+                onClick = onRestoreAll,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Filled.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Restore all")
+            }
+            OutlinedButton(
+                onClick = onEmpty,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(
+                    Icons.Filled.DeleteForever,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Empty bin", color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }
 

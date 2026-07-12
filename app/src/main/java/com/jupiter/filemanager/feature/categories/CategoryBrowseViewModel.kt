@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.data.media.CategorySort
 import com.jupiter.filemanager.data.media.MediaStoreCategorySource
+import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.ui.navigation.Destination
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -43,6 +45,12 @@ class CategoryBrowseViewModel @Inject constructor(
     )
     val uiState: StateFlow<CategoryBrowseUiState> = _uiState.asStateFlow()
 
+    /** The last complete MediaStore result, before a Photos location filter. */
+    private var sourceItems: List<FileItem> = emptyList()
+
+    /** Ensures an earlier slow query cannot overwrite a later sort selection. */
+    private var queryGeneration: Long = 0L
+
     init {
         load()
     }
@@ -50,26 +58,71 @@ class CategoryBrowseViewModel @Inject constructor(
     /** Queries the source for the current category using the current sort order. */
     fun load() {
         val sort = _uiState.value.sort
-        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+        val generation = ++queryGeneration
+        _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            val items = source.query(category, sort)
-            _uiState.value = _uiState.value.copy(
-                items = items,
-                isLoading = false,
-                error = null,
-            )
+            val result = runCatching { source.query(category, sort) }
+            // Sort changes can issue overlapping MediaStore queries. Only the
+            // newest request is allowed to publish its result.
+            if (generation != queryGeneration) return@launch
+
+            result.onSuccess { items ->
+                sourceItems = items
+                _uiState.update { current ->
+                    current.copy(
+                        items = filterItems(items, current.photoFilter),
+                        sourceItemCount = items.size,
+                        isLoading = false,
+                        error = null,
+                    )
+                }
+            }.onFailure {
+                _uiState.update { current ->
+                    current.copy(
+                        isLoading = false,
+                        error = "Couldn't load ${category.name.lowercase()} right now.",
+                    )
+                }
+            }
         }
     }
 
     /** Changes the sort order and re-queries. No-op when the order is unchanged. */
     fun setSort(sort: CategorySort) {
         if (sort == _uiState.value.sort) return
-        _uiState.value = _uiState.value.copy(sort = sort)
+        _uiState.update { it.copy(sort = sort) }
         load()
+    }
+
+    /**
+     * Applies a real folder refinement to the already-indexed Photos result.
+     * Other categories intentionally ignore this: their MediaStore category
+     * query is the meaningful filter for those content types.
+     */
+    fun setPhotoFilter(filter: PhotoLocationFilter) {
+        val current = _uiState.value
+        if (category != StorageCategory.IMAGES || filter == current.photoFilter) return
+
+        _uiState.update {
+            it.copy(
+                photoFilter = filter,
+                items = filterItems(sourceItems, filter),
+                sourceItemCount = sourceItems.size,
+            )
+        }
     }
 
     /** Retries the query after a failure. */
     fun retry() {
         load()
+    }
+
+    private fun filterItems(
+        items: List<FileItem>,
+        filter: PhotoLocationFilter,
+    ): List<FileItem> = if (category == StorageCategory.IMAGES) {
+        items.filter(filter::matches)
+    } else {
+        items
     }
 }

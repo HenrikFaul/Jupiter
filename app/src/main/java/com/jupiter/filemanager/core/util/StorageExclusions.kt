@@ -29,8 +29,13 @@ object StorageExclusions {
 
     /** True when [path] lies inside any excluded directory (matched on full, case-insensitive segments). */
     fun isExcluded(path: String): Boolean {
-        if (path.isEmpty()) return false
-        val lower = path.lowercase(Locale.US)
+        if (path.isEmpty() || path.startsWith("content://", ignoreCase = true)) return false
+
+        // `File.absolutePath` uses `\\` in JVM/Robolectric tests on Windows, while Android and
+        // MediaStore generally use `/`. Normalize first so the one policy has identical behaviour
+        // at every enumeration boundary; the surrounding slashes still keep this a full-segment
+        // match (for example, `my.trash.notes` remains visible).
+        val lower = path.replace('\\', '/').lowercase(Locale.US)
         return EXCLUDED_SEGMENTS.any { lower.contains("/$it/") || lower.endsWith("/$it") }
     }
 }

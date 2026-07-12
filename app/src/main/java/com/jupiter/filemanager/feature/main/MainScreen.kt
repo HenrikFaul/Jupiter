@@ -1,5 +1,8 @@
 package com.jupiter.filemanager.feature.main
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -13,14 +16,18 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -33,6 +40,7 @@ import com.jupiter.filemanager.feature.favorites.FavoritesScreen
 import com.jupiter.filemanager.feature.home.HomeScreen
 import com.jupiter.filemanager.feature.more.MoreScreen
 import com.jupiter.filemanager.feature.recent.RecentScreen
+import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
  * Root container for the primary app experience. Hosts an inner [NavHost] driven by a bottom
@@ -75,8 +83,28 @@ fun MainScreen(
         bottomBar = {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentDestination = navBackStackEntry?.destination
-            NavigationBar {
-                mainTabs.forEach { tab ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .clip(JupiterDesign.FloatingNavShape),
+                shape = JupiterDesign.FloatingNavShape,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainer,
+                contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f),
+                ),
+                tonalElevation = 6.dp,
+                shadowElevation = 10.dp,
+            ) {
+                NavigationBar(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                    tonalElevation = 0.dp,
+                ) {
+                    mainTabs.forEach { tab ->
                     val selected = currentDestination?.hierarchy?.any { it.route == tab.route } == true
                     NavigationBarItem(
                         selected = selected,
@@ -96,7 +124,15 @@ fun MainScreen(
                             )
                         },
                         label = { Text(tab.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                            selectedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                            indicatorColor = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
                     )
+                }
                 }
             }
         },
@@ -108,6 +144,7 @@ fun MainScreen(
         ) {
             composable(MainTab.Home.route) {
                 HomeScreen(
+                    onOpenFile = onOpenFile,
                     onOpenPath = onOpenPath,
                     onNavigate = onOpenRoute,
                 )

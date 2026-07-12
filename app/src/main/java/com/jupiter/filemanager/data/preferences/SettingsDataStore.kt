@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -78,17 +80,18 @@ class SettingsDataStore @Inject constructor(
         val ANALYTICS_OPT_IN = booleanPreferencesKey("analytics_opt_in")
         val PRO_UNLOCKED = booleanPreferencesKey("pro_unlocked")
         val INDEXING_ENABLED = booleanPreferencesKey("indexing_enabled")
+        val RECENT_SEARCHES = stringPreferencesKey("recent_searches")
         val DEDUP_CHECKPOINT_ID = longPreferencesKey("dedup_checkpoint_id")
         val TRASH_AUTO_DELETE_DAYS = intPreferencesKey("trash_auto_delete_days")
     }
 
-    /** Current theme mode; defaults to [ThemeMode.SYSTEM]. */
+    /** Current theme mode; defaults to the branded dark design. */
     val themeMode: Flow<ThemeMode> = dataStore.data
         .safe()
         .map { prefs ->
             prefs[Keys.THEME_MODE]
                 ?.let { name -> enumValueOrNull<ThemeMode>(name) }
-                ?: ThemeMode.SYSTEM
+                ?: ThemeMode.DARK
         }
 
     /** Whether hidden files should be shown; defaults to false. */
@@ -179,10 +182,10 @@ class SettingsDataStore @Inject constructor(
         .safe()
         .map { prefs -> prefs[Keys.AMOLED_BLACK] ?: false }
 
-    /** Whether Material You dynamic color is enabled (on S+); defaults to true. */
+    /** Whether Material You dynamic color is enabled (on S+); defaults to false. */
     val dynamicColor: Flow<Boolean> = dataStore.data
         .safe()
-        .map { prefs -> prefs[Keys.DYNAMIC_COLOR] ?: true }
+        .map { prefs -> prefs[Keys.DYNAMIC_COLOR] ?: false }
 
     /** Whether the user has opted in to anonymous analytics; defaults to false. */
     val analyticsOptIn: Flow<Boolean> = dataStore.data
@@ -205,6 +208,18 @@ class SettingsDataStore @Inject constructor(
     val indexingEnabled: Flow<Boolean> = dataStore.data
         .safe()
         .map { prefs -> prefs[Keys.INDEXING_ENABLED] ?: true }
+
+    /**
+     * The user's most recently submitted search terms, newest first.
+     *
+     * This deliberately stores only the query text in the app-private Preferences
+     * DataStore. Search results, file paths, snippets, and any AI output are never
+     * persisted here, so the feature stays on-device and does not create a second
+     * index of the user's storage.
+     */
+    val recentSearches: Flow<List<String>> = dataStore.data
+        .safe()
+        .map { prefs -> RecentSearchHistory.decode(prefs[Keys.RECENT_SEARCHES]) }
 
     // Index COMPLETENESS is no longer a DataStore flag: it now lives transactionally in the
     // Room index_state table (IndexStateRepository) so a database wipe can never leave an
@@ -273,6 +288,29 @@ class SettingsDataStore @Inject constructor(
     }
 
     /**
+     * Adds a submitted search term to the bounded, de-duplicated local history.
+     * Blank terms are ignored and matching is case-insensitive, while retaining
+     * the spelling most recently entered by the user.
+     */
+    suspend fun addRecentSearch(query: String) {
+        val normalized = query.trim()
+        if (normalized.isEmpty()) return
+
+        dataStore.edit { prefs ->
+            val updated = RecentSearchHistory.updated(
+                existing = RecentSearchHistory.decode(prefs[Keys.RECENT_SEARCHES]),
+                newest = normalized,
+            )
+            prefs[Keys.RECENT_SEARCHES] = RecentSearchHistory.encode(updated)
+        }
+    }
+
+    /** Clears locally persisted recent-search terms without affecting the file index. */
+    suspend fun clearRecentSearches() {
+        dataStore.edit { prefs -> prefs.remove(Keys.RECENT_SEARCHES) }
+    }
+
+    /**
      * Number of days after which items in the Recycle Bin are permanently deleted automatically.
      * 0 = OFF (never auto-delete; the default, so nothing is lost without an explicit opt-in). A
      * daily background worker ([com.jupiter.filemanager.data.trash.TrashPurgeWorker]) enforces it.
@@ -327,3 +365,61 @@ class SettingsDataStore @Inject constructor(
  */
 private inline fun <reified T : Enum<T>> enumValueOrNull(name: String): T? =
     enumValues<T>().firstOrNull { it.name == name }
+
+/**
+ * Serialization and bounded-list policy for [SettingsDataStore.recentSearches].
+ *
+ * Preferences DataStore has no ordered-list value type. URL-safe Base64 keeps
+ * arbitrary user-entered text reversible while a comma remains an unambiguous,
+ * order-preserving delimiter. The object is deliberately pure so the persistence
+ * policy can be verified without touching Android storage.
+ */
+internal object RecentSearchHistory {
+    const val MAX_ENTRIES: Int = 8
+
+    fun updated(existing: List<String>, newest: String): List<String> {
+        val normalizedNewest = newest.trim()
+        return sanitize(
+            sequenceOf(normalizedNewest)
+                .plus(existing.asSequence().filterNot { it.equals(normalizedNewest, ignoreCase = true) })
+                .asIterable(),
+        )
+    }
+
+    fun encode(entries: List<String>): String =
+        sanitize(entries)
+            .joinToString(separator = ",") { entry ->
+                Base64.getUrlEncoder().encodeToString(entry.toByteArray(StandardCharsets.UTF_8))
+            }
+
+    fun decode(serialized: String?): List<String> {
+        if (serialized.isNullOrBlank()) return emptyList()
+
+        return sanitize(
+            serialized
+                .split(',')
+                .asSequence()
+                .mapNotNull { token ->
+                    runCatching {
+                        String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8)
+                    }.getOrNull()
+                }
+                .asIterable(),
+        )
+    }
+
+    private fun sanitize(entries: Iterable<String>): List<String> {
+        val result = ArrayList<String>(MAX_ENTRIES)
+        entries.forEach { raw ->
+            val entry = raw.trim()
+            if (
+                entry.isNotEmpty() &&
+                result.none { existing -> existing.equals(entry, ignoreCase = true) } &&
+                result.size < MAX_ENTRIES
+            ) {
+                result += entry
+            }
+        }
+        return result
+    }
+}

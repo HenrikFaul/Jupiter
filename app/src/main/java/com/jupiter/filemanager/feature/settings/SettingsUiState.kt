@@ -15,7 +15,7 @@ import com.jupiter.filemanager.domain.model.ThemeMode
  * privacy fields are additive.
  */
 data class SettingsUiState(
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DARK,
     val showHidden: Boolean = false,
     val dualPaneEnabled: Boolean = false,
     val aiEnabled: Boolean = false,
@@ -23,7 +23,7 @@ data class SettingsUiState(
     // Personalization (additive). Defaults preserve the current look.
     val accentColorArgb: Long = 0L,
     val amoledBlack: Boolean = false,
-    val dynamicColor: Boolean = true,
+    val dynamicColor: Boolean = false,
     // Privacy (additive). Analytics is opt-in and off by default.
     val analyticsOptIn: Boolean = false,
     // Indexing (additive). The persistent file index speeds up search and is on

@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.data.index
 
+import com.jupiter.filemanager.core.util.StorageExclusions
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
@@ -286,8 +287,7 @@ class FileIndexRepositoryImpl @Inject constructor(
      * time — without waiting for the next full survey to sweep them.
      */
     private fun isExcludedResultPath(path: String): Boolean {
-        val lower = path.lowercase()
-        return EXCLUDED_RESULT_SEGMENTS.any { lower.contains("/$it/") || lower.endsWith("/$it") }
+        return StorageExclusions.isExcluded(path)
     }
 
     /**
@@ -833,13 +833,6 @@ class FileIndexRepositoryImpl @Inject constructor(
 
         /** Lowercase hex alphabet used by [toHexString]. */
         val HEX_DIGITS = "0123456789abcdef".toCharArray()
-
-        /**
-         * Path segments (lowercased, full-segment matched) whose files must never be surfaced as
-         * duplicates: trash/recycle-bin staging and thumbnail caches. Kept in sync with the
-         * indexing sources' exclusions so pre-existing rows are filtered at read time too.
-         */
-        val EXCLUDED_RESULT_SEGMENTS = listOf(".trash", ".trashed", ".thumbnails")
 
         /** Types carrying a text SimHash structural fingerprint. */
         val TEXT_TYPE_NAMES = listOf(FileType.CODE.name)
