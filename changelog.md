@@ -830,6 +830,8 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - API 34 `emulator-5554`: All Files Access + notification permission mellett egy új `/Download/jupiter_arrival_copy.png` bájtazonos másolat ténylegesen `Duplicate detected — you already have 1 copy` system notificationt adott; az SQLite outbox rekord `DELIVERED|1`.
 - Ugyanezen emulátoron upgrade után a már függő durable döntések `Duplicate files detected` összesített riasztásként megjelentek a notification permission engedélyezésekor.
 - `git diff --check`: whitespace-hiba nincs (csak repository CRLF figyelmeztetés).
+- **[remote]** Implementációs commit `7b020a428f8aa16b111c7720ae7772f9674c5719` közvetlenül `origin/main`-re pusholva. [Android CI run 29222644940](https://github.com/HenrikFaul/Jupiter/actions/runs/29222644940) **success**: Unit tests és Build APKs job is zöld, a debug/release artifact és a `build-latest` release asset publikáció sikeres.
+- **[release]** A run által publikált `build-latest` assetek: [app-debug.apk](https://github.com/HenrikFaul/Jupiter/releases/download/build-latest/app-debug.apk) — 36 158 874 byte — SHA-256 `9b2600bf84d31534ca58c928312a914aac0815c4314acd8b10e610eadbf126f7`; [app-release.apk](https://github.com/HenrikFaul/Jupiter/releases/download/build-latest/app-release.apk) — 7 886 487 byte — SHA-256 `a1fd57894ed67214425df8833d7df02c00e7c6be2a34e4b7c2c2ba259b98feb0`.
 
 ### Remaining risk
 
