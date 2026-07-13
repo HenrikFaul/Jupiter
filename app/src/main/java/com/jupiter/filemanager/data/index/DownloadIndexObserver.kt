@@ -22,8 +22,8 @@ import javax.inject.Singleton
  * processes exactly the new/changed files. That same reconciler also runs on app foreground and
  * periodically, so files that arrive while this observer is dead are still caught.
  *
- * Idempotent registration; a chatty burst of change events coalesces into one queued reconcile
- * (KEEP unique work) with a short local debounce on top. Best-effort throughout.
+ * Idempotent registration; a chatty burst of change events coalesces into one trailing reconcile
+ * after the final update. Best-effort throughout.
  */
 @Singleton
 class DownloadIndexObserver @Inject constructor(
@@ -31,19 +31,19 @@ class DownloadIndexObserver @Inject constructor(
     private val indexingScheduler: IndexingScheduler,
 ) {
 
-    @Volatile
-    private var observer: ContentObserver? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val trailingKick = Runnable { enqueueNow() }
 
     @Volatile
-    private var lastKickAtMs = 0L
+    private var observer: ContentObserver? = null
 
     /** Registers the MediaStore observer. Idempotent; safe to call once from app start. */
     @Synchronized
     fun start() {
         if (observer != null) return
-        val obs = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean, uri: Uri?) = kick()
-            override fun onChange(selfChange: Boolean) = kick()
+        val obs = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) = scheduleTrailingKick()
+            override fun onChange(selfChange: Boolean) = scheduleTrailingKick()
         }
         val registered = runCatching {
             context.contentResolver.registerContentObserver(
@@ -54,21 +54,28 @@ class DownloadIndexObserver @Inject constructor(
         }.isSuccess
         if (registered) observer = obs
         // Also reconcile once on startup so anything that arrived while we were dead is caught.
-        kick()
+        enqueueNow()
     }
 
     /** Unregisters the observer. Idempotent. */
     @Synchronized
     fun stop() {
+        handler.removeCallbacks(trailingKick)
         observer?.let { runCatching { context.contentResolver.unregisterContentObserver(it) } }
         observer = null
     }
 
-    /** Enqueues a reconcile, debounced so a MediaStore change-burst yields one queued run. */
-    private fun kick() {
-        val now = System.currentTimeMillis()
-        if (now - lastKickAtMs < DEBOUNCE_MS) return
-        lastKickAtMs = now
+    /**
+     * Trailing-edge debounce: every signal moves the reconcile to shortly AFTER the final
+     * MediaStore update. A leading-edge timestamp gate used to discard the download-complete
+     * signal when it followed the pending-row insert within 1.5 seconds.
+     */
+    private fun scheduleTrailingKick() {
+        handler.removeCallbacks(trailingKick)
+        handler.postDelayed(trailingKick, DEBOUNCE_MS)
+    }
+
+    private fun enqueueNow() {
         indexingScheduler.ensureIndexed()
         indexingScheduler.reconcileDedupNow()
     }

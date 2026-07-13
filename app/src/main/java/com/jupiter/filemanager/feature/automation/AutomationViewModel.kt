@@ -7,6 +7,9 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.jupiter.filemanager.data.automation.AutomationWorker
+import com.jupiter.filemanager.data.automation.RuleEngine
+import com.jupiter.filemanager.domain.model.AutomationRule
+import com.jupiter.filemanager.domain.model.AutomationSafety
 import com.jupiter.filemanager.domain.repository.AutomationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -34,19 +37,23 @@ import javax.inject.Inject
 class AutomationViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val automationRepository: AutomationRepository,
+    private val ruleEngine: RuleEngine,
 ) : ViewModel() {
 
     /** One-shot confirmation message, set when a manual run has been enqueued. */
     private val runEnqueuedMessage = MutableStateFlow<String?>(null)
+    private val previewMessage = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<AutomationUiState> = combine(
         automationRepository.observeRules(),
         runEnqueuedMessage,
-    ) { rules, message ->
+        previewMessage,
+    ) { rules, message, preview ->
         AutomationUiState(
             rules = rules,
             isLoading = false,
             runEnqueuedMessage = message,
+            previewMessage = preview,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -65,6 +72,52 @@ class AutomationViewModel @Inject constructor(
     fun deleteRule(id: String) {
         viewModelScope.launch {
             automationRepository.deleteRule(id)
+        }
+    }
+
+    /** Saves an edited/renamed rule. Destructive or unsupported actions are never persisted. */
+    fun updateRule(id: String, name: String, whenText: String, thenText: String) {
+        if (name.isBlank() || whenText.isBlank()) {
+            previewMessage.value = "Name and When are required."
+            return
+        }
+        if (!AutomationSafety.isSupportedAction(thenText)) {
+            previewMessage.value = if (AutomationSafety.isDestructiveAction(thenText)) {
+                "Delete actions are blocked. Automation never deletes files."
+            } else {
+                "Use a safe action: move to a folder, or favorite."
+            }
+            return
+        }
+        viewModelScope.launch {
+            automationRepository.updateRule(
+                id = id,
+                name = name.trim(),
+                whenText = whenText.trim(),
+                thenText = thenText.trim(),
+            )
+            previewMessage.value = "Automation updated. It remains ${
+                uiState.value.rules.firstOrNull { it.id == id }
+                    ?.let { if (it.enabled) "active" else "suspended" }
+                    ?: "suspended"
+            }."
+        }
+    }
+
+    /** Performs a read-only dry run for one saved rule and reports the current matches. */
+    fun previewRule(rule: AutomationRule) {
+        viewModelScope.launch {
+            val preview = ruleEngine.preview(rule)
+            previewMessage.value = when {
+                preview.destructiveBlocked ->
+                    "Blocked: this rule asks to delete files. Nothing was changed."
+                !preview.actionSupported ->
+                    "This action isn't supported. Nothing was changed. Edit the rule first."
+                preview.matchingFiles == 1 ->
+                    "Safe preview: 1 file matches. Nothing was changed."
+                else ->
+                    "Safe preview: ${preview.matchingFiles} files match. Nothing was changed."
+            }
         }
     }
 
@@ -97,5 +150,10 @@ class AutomationViewModel @Inject constructor(
     /** Clears the one-shot run-enqueued message after the screen has shown it. */
     fun consumeRunEnqueuedMessage() {
         runEnqueuedMessage.update { null }
+    }
+
+    /** Clears the one-shot preview/edit message after it has been shown. */
+    fun consumePreviewMessage() {
+        previewMessage.update { null }
     }
 }

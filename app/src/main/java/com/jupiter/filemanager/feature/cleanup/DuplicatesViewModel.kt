@@ -358,6 +358,12 @@ class DuplicatesViewModel @Inject constructor(
         )
     }
 
+    /** Orders the current duplicate scope by the largest file in each group. */
+    fun setSizeOrder(order: DuplicateSizeOrder) {
+        if (_uiState.value.isDeleting) return
+        _uiState.value = _uiState.value.copy(sizeOrder = order)
+    }
+
     /** Switches exact/similar review scope and drops every now-hidden deletion selection. */
     fun setPresentation(presentation: DuplicatePresentation) {
         if (_uiState.value.isDeleting) return

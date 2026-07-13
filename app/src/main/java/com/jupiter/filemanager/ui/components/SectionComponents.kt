@@ -30,7 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.jupiter.filemanager.core.util.formatBytes
+import com.jupiter.filemanager.core.util.formatStorageBytes
 import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
@@ -148,7 +148,7 @@ fun ToolTile(
 /**
  * A labelled storage usage bar showing a used / total breakdown and a
  * proportional [LinearProgressIndicator]. Byte amounts are rendered via
- * [formatBytes].
+ * [formatStorageBytes], matching Android's system storage units.
  */
 @Composable
 fun StorageBar(
@@ -174,7 +174,7 @@ fun StorageBar(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "${formatBytes(usedBytes)} / ${formatBytes(totalBytes)}",
+                text = "${formatStorageBytes(usedBytes)} / ${formatStorageBytes(totalBytes)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

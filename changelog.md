@@ -750,3 +750,41 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon` — **BUILD SUCCESSFUL**.
 - XML összesítés: **54 suite / 320 teszt / 0 failure / 0 error / 0 skipped**.
 - `git diff --check` — tiszta (csak CRLF-normalizációs figyelmeztetések).
+
+## [jupiter:0.54.0] - 2026-07-13
+
+**Scope / miért:** a felhasználó által készüléken visszamért négy bizalmi/funkcionális rés lezárása regresszió nélkül: a rendszer tárhelykezelőjével egyező teljes kapacitás, érthető és biztonságosan kipróbálható Automation, exact+similar összesített duplikátumszám és visszaállított méret-/kijelölési vezérlők, valamint az újra letöltött kép megbízható érkezési értesítése.
+
+### Added
+- **[automation/domain,data,ui]** Öt stabil azonosítójú, upgrade-safe és alapból suspended példa: letöltött PDF/APK/ZIP/MP3 rendezés és screenshot-kedvencelés. Meglévő user rule-ok megmaradnak; a presetek egyszer kerülnek melléjük, törlés után nem élednek újra.
+- **[automation/ui]** Részletes ötlépéses útmutató, szabályonkénti módosításmentes `Try safely` előnézet, szerkesztés/átnevezés, aktív–suspended kapcsoló és megerősített szabálytörlés. A szabály törlése nem töröl telefonfájlt.
+- **[automation/safety]** Közös `AutomationSafety`: a delete/erase/remove/wipe/trash jellegű action authoringkor és a végrehajtó motorban is tiltott; régi vagy manipulált destructive rule no-op. A `move to` és `move it to` forma támogatott.
+- **[test]** Új storage-capacity, Automation preset/migráció/no-delete/gateway, duplicate summary és generation-arrival regressziós tesztek.
+
+### Changed
+- **[storage/data]** A primary volume total/free kijelzés API 26+ alatt a `StorageStatsManager.getTotalBytes/getFreeBytes(StorageManager.UUID_DEFAULT)` rendszerforrást használja. Ha az OEM ezt nem adja vissza, a `StatFs` user-data fájlrendszerből biztonságos retail-tier fallback készül.
+- **[storage/ui]** A készülék-/volume-kapacitás külön decimális formattert kapott, így 256 000 000 000 byte `256 GB`; a fájlméretek meglévő bináris formattere változatlan. Home, Storage analytics, Cleanup és a közös storage bar ugyanazt a szemantikát használja.
+- **[automation/data]** Az Automation move a normál `FileRepository.move()` gateway-en fut, ezért a már leszállított no-overwrite, progress és index-rewrite védelem érvényben marad.
+- **[dedup/ui]** A hero az exact és similar scope összes egyedi fájlútvonalát `duplicate items` néven összegzi. Az Exact/Similar fülek itemszámot mutatnak; a méretküszöb, Largest/Smallest rendezés, Select all és Deselect all mindig látható.
+- **[build/ui]** `versionCode` 6, `versionName` 0.54.0; a What's New tartalma a tényleges 0.54 képességeket mutatja.
+
+### Fixed
+- **[dedup/arrival]** Gyökérok-javítás: a régi `_ID` checkpoint már a letöltés pending/0-byte INSERT során túlléphetett a soron, a kész fájl pedig ugyanazt az `_ID`-t UPDATE-elte, ezért soha nem került újra ellenőrzésre. Android 11+ alatt a reconciler MediaStore version + `GENERATION_MODIFIED` deltára váltott és csak `IS_PENDING = 0` sort dolgoz fel; a finalizálás új generationje így biztosan látszik.
+- **[dedup/scheduling]** A leading-edge 1,5 másodperces observer gate helyett trailing-edge reconcile fut a változásburst után. A unique WorkManager policy `APPEND_OR_REPLACE`, ezért egy futó reconcile alatt érkező completion-jel hagy maga után új passzt.
+- **[dedup/selection]** A közvetlen Select all kizárólag az aktív tab + méretszűrő látható csoportjain dolgozik, és a meglévő globális quality-ranked keeper policy minden csoport őrzendő példányát továbbra is kizárja.
+
+### Known issues
+- **[platform/storage]** Harmadik féltől származó Android app nem tudja fájlonként bejárni az OEM/system által védett partíciókat. A teljes fizikai kapacitás és a total−free alapján minden foglalt byte elszámolt, de a védett rész kategorizálása rendszer/egyéb összeg marad; nem gyártunk hozzá hamis fájllistát.
+- **[platform/delta]** `GENERATION_MODIFIED` Android 11+-os. Android 10-en `_ID` + `IS_PENDING=0` fallback marad; a teljes delete/rename/move catalog reconciliationt továbbra is az authoritative survey végzi.
+- **[platform/notification]** A riasztás csak engedélyezett Android notification permission és aktív `Duplicate alerts` csatorna mellett lehet látható; az indexelés és a perzisztált dedup döntés ettől függetlenül lefut.
+- **[automation/safety]** Az aktív szabályok továbbra is csak az Automation képernyőn indított, megerősített `Run rules now` során futnak; nincs csendes háttérbeli fájlmozgatás. Ez a meglévő adatbiztonsági szerződés tudatos megtartása.
+
+### Verification
+- `git pull --ff-only origin main` — already up to date; közvetlen `main`, a meglévő untracked `versioning.zip` érintetlen.
+- `StorageCapacityPolicyTest`, `FormattersTest`, `AutomationSafetyTest`, `RuleEngineGatewayTest`, `DedupReconcilerTest`, `DuplicatesUiStateSizeFilterTest`, `DuplicatesUiStateSummaryTest` — cache nélküli tiszta célzott kapu **BUILD SUCCESSFUL**.
+- `.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon` — **BUILD SUCCESSFUL**; XML összesítés: **58 suite / 344 teszt / 0 failure / 0 error / 0 skipped**.
+- API 34 `emulator-5554`: APK streamed install sikeres, cold launch `Status: ok`, `MainActivity` top-resumed, FATAL/AndroidRuntime találat nincs.
+- Runtime UI: Home `of 8.0 GB` retail-total; mind az öt suspended Automation preset renderelt; `Try safely` → `Safe preview: 0 files match. Nothing was changed.`; Duplicates → `duplicate items`, Exact/Similar, size filter/order, Select all/Deselect all renderelt.
+- Valós arrival próba: meglévő PNG bájtazonos másolata MediaStore scan után `Duplicate detected` notificationt adott (`you already have 2 copies`); a kör által létrehozott proof fájl utána eltávolítva.
+- `git diff --check` — whitespace-hiba nincs; csak a repository CRLF-normalizációs figyelmeztetései.
+- GitHub Actions / release asset: a commit/push utáni konkrét run alapján töltendő ki; jelen ponton nincs előre kijelentett CI-siker.

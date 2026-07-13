@@ -1,5 +1,7 @@
 package com.jupiter.filemanager.feature.automation
 
+import com.jupiter.filemanager.domain.model.AutomationSafety
+
 /**
  * Immutable UI state for the Rule Builder screen.
  *
@@ -29,6 +31,7 @@ data class RuleBuilderUiState(
     val isParsing: Boolean = false,
     val aiSuggestion: String? = null,
     val aiError: String? = null,
+    val actionError: String? = null,
     val isSaving: Boolean = false,
     val saved: Boolean = false,
 ) {
@@ -37,6 +40,7 @@ data class RuleBuilderUiState(
         get() = name.isNotBlank() &&
             whenText.isNotBlank() &&
             thenText.isNotBlank() &&
+            AutomationSafety.isSupportedAction(thenText) &&
             !isSaving &&
             !saved
 

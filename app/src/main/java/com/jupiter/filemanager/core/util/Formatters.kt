@@ -31,6 +31,28 @@ fun formatBytes(bytes: Long): String {
 }
 
 /**
+ * Formats device/volume capacity using the decimal units used by Android's system storage UI and
+ * storage manufacturers. Keeping this separate from [formatBytes] avoids changing file-size
+ * semantics throughout the file manager while ensuring a 256,000,000,000-byte phone says
+ * "256 GB", not "238.4 GB".
+ */
+fun formatStorageBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+
+    val units = arrayOf("B", "KB", "MB", "GB", "TB", "PB", "EB")
+    val base = 1000.0
+    val digitGroups = (ln(bytes.toDouble()) / ln(base)).toInt().coerceIn(0, units.size - 1)
+    val value = bytes / base.pow(digitGroups.toDouble())
+
+    return when {
+        digitGroups == 0 -> "$bytes B"
+        value >= 100.0 && value % 1.0 == 0.0 ->
+            String.format(java.util.Locale.getDefault(), "%.0f %s", value, units[digitGroups])
+        else -> String.format(java.util.Locale.getDefault(), "%.1f %s", value, units[digitGroups])
+    }
+}
+
+/**
  * Formats an epoch-millis timestamp as a localized short date and time string.
  */
 fun formatDate(epochMillis: Long): String {

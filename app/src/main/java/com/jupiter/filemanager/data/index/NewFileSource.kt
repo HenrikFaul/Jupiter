@@ -7,6 +7,21 @@ package com.jupiter.filemanager.data.index
  */
 interface NewFileSource {
 
+    /** Opaque MediaStore database version, available on Android 11+. */
+    suspend fun currentVersion(): String? = null
+
+    /** Current MediaStore generation marker, available on Android 11+. */
+    suspend fun currentGeneration(): Long? = null
+
+    /**
+     * Finalized rows modified after [sinceGeneration]. Unlike `_ID`, the generation changes when a
+     * pending download row is finalized, so the completed bytes cannot be skipped.
+     */
+    suspend fun queryChangedSinceGeneration(
+        sinceGeneration: Long,
+        limit: Int,
+    ): List<MediaStoreIndexSource.NewFile> = emptyList()
+
     /** The highest MediaStore `_id` currently observable, or 0 when empty/unreadable. */
     suspend fun maxObservedId(): Long
 

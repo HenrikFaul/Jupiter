@@ -142,7 +142,9 @@ fun RuleBuilderScreen(
                 value = state.thenText,
                 onValueChange = viewModel::onThenChange,
                 placeholder = "move it to /Screenshots",
-                helper = "Describe the action to perform.",
+                helper = state.actionError
+                    ?: "Safe actions: move to a folder, or favorite. File deletion is never allowed.",
+                isError = state.actionError != null,
             )
 
             Text(
@@ -309,6 +311,7 @@ private fun FieldCard(
     onValueChange: (String) -> Unit,
     placeholder: String,
     helper: String,
+    isError: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -350,11 +353,16 @@ private fun FieldCard(
                 minLines = 1,
                 maxLines = 3,
                 shape = JupiterDesign.CompactCardShape,
+                isError = isError,
             )
             Text(
                 text = helper,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (isError) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
         }
     }

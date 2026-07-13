@@ -136,7 +136,6 @@ fun DuplicatesScreen(
     var showConfirm by remember { mutableStateOf(false) }
     var showHelp by remember { mutableStateOf(false) }
     var showHeaderMenu by remember { mutableStateOf(false) }
-    var showSizeFilters by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(initialPresentation) {
@@ -165,7 +164,6 @@ fun DuplicatesScreen(
             DuplicatesHeader(
                 hasSelection = state.selectedCount > 0,
                 menuExpanded = showHeaderMenu,
-                showSizeFilters = showSizeFilters,
                 enabled = !state.isDeleting,
                 canRescan = !state.isScanning && !state.isDeleting,
                 onBack = onBack,
@@ -175,7 +173,6 @@ fun DuplicatesScreen(
                     if (state.selectedCount > 0) viewModel.clearSelection()
                     else viewModel.selectDuplicatesKeepingBest()
                 },
-                onToggleSizeFilters = { showSizeFilters = !showSizeFilters },
                 onRescan = viewModel::scan,
             )
         },
@@ -228,6 +225,17 @@ fun DuplicatesScreen(
 
                 else -> {
                     val presentedGroups = state.visibleGroups
+                    val removablePaths = remember(
+                        state.visibleGroups,
+                        state.groups,
+                        state.qualities,
+                    ) {
+                        DuplicateSelectionPolicy.removablePaths(
+                            actionableGroups = state.visibleGroups,
+                            allGroups = state.groups,
+                            qualities = state.qualities,
+                        )
+                    }
                     val protectedKeeperPaths = remember(state.groups, state.qualities) {
                         DuplicateSelectionPolicy.protectedKeeperPaths(
                             allGroups = state.groups,
@@ -247,35 +255,39 @@ fun DuplicatesScreen(
                     ) {
                         item {
                             SummaryCard(
-                                duplicateFileCount = presentedGroups.sumOf { it.files.size },
-                                groupCount = presentedGroups.size,
-                                wastedBytes = presentedGroups.sumOf { it.wastedBytes },
+                                duplicateItemCount = state.totalDuplicateItemCount,
+                                groupCount = state.sizeFilteredGroups.size,
+                                wastedBytes = state.sizeFilteredGroups.sumOf { it.wastedBytes },
                                 isScanning = state.isScanning,
                                 onReview = {
-                                    scope.launch { listState.animateScrollToItem(2) }
+                                    scope.launch { listState.animateScrollToItem(3) }
                                 },
                             )
                         }
                         item {
                             DuplicatePresentationSelector(
                                 selected = state.presentation,
-                                exactCount = state.sizeFilteredGroups.count { !it.similar },
-                                similarCount = state.sizeFilteredGroups.count { it.similar },
+                                exactCount = state.duplicateItemCount(DuplicatePresentation.EXACT),
+                                similarCount = state.duplicateItemCount(DuplicatePresentation.SIMILAR),
                                 enabled = !state.isDeleting,
                                 onSelect = viewModel::setPresentation,
                             )
                         }
+                        item {
+                            DuplicateReviewControls(
+                                selectedCount = state.selectedCount,
+                                removableCount = removablePaths.size,
+                                sizeFilter = state.sizeFilter,
+                                sizeOrder = state.sizeOrder,
+                                enabled = !state.isDeleting,
+                                onSelectAll = viewModel::selectDuplicatesKeepingBest,
+                                onDeselectAll = viewModel::clearSelection,
+                                onSizeFilter = viewModel::setSizeFilter,
+                                onSizeOrder = viewModel::setSizeOrder,
+                            )
+                        }
                         if (state.analyzingPhotos) {
                             item { AnalyzingPhotosBanner() }
-                        }
-                        if (showSizeFilters) {
-                            item {
-                                SizeFilterRow(
-                                    selected = state.sizeFilter,
-                                    enabled = !state.isDeleting,
-                                    onSelect = viewModel::setSizeFilter,
-                                )
-                            }
                         }
                         if (presentedGroups.isEmpty()) {
                             item {
@@ -374,14 +386,12 @@ fun DuplicatesScreen(
 private fun DuplicatesHeader(
     hasSelection: Boolean,
     menuExpanded: Boolean,
-    showSizeFilters: Boolean,
     enabled: Boolean,
     canRescan: Boolean,
     onBack: () -> Unit,
     onHelp: () -> Unit,
     onMenuExpandedChange: (Boolean) -> Unit,
     onToggleSelection: () -> Unit,
-    onToggleSizeFilters: () -> Unit,
     onRescan: () -> Unit,
 ) {
     Column(
@@ -417,13 +427,6 @@ private fun DuplicatesHeader(
                         onClick = {
                             onMenuExpandedChange(false)
                             onToggleSelection()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (showSizeFilters) "Hide size filters" else "Size filters") },
-                        onClick = {
-                            onMenuExpandedChange(false)
-                            onToggleSizeFilters()
                         },
                     )
                     DropdownMenuItem(
@@ -646,7 +649,7 @@ private fun AnalyzingPhotosBanner() {
 
 @Composable
 private fun SummaryCard(
-    duplicateFileCount: Int,
+    duplicateItemCount: Int,
     groupCount: Int,
     wastedBytes: Long,
     isScanning: Boolean,
@@ -659,7 +662,7 @@ private fun SummaryCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             JupiterStorageRing(
-                fraction = if (duplicateFileCount > 0) 1f else 0f,
+                fraction = if (duplicateItemCount > 0) 1f else 0f,
                 size = 126.dp,
                 strokeWidth = 15.dp,
             ) {
@@ -673,7 +676,7 @@ private fun SummaryCard(
             Spacer(Modifier.width(22.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "$duplicateFileCount duplicate files",
+                    text = "$duplicateItemCount duplicate items",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -695,7 +698,7 @@ private fun SummaryCard(
                 )
                 Button(
                     onClick = onReview,
-                    enabled = duplicateFileCount > 0,
+                    enabled = duplicateItemCount > 0,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Outlined.DoneAll, contentDescription = null, modifier = Modifier.size(19.dp))
@@ -850,6 +853,81 @@ private fun DuplicateGroupCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * Always-visible duplicate review controls. The old overflow-only size filter and selection toggle
+ * looked as if the features had disappeared; keeping the explicit buttons and chips in the content
+ * makes the safe workflow discoverable while preserving the ViewModel's keeper protection.
+ */
+@Composable
+private fun DuplicateReviewControls(
+    selectedCount: Int,
+    removableCount: Int,
+    sizeFilter: SizeFilter,
+    sizeOrder: DuplicateSizeOrder,
+    enabled: Boolean,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit,
+    onSizeFilter: (SizeFilter) -> Unit,
+    onSizeOrder: (DuplicateSizeOrder) -> Unit,
+) {
+    JupiterCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CompactCardShape,
+        contentPadding = PaddingValues(14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onSelectAll,
+                enabled = enabled && removableCount > 0 && selectedCount < removableCount,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Outlined.DoneAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Select all")
+            }
+            TextButton(
+                onClick = onDeselectAll,
+                enabled = enabled && selectedCount > 0,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Outlined.RemoveDone, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Deselect all")
+            }
+        }
+        Text(
+            text = "Minimum duplicate size",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+        )
+        SizeFilterRow(selected = sizeFilter, enabled = enabled, onSelect = onSizeFilter)
+        Text(
+            text = "Sort by size",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DuplicateSizeOrder.entries.forEach { order ->
+                FilterChip(
+                    selected = sizeOrder == order,
+                    enabled = enabled,
+                    onClick = { onSizeOrder(order) },
+                    label = { Text(order.label) },
+                )
+            }
+        }
+        Text(
+            text = "Select all never selects the protected keeper in any group.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 

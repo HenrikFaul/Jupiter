@@ -1,19 +1,28 @@
 package com.jupiter.filemanager.data.automation
 
-import android.content.Context
+import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.di.IoDispatcher
 import com.jupiter.filemanager.domain.model.AutomationRule
+import com.jupiter.filemanager.domain.model.AutomationSafety
+import com.jupiter.filemanager.domain.model.OperationState
 import com.jupiter.filemanager.domain.repository.BookmarkRepository
 import com.jupiter.filemanager.domain.repository.FileRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.lastOrNull
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
+
+/** Result of a mutation-free Automation preview. */
+data class AutomationPreview(
+    val matchingFiles: Int,
+    val actionSupported: Boolean,
+    val destructiveBlocked: Boolean,
+)
 
 /**
  * Interprets simple human-authored automation rules and applies safe file operations.
@@ -23,18 +32,18 @@ import kotlin.coroutines.coroutineContext
  *
  *  - **when** clauses may reference well-known buckets ("screenshot", "download"),
  *    a file type / extension (e.g. "pdf", ".jpg"), and/or an age ("older than N days").
- *  - **then** clauses may "move to <folder>", "delete", or "favorite".
+ *  - **then** clauses may "move to <folder>" or "favorite".
  *
- * Only safe moves and deletes **within primary external storage** are performed; any
+ * Only safe organization operations **within primary external storage** are performed; any
  * resolved target that would escape the storage root is skipped. Every file-system
- * interaction is guarded, so a malformed rule can never crash the caller — it simply
- * affects nothing. [applyAll] returns the number of files affected.
+ * interaction is guarded, so a malformed rule can never crash the caller. Destructive actions are
+ * rejected even for legacy/manipulated persisted rules. [applyAll] returns the number of files
+ * affected.
  *
  * All work runs on the injected [IoDispatcher]; it is cooperative with cancellation.
  */
 @Singleton
 class RuleEngine @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val fileRepository: FileRepository,
     private val bookmarkRepository: BookmarkRepository,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
@@ -42,7 +51,7 @@ class RuleEngine @Inject constructor(
 
     /**
      * Applies every rule in [rules] (in order), returning the total number of files
-     * affected (moved, deleted, or marked favorite). Disabled rules are skipped.
+     * affected (moved or marked favorite). Disabled rules are skipped.
      */
     suspend fun applyAll(rules: List<AutomationRule>): Int = withContext(dispatcher) {
         val root = File(fileRepository.rootDirectory())
@@ -65,6 +74,29 @@ class RuleEngine @Inject constructor(
         affected
     }
 
+    /**
+     * Dry-runs one rule and reports how many files currently match. No bookmark or file-system
+     * mutation is performed, and suspended rules can also be previewed safely.
+     */
+    suspend fun preview(rule: AutomationRule): AutomationPreview = withContext(dispatcher) {
+        val root = File(fileRepository.rootDirectory())
+        val actionSupported = parseAction(rule.thenText) != null
+        val destructiveBlocked = AutomationSafety.isDestructiveAction(rule.thenText)
+        val matchingFiles = try {
+            val condition = parseCondition(rule.whenText, root)
+            condition.searchRoots
+                .flatMap { collectFiles(it) }
+                .count { matches(it, condition) }
+        } catch (_: Exception) {
+            0
+        }
+        AutomationPreview(
+            matchingFiles = matchingFiles,
+            actionSupported = actionSupported,
+            destructiveBlocked = destructiveBlocked,
+        )
+    }
+
     // region Internals --------------------------------------------------------
 
     /** Applies a single [rule], returning how many files it affected. */
@@ -80,7 +112,6 @@ class RuleEngine @Inject constructor(
         for (file in candidates) {
             coroutineContext.ensureActive()
             val ok = when (action) {
-                is RuleAction.Delete -> safeDelete(file, canonicalRoot)
                 is RuleAction.Favorite -> markFavorite(file, canonicalRoot)
                 is RuleAction.MoveTo -> safeMove(file, action.folderName, root, canonicalRoot)
             }
@@ -100,7 +131,6 @@ class RuleEngine @Inject constructor(
     /** Parsed action for a rule. */
     private sealed interface RuleAction {
         data class MoveTo(val folderName: String) : RuleAction
-        data object Delete : RuleAction
         data object Favorite : RuleAction
     }
 
@@ -148,12 +178,12 @@ class RuleEngine @Inject constructor(
 
     /** Derives a [RuleAction] from the human "then" text, or null when none is recognized. */
     private fun parseAction(thenText: String): RuleAction? {
+        if (!AutomationSafety.isSupportedAction(thenText)) return null
         val text = thenText.lowercase()
         return when {
-            text.contains("delete") -> RuleAction.Delete
             text.contains("favorite") || text.contains("favourite") -> RuleAction.Favorite
-            text.contains("move to") -> {
-                val folder = thenText.substringAfter("move to", "").trim()
+            AutomationSafety.moveDestination(thenText) != null -> {
+                val folder = AutomationSafety.moveDestination(thenText).orEmpty()
                     .trim('/', '\\', '"', '\'')
                     .substringAfterLast('/')
                     .substringAfterLast('\\')
@@ -190,7 +220,7 @@ class RuleEngine @Inject constructor(
     }
 
     /** Moves [file] into a sibling [folderName] under [root], guarded against escaping the root. */
-    private fun safeMove(
+    private suspend fun safeMove(
         file: File,
         folderName: String,
         root: File,
@@ -200,23 +230,14 @@ class RuleEngine @Inject constructor(
         if (!isWithin(destDir, canonicalRoot)) {
             false
         } else {
-            destDir.mkdirs()
-            val target = uniqueTarget(File(destDir, file.name))
-            if (!isWithin(target, canonicalRoot)) {
-                false
-            } else if (file.canonicalPath == target.canonicalPath) {
-                false
-            } else {
-                file.renameTo(target) || copyThenDelete(file, target)
+            when (val item = fileRepository.getFile(file.absolutePath)) {
+                is AppResult.Failure -> false
+                is AppResult.Success -> fileRepository
+                    .move(listOf(item.data), destDir.absolutePath)
+                    .lastOrNull()
+                    ?.state == OperationState.COMPLETED
             }
         }
-    } catch (_: Exception) {
-        false
-    }
-
-    /** Deletes [file], only when it resolves inside the storage root. */
-    private fun safeDelete(file: File, canonicalRoot: String): Boolean = try {
-        if (isWithin(file, canonicalRoot)) file.delete() else false
     } catch (_: Exception) {
         false
     }
@@ -235,42 +256,6 @@ class RuleEngine @Inject constructor(
         }
     } catch (_: Exception) {
         false
-    }
-
-    /** Falls back to copy+delete when [File.renameTo] fails (e.g. cross-filesystem move). */
-    private fun copyThenDelete(file: File, target: File): Boolean = try {
-        file.inputStream().use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
-        }
-        if (target.length() == file.length()) {
-            file.delete()
-        } else {
-            target.delete()
-            false
-        }
-    } catch (_: Exception) {
-        try {
-            target.delete()
-        } catch (_: Exception) {
-            // Best-effort cleanup of a partial copy.
-        }
-        false
-    }
-
-    /** Produces a non-colliding target path by suffixing " (n)" before the extension. */
-    private fun uniqueTarget(desired: File): File {
-        if (!desired.exists()) return desired
-        val parent = desired.parentFile ?: return desired
-        val name = desired.name
-        val dot = name.lastIndexOf('.')
-        val base = if (dot > 0) name.substring(0, dot) else name
-        val ext = if (dot > 0) name.substring(dot) else ""
-        var counter = 1
-        while (true) {
-            val candidate = File(parent, base + " (" + counter + ")" + ext)
-            if (!candidate.exists()) return candidate
-            counter += 1
-        }
     }
 
     /** Returns whether [file] resolves at or below [canonicalRoot]. */

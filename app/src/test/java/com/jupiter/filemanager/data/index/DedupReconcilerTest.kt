@@ -56,10 +56,12 @@ class DedupReconcilerTest {
         override fun hasFullAccess() = granted
     }
 
-    private class FakeIndexStateRepository : IndexStateRepository {
+    private class FakeIndexStateRepository(
+        var state: IndexState? = null,
+    ) : IndexStateRepository {
         val deltaGenerations = mutableListOf<Long>()
         override fun observe(): Flow<IndexState?> = flowOf(null)
-        override suspend fun current(): IndexState? = null
+        override suspend fun current(): IndexState? = state
         override suspend fun isMetadataComplete() = false
         override suspend fun isUsable() = false
         override suspend fun beginScan() = 1L
@@ -67,8 +69,27 @@ class DedupReconcilerTest {
         override suspend fun failScan(error: String?) = Unit
         override suspend fun recordDeltaSync(version: String?, generation: Long) {
             deltaGenerations += generation
+            state = (state ?: IndexState(volumeId = IndexState.PRIMARY_VOLUME)).copy(
+                mediaStoreVersion = version,
+                lastMediaStoreGeneration = generation,
+            )
         }
         override suspend fun reset() = Unit
+    }
+
+    private class FakeGenerationSource(
+        private val version: String,
+        private val current: Long,
+        private val changes: List<MediaStoreIndexSource.NewFile>,
+    ) : NewFileSource {
+        override suspend fun currentVersion() = version
+        override suspend fun currentGeneration() = current
+        override suspend fun queryChangedSinceGeneration(sinceGeneration: Long, limit: Int) =
+            changes.filter { it.generation > sinceGeneration }
+                .sortedWith(compareBy<MediaStoreIndexSource.NewFile> { it.generation }.thenBy { it.id })
+                .take(limit)
+        override suspend fun maxObservedId() = changes.maxOfOrNull { it.id } ?: 0L
+        override suspend fun queryNewSince(sinceId: Long, limit: Int) = emptyList<MediaStoreIndexSource.NewFile>()
     }
 
     private fun file(id: Long) = MediaStoreIndexSource.NewFile(
@@ -188,5 +209,62 @@ class DedupReconcilerTest {
 
         assertEquals(0, r.reconcile())
         assertEquals("checkpoint stays 0, not pinned to 1", 0L, store.checkpoint)
+    }
+
+    @Test
+    fun `generation delta catches a finalized pending row even when its id is below the old checkpoint`() =
+        runTest(dispatcher) {
+            val completed = file(4_900L).copy(generation = 42L)
+            val inspector = RecordingInspector()
+            val indexState = FakeIndexStateRepository(
+                IndexState(
+                    volumeId = IndexState.PRIMARY_VOLUME,
+                    mediaStoreVersion = "v1",
+                    lastMediaStoreGeneration = 40L,
+                ),
+            )
+            val reconciler = DedupReconciler(
+                FakeGenerationSource("v1", current = 42L, changes = listOf(completed)),
+                inspector,
+                // Proves `_ID` is no longer the deciding cursor on Android 11+.
+                FakeCheckpointStore(checkpoint = 5_000L),
+                FakeGate(true),
+                indexState,
+                dispatcher,
+            )
+
+            assertEquals(1, reconciler.reconcile())
+            assertEquals(listOf(completed.item.path), inspector.seen.map { it.path })
+            assertEquals(42L, indexState.state?.lastMediaStoreGeneration)
+        }
+
+    @Test
+    fun `changed MediaStore version establishes a quiet generation baseline`() = runTest(dispatcher) {
+        val inspector = RecordingInspector()
+        val indexState = FakeIndexStateRepository(
+            IndexState(
+                volumeId = IndexState.PRIMARY_VOLUME,
+                mediaStoreVersion = "old-db",
+                lastMediaStoreGeneration = 100L,
+            ),
+        )
+        val source = FakeGenerationSource(
+            version = "rebuilt-db",
+            current = 9L,
+            changes = listOf(file(1L).copy(generation = 2L)),
+        )
+        val reconciler = DedupReconciler(
+            source,
+            inspector,
+            FakeCheckpointStore(checkpoint = 1L),
+            FakeGate(true),
+            indexState,
+            dispatcher,
+        )
+
+        assertEquals(0, reconciler.reconcile())
+        assertTrue(inspector.seen.isEmpty())
+        assertEquals("rebuilt-db", indexState.state?.mediaStoreVersion)
+        assertEquals(9L, indexState.state?.lastMediaStoreGeneration)
     }
 }

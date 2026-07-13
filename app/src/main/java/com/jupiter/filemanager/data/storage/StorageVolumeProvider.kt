@@ -1,5 +1,6 @@
 package com.jupiter.filemanager.data.storage
 
+import android.app.usage.StorageStatsManager
 import android.content.Context
 import android.os.Build
 import android.os.Environment
@@ -23,7 +24,14 @@ import javax.inject.Singleton
 @Singleton
 class StorageVolumeProvider @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val primaryCapacityResolver: PrimaryStorageCapacityResolver,
 ) {
+
+    /** Convenience constructor retained for focused tests and non-Hilt callers. */
+    internal constructor(context: Context) : this(
+        context = context,
+        primaryCapacityResolver = PrimaryStorageCapacityResolver(context),
+    )
 
     /**
      * Returns the absolute path of the primary external storage root, e.g. {@code /storage/emulated/0}.
@@ -101,8 +109,21 @@ class StorageVolumeProvider @Inject constructor(
 
         val stats = runCatching { StatFs(rootPath) }.getOrNull() ?: return null
         val blockSize = stats.blockSizeLong
-        val totalBytes = stats.blockCountLong * blockSize
-        val availableBytes = stats.availableBlocksLong * blockSize
+        val fileSystemTotalBytes = stats.blockCountLong * blockSize
+        val fileSystemAvailableBytes = stats.availableBlocksLong * blockSize
+        val capacity = if (isPrimary) {
+            primaryCapacityResolver.resolve(
+                fileSystemTotalBytes = fileSystemTotalBytes,
+                fileSystemAvailableBytes = fileSystemAvailableBytes,
+            )
+        } else {
+            PrimaryStorageCapacity(
+                totalBytes = fileSystemTotalBytes,
+                availableBytes = fileSystemAvailableBytes,
+            )
+        }
+        val totalBytes = capacity.totalBytes
+        val availableBytes = capacity.availableBytes
         if (totalBytes <= 0L) return null
 
         return StorageVolumeInfo(
@@ -169,4 +190,103 @@ class StorageVolumeProvider @Inject constructor(
     private companion object {
         const val DEFAULT_PRIMARY_ROOT = "/storage/emulated/0"
     }
+}
+
+/**
+ * Resolves the primary device's whole advertised capacity instead of exposing only the size of
+ * the emulated-user-data filesystem. The latter excludes system/reserved partitions and is why a
+ * 256 GB phone can otherwise appear as roughly 222 GiB in a third-party file manager.
+ *
+ * Android's storage service is the authoritative source used by system storage surfaces. The same
+ * marketed-size rounding used by the Android framework is retained only when that API is absent or
+ * restricted. The readable filesystem capacity remains the lower bound in every case.
+ */
+@Singleton
+class PrimaryStorageCapacityResolver @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    internal fun resolve(
+        fileSystemTotalBytes: Long,
+        fileSystemAvailableBytes: Long,
+    ): PrimaryStorageCapacity {
+        if (fileSystemTotalBytes <= 0L) {
+            return PrimaryStorageCapacity(fileSystemTotalBytes, fileSystemAvailableBytes)
+        }
+
+        val stats = context.getSystemService(Context.STORAGE_STATS_SERVICE) as? StorageStatsManager
+        val platformTotal = runCatching { stats?.getTotalBytes(StorageManager.UUID_DEFAULT) }
+            .getOrNull() ?: 0L
+        val platformAvailable = runCatching { stats?.getFreeBytes(StorageManager.UUID_DEFAULT) }
+            .getOrNull() ?: -1L
+        val totalBytes = selectPrimaryCapacity(
+            fileSystemTotalBytes = fileSystemTotalBytes,
+            platformTotalBytes = platformTotal,
+        )
+        val availableBytes = selectPrimaryAvailableBytes(
+            fileSystemAvailableBytes = fileSystemAvailableBytes,
+            platformTotalBytes = platformTotal,
+            platformAvailableBytes = platformAvailable,
+            selectedTotalBytes = totalBytes,
+        )
+
+        return PrimaryStorageCapacity(
+            totalBytes = totalBytes,
+            availableBytes = availableBytes,
+        )
+    }
+}
+
+internal data class PrimaryStorageCapacity(
+    val totalBytes: Long,
+    val availableBytes: Long,
+)
+
+/** Pure selection policy, split out so capacity semantics are covered without Android mocks. */
+internal fun selectPrimaryCapacity(
+    fileSystemTotalBytes: Long,
+    platformTotalBytes: Long,
+): Long {
+    if (fileSystemTotalBytes <= 0L) return fileSystemTotalBytes
+    // A successful platform result is authoritative and already follows Android's user-display
+    // semantics. Framework-style bucket rounding is only a fallback when that API is unavailable.
+    return if (platformTotalBytes > 0L) {
+        maxOf(fileSystemTotalBytes, platformTotalBytes)
+    } else {
+        maxOf(fileSystemTotalBytes, roundToAdvertisedStorageSize(fileSystemTotalBytes))
+    }
+}
+
+internal fun selectPrimaryAvailableBytes(
+    fileSystemAvailableBytes: Long,
+    platformTotalBytes: Long,
+    platformAvailableBytes: Long,
+    selectedTotalBytes: Long,
+): Long {
+    return if (
+        platformTotalBytes > 0L && platformAvailableBytes in 0L..selectedTotalBytes
+    ) {
+        platformAvailableBytes
+    } else {
+        fileSystemAvailableBytes.coerceIn(0L, selectedTotalBytes.coerceAtLeast(0L))
+    }
+}
+
+/**
+ * Mirrors Android's marketed storage-size buckets: 1, 2, 4 … 512 multiplied by powers of 1000.
+ * For example, a 238.4 billion-byte user-data filesystem resolves to a 256 billion-byte device.
+ */
+internal fun roundToAdvertisedStorageSize(bytes: Long): Long {
+    if (bytes <= 0L) return bytes
+    var value = 1L
+    var magnitude = 1L
+    while (value <= Long.MAX_VALUE / magnitude && value * magnitude < bytes) {
+        if (value < 512L) {
+            value *= 2L
+        } else {
+            value = 1L
+            if (magnitude > Long.MAX_VALUE / 1000L) return bytes
+            magnitude *= 1000L
+        }
+    }
+    return if (value <= Long.MAX_VALUE / magnitude) value * magnitude else bytes
 }

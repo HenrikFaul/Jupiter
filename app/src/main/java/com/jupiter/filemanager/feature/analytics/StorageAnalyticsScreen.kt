@@ -59,6 +59,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
+import com.jupiter.filemanager.core.util.formatStorageBytes
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.StorageCategory
@@ -236,7 +237,7 @@ private fun AnalyticsContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = formatBytes(overview.volume.availableBytes) + " free",
+                        text = formatStorageBytes(overview.volume.availableBytes) + " free",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

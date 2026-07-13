@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiter.filemanager.core.result.AppResult
 import com.jupiter.filemanager.domain.model.FilterOption
+import com.jupiter.filemanager.domain.model.AutomationSafety
 import com.jupiter.filemanager.domain.repository.AutomationRepository
 import com.jupiter.filemanager.feature.ai.AiAssistant
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,8 +28,8 @@ import javax.inject.Inject
  * authoring. Nothing here fabricates a result — saving only ever persists what
  * the user actually entered.
  *
- * Rule *execution* is a backend concern that is not yet wired up; this view model
- * only validates input and persists via [AutomationRepository.addRule].
+ * This view model validates the safety contract and persists via
+ * [AutomationRepository.addRule]. Execution remains isolated in the confirmed-run engine.
  */
 @HiltViewModel
 class RuleBuilderViewModel @Inject constructor(
@@ -66,7 +67,15 @@ class RuleBuilderViewModel @Inject constructor(
 
     /** Updates the manual "Then" action text. */
     fun onThenChange(value: String) {
-        _uiState.update { it.copy(thenText = value) }
+        val error = when {
+            value.isBlank() -> null
+            AutomationSafety.isDestructiveAction(value) ->
+                "Delete actions are forbidden. Automation never deletes files."
+            !AutomationSafety.isSupportedAction(value) ->
+                "Use a safe action: move to a folder, or favorite."
+            else -> null
+        }
+        _uiState.update { it.copy(thenText = value, actionError = error) }
     }
 
     /**

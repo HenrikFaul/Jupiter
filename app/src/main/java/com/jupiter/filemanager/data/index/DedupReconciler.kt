@@ -17,14 +17,14 @@ import javax.inject.Singleton
  *
  * The real-time [DownloadIndexObserver] only fires while the process is alive, so a file
  * downloaded/received/captured with Jupiter closed would never be checked. This reconciler
- * closes that gap: it asks [NewFileSource] for every file whose MediaStore `_id` is newer than a
- * persisted checkpoint, runs each through [DuplicateDetector], and advances the checkpoint. It is
- * cheap when nothing is new (one indexed cursor, zero rows), so it is safe to run on every app
- * foreground, on each observer signal, and periodically.
+ * closes that gap: on Android 11+ it asks [NewFileSource] for finalized rows whose MediaStore
+ * `GENERATION_MODIFIED` is newer than the persisted marker; Android 10 falls back to `_id`.
+ * Every result runs through [DuplicateDetector], then the marker advances. It is cheap when
+ * nothing is new, so it is safe to run on every foreground, observer signal, and periodically.
  *
- * Checkpoint keyed on `_id` (unique + strictly increasing) so pagination is gap-free even for a
- * bulk import of hundreds of files in the same second (a 1-second-granularity date would skip
- * rows past the page boundary).
+ * Generation tracking is essential for downloads: their MediaStore row is inserted as pending and
+ * later UPDATED with the completed bytes, so `_id` alone cannot see the completion. The fallback
+ * `_id` cursor remains gap-free on Android 10 and avoids second-granularity date ties.
  *
  * Baseline rule: on the very first run it does NOT alert on the pre-existing library — it records
  * the current max `_id` as the baseline. Crucially it establishes the baseline ONLY when storage
@@ -64,6 +64,16 @@ class DedupReconciler @Inject constructor(
         // never establish a bogus baseline before the user has granted access.
         if (!storageAccess.hasFullAccess()) return 0
 
+        // Android 11+: generation is a true metadata-delta marker. Crucially it advances when an
+        // existing pending download row is finalized; `_ID` does not, which was the root cause of
+        // repeatedly-downloaded images being silently skipped after their 0-byte pending row had
+        // already advanced the old checkpoint.
+        val mediaStoreVersion = newFileSource.currentVersion()
+        val currentGeneration = newFileSource.currentGeneration()
+        if (mediaStoreVersion != null && currentGeneration != null) {
+            return reconcileGeneration(mediaStoreVersion, currentGeneration)
+        }
+
         val checkpoint = checkpointStore.getCheckpointId()
         if (checkpoint <= 0L) {
             // Establish the baseline WITHOUT alerting on the existing library — but ONLY when
@@ -99,6 +109,50 @@ class DedupReconciler @Inject constructor(
 
             if (batch.size < BATCH_SIZE) break // drained
             if (inspected >= MAX_PER_RUN) break // fairness cap; next trigger continues
+        }
+        return inspected
+    }
+
+    private suspend fun reconcileGeneration(version: String, observedGeneration: Long): Int {
+        val state = indexStateRepository.current()
+        val sinceStored = state?.lastMediaStoreGeneration ?: 0L
+        // A MediaStore database rebuild changes the opaque version and invalidates generation
+        // comparisons. Establish a quiet baseline rather than alerting on the whole old library.
+        if (state?.mediaStoreVersion != version || sinceStored <= 0L) {
+            indexStateRepository.recordDeltaSync(version, observedGeneration)
+            return 0
+        }
+
+        var since = sinceStored
+        var inspected = 0
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val batch = newFileSource.queryChangedSinceGeneration(since, BATCH_SIZE)
+            if (batch.isEmpty()) {
+                // Deletions and pending inserts can advance the global generation without yielding
+                // a finalized file. Recording the observed marker avoids re-querying them forever;
+                // a pending row's later finalization receives a NEW generation and is still caught.
+                val settled = maxOf(since, observedGeneration)
+                if (settled != sinceStored) indexStateRepository.recordDeltaSync(version, settled)
+                break
+            }
+
+            var batchMax = since
+            for (changedFile in batch) {
+                currentCoroutineContext().ensureActive()
+                arrivalInspector.onFileArrived(changedFile.item)
+                inspected++
+                batchMax = maxOf(batchMax, changedFile.generation)
+            }
+            since = DedupCheckpoint.advance(since, batchMax)
+            indexStateRepository.recordDeltaSync(version, since)
+
+            if (batch.size < BATCH_SIZE) {
+                val settled = maxOf(since, observedGeneration)
+                if (settled != since) indexStateRepository.recordDeltaSync(version, settled)
+                break
+            }
+            if (inspected >= MAX_PER_RUN) break
         }
         return inspected
     }

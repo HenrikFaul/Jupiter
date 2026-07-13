@@ -16,6 +16,12 @@ enum class SizeFilter(val label: String, val minBytes: Long) {
     MB_100("≥ 100 MB", 100L * 1024 * 1024),
 }
 
+/** Explicit size ordering for duplicate groups; kept in UI state so recomposition is stable. */
+enum class DuplicateSizeOrder(val label: String) {
+    LARGEST_FIRST("Largest first"),
+    SMALLEST_FIRST("Smallest first"),
+}
+
 /** Keeps exact byte copies and perceptually similar photos as separate review scopes. */
 enum class DuplicatePresentation {
     EXACT,
@@ -49,6 +55,7 @@ data class DuplicatesUiState(
     val infoMessage: String? = null,
     val permissionRequired: Boolean = false,
     val sizeFilter: SizeFilter = SizeFilter.ALL,
+    val sizeOrder: DuplicateSizeOrder = DuplicateSizeOrder.LARGEST_FIRST,
     val analyzingPhotos: Boolean = false,
     // Additive: kept after the complete pre-v0.51 constructor contract for positional callers.
     val presentation: DuplicatePresentation = DuplicatePresentation.EXACT,
@@ -67,12 +74,43 @@ data class DuplicatesUiState(
 
     /** The only groups that the current tab and size filter make actionable. */
     val visibleGroups: List<DuplicateGroup>
-        get() = sizeFilteredGroups.filter { group ->
+        get() {
+            val scoped = sizeFilteredGroups.filter { group ->
+                when (presentation) {
+                    DuplicatePresentation.EXACT -> !group.similar
+                    DuplicatePresentation.SIMILAR -> group.similar
+                }
+            }
+            val byLargestFile = compareBy<DuplicateGroup> { group ->
+                group.files.maxOfOrNull { it.sizeBytes } ?: 0L
+            }.thenBy { it.hash }
+            return when (sizeOrder) {
+                DuplicateSizeOrder.LARGEST_FIRST -> scoped.sortedWith(byLargestFile.reversed())
+                DuplicateSizeOrder.SMALLEST_FIRST -> scoped.sortedWith(byLargestFile)
+            }
+        }
+
+    /** All exact + similar items in the active size scope, independent of the selected tab. */
+    val totalDuplicateItemCount: Int
+        get() = sizeFilteredGroups
+            .asSequence()
+            .flatMap { it.files.asSequence() }
+            .map { it.path }
+            .distinct()
+            .count()
+
+    fun duplicateItemCount(presentation: DuplicatePresentation): Int = sizeFilteredGroups
+        .asSequence()
+        .filter { group ->
             when (presentation) {
                 DuplicatePresentation.EXACT -> !group.similar
                 DuplicatePresentation.SIMILAR -> group.similar
             }
         }
+        .flatMap { it.files.asSequence() }
+        .map { it.path }
+        .distinct()
+        .count()
 
     /** Total bytes wasted across every discovered duplicate group. */
     val totalWastedBytes: Long

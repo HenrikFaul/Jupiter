@@ -69,6 +69,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.jupiter.filemanager.core.util.formatBytes
+import com.jupiter.filemanager.core.util.formatStorageBytes
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.DuplicateGroup
@@ -642,8 +643,8 @@ private fun StorageBreakdownCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = formatBytes(overview.volume.usedBytes) + " used of " +
-                    formatBytes(overview.volume.totalBytes),
+                text = formatStorageBytes(overview.volume.usedBytes) + " used of " +
+                    formatStorageBytes(overview.volume.totalBytes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

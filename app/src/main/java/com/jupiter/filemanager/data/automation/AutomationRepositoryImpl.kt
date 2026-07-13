@@ -3,11 +3,13 @@ package com.jupiter.filemanager.data.automation
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.jupiter.filemanager.domain.model.AutomationRule
+import com.jupiter.filemanager.domain.model.AutomationDefaults
 import com.jupiter.filemanager.domain.repository.AutomationRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -29,13 +31,24 @@ import javax.inject.Singleton
  */
 val Context.rulesDataStore: DataStore<Preferences> by preferencesDataStore(name = "jupiter_rules")
 
+/** Pure first-run/upgrade policy kept visible to regression tests. */
+internal fun resolveAutomationRules(
+    initialized: Boolean,
+    storedRules: List<AutomationRule>?,
+): List<AutomationRule> = if (initialized) {
+    storedRules.orEmpty()
+} else {
+    val existing = storedRules.orEmpty()
+    val existingIds = existing.mapTo(HashSet()) { it.id }
+    existing + AutomationDefaults.rules.filterNot { it.id in existingIds }
+}
+
 /**
  * Preferences-DataStore-backed implementation of [AutomationRepository].
  *
- * The full set of user-defined rules is serialized as a single JSON array string
- * under one key. New rules are appended and enabled by default. Actual execution
- * of rules is a backend concern that is not yet wired up; this implementation only
- * persists and toggles the rule definitions.
+ * The full set of user-defined rules is serialized as a single JSON array string. On a genuinely
+ * fresh store the built-in suspended presets are exposed. The first mutation persists that set and
+ * marks initialization complete, so deleting every rule remains a valid, durable user choice.
  */
 @Singleton
 class AutomationRepositoryImpl @Inject constructor(
@@ -46,41 +59,69 @@ class AutomationRepositoryImpl @Inject constructor(
 
     private object Keys {
         val RULES = stringPreferencesKey("automation_rules")
+        val INITIALIZED = booleanPreferencesKey("automation_initialized")
     }
 
     override fun observeRules(): Flow<List<AutomationRule>> = dataStore.data
         .safe()
-        .map { prefs -> decode(prefs[Keys.RULES]) }
+        .map { prefs -> currentRules(prefs) }
 
     override suspend fun addRule(name: String, whenText: String, thenText: String) {
         val rule = AutomationRule(
             id = UUID.randomUUID().toString(),
             name = name,
-            enabled = true,
+            enabled = false,
             whenText = whenText,
             thenText = thenText,
         )
         dataStore.edit { prefs ->
-            val current = decode(prefs[Keys.RULES])
-            prefs[Keys.RULES] = encode(current + rule)
+            persist(prefs, currentRules(prefs) + rule)
+        }
+    }
+
+    override suspend fun updateRule(id: String, name: String, whenText: String, thenText: String) {
+        dataStore.edit { prefs ->
+            val updated = currentRules(prefs).map { rule ->
+                if (rule.id == id) {
+                    rule.copy(name = name, whenText = whenText, thenText = thenText)
+                } else {
+                    rule
+                }
+            }
+            persist(prefs, updated)
         }
     }
 
     override suspend fun setEnabled(id: String, enabled: Boolean) {
         dataStore.edit { prefs ->
-            val current = decode(prefs[Keys.RULES])
+            val current = currentRules(prefs)
             val updated = current.map { rule ->
                 if (rule.id == id) rule.copy(enabled = enabled) else rule
             }
-            prefs[Keys.RULES] = encode(updated)
+            persist(prefs, updated)
         }
     }
 
     override suspend fun deleteRule(id: String) {
         dataStore.edit { prefs ->
-            val current = decode(prefs[Keys.RULES])
-            prefs[Keys.RULES] = encode(current.filterNot { it.id == id })
+            val current = currentRules(prefs)
+            persist(prefs, current.filterNot { it.id == id })
         }
+    }
+
+    private fun currentRules(prefs: Preferences): List<AutomationRule> {
+        val raw = prefs[Keys.RULES]
+        // Upgrade-safe: retain every pre-existing user rule and append only missing stable presets.
+        // Once a mutation sets INITIALIZED, intentionally deleted presets never return.
+        return resolveAutomationRules(
+            initialized = prefs[Keys.INITIALIZED] == true,
+            storedRules = raw?.let(::decode),
+        )
+    }
+
+    private fun persist(prefs: androidx.datastore.preferences.core.MutablePreferences, rules: List<AutomationRule>) {
+        prefs[Keys.RULES] = encode(rules)
+        prefs[Keys.INITIALIZED] = true
     }
 
     private fun encode(rules: List<AutomationRule>): String {

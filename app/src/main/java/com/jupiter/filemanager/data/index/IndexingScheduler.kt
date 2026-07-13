@@ -148,8 +148,9 @@ class IndexingScheduler @Inject constructor(
     /**
      * Runs the duplicate-detection catch-up ([DedupReconciler]): processes every MediaStore file
      * newer than the checkpoint (including ones that arrived while the app was dead) through the
-     * detector. KEEP coalesces the chatty ContentObserver signals into at most one queued run.
-     * Cheap when nothing is new.
+     * detector. APPEND_OR_REPLACE preserves a trailing pass when a ContentObserver signal arrives
+     * during an active run; the observer's trailing debounce keeps the chain bounded. Cheap when
+     * nothing is new.
      *
      * Deliberately NOT expedited: the job is tiny and frequent, and an expedited [CoroutineWorker]
      * without a `getForegroundInfo()` override fails on API < 31 (WorkManager runs it as a
@@ -159,7 +160,10 @@ class IndexingScheduler @Inject constructor(
         try {
             workManager.enqueueUniqueWork(
                 DedupReconcileWorker.UNIQUE_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                // A change arriving while a reconcile is RUNNING must leave a trailing pass.
+                // KEEP silently dropped that final signal; APPEND_OR_REPLACE serializes a fresh
+                // pass behind the current one and replaces only a failed/cancelled chain.
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 OneTimeWorkRequestBuilder<DedupReconcileWorker>().build(),
             )
         } catch (_: Exception) {

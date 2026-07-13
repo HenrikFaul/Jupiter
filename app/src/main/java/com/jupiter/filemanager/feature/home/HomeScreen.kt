@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.core.util.formatBytes
+import com.jupiter.filemanager.core.util.formatStorageBytes
 import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.core.util.formatRelativeTime
 import com.jupiter.filemanager.domain.model.Bookmark
@@ -521,12 +522,12 @@ private fun StorageOverviewCard(
                     )
                 }
                 Text(
-                    text = "${formatBytes(primary.availableBytes)} free",
+                    text = "${formatStorageBytes(primary.availableBytes)} free",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "of ${formatBytes(primary.totalBytes)}",
+                    text = "of ${formatStorageBytes(primary.totalBytes)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -540,11 +541,11 @@ private fun StorageOverviewCard(
                 ) {
                     StorageLegend(
                         color = JupiterDesign.TealStart,
-                        label = "${formatBytes(primary.usedBytes)} used",
+                        label = "${formatStorageBytes(primary.usedBytes)} used",
                     )
                     StorageLegend(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        label = "${formatBytes(primary.availableBytes)} free",
+                        label = "${formatStorageBytes(primary.availableBytes)} free",
                     )
                 }
             }

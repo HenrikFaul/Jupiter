@@ -19,8 +19,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,6 +30,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -50,7 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.domain.model.AutomationRule
-import com.jupiter.filemanager.ui.components.EmptyView
+import com.jupiter.filemanager.domain.model.AutomationSafety
 import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.theme.JupiterDesign
@@ -78,6 +80,8 @@ fun AutomationScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     var showRunConfirm by remember { mutableStateOf(false) }
+    var ruleToEdit by remember { mutableStateOf<AutomationRule?>(null) }
+    var ruleToDelete by remember { mutableStateOf<AutomationRule?>(null) }
 
     // Surface the one-shot "run enqueued" confirmation, then clear it so a rerun can
     // show it again. The user always sees that a run started — it never runs silently.
@@ -86,6 +90,14 @@ fun AutomationScreen(
         if (message != null) {
             snackbarHostState.showSnackbar(message)
             viewModel.consumeRunEnqueuedMessage()
+        }
+    }
+
+    LaunchedEffect(state.previewMessage) {
+        val message = state.previewMessage
+        if (message != null) {
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumePreviewMessage()
         }
     }
 
@@ -152,17 +164,12 @@ fun AutomationScreen(
             when {
                 state.isLoading -> LoadingView()
 
-                state.rules.isEmpty() -> EmptyView(
-                    title = "No automations yet",
-                    message = "Create rules to automatically organize your files, " +
-                        "like moving screenshots to a folder or cleaning up downloads.",
-                    icon = Icons.Outlined.Bolt,
-                )
-
                 else -> AutomationList(
                     rules = state.rules,
                     onToggle = viewModel::setEnabled,
-                    onDelete = viewModel::deleteRule,
+                    onPreview = viewModel::previewRule,
+                    onEdit = { ruleToEdit = it },
+                    onDelete = { ruleToDelete = it },
                 )
             }
         }
@@ -176,6 +183,29 @@ fun AutomationScreen(
                 viewModel.runNow()
             },
             onDismiss = { showRunConfirm = false },
+        )
+    }
+
+
+    ruleToEdit?.let { rule ->
+        EditRuleDialog(
+            rule = rule,
+            onSave = { name, whenText, thenText ->
+                viewModel.updateRule(rule.id, name, whenText, thenText)
+                ruleToEdit = null
+            },
+            onDismiss = { ruleToEdit = null },
+        )
+    }
+
+    ruleToDelete?.let { rule ->
+        DeleteRuleDialog(
+            ruleName = rule.name,
+            onConfirm = {
+                viewModel.deleteRule(rule.id)
+                ruleToDelete = null
+            },
+            onDismiss = { ruleToDelete = null },
         )
     }
 }
@@ -199,7 +229,8 @@ private fun RunRulesConfirmDialog(
         text = {
             Text(
                 text = "This will apply your $ruleLabel to your files right now. " +
-                    "Rules can move, rename, or organize files. Only enabled rules run.",
+                    "Rules can move or favorite matching files. Automation never deletes files. " +
+                    "Only active rules run.",
             )
         },
         confirmButton = {
@@ -219,18 +250,61 @@ private fun RunRulesConfirmDialog(
 private fun AutomationList(
     rules: List<AutomationRule>,
     onToggle: (id: String, enabled: Boolean) -> Unit,
-    onDelete: (id: String) -> Unit,
+    onPreview: (AutomationRule) -> Unit,
+    onEdit: (AutomationRule) -> Unit,
+    onDelete: (AutomationRule) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(key = "automation-guide") {
+            AutomationGuideCard()
+        }
+
+        item(key = "automation-summary") {
+            Text(
+                text = "${rules.size} saved · ${rules.count { it.enabled }} active · " +
+                    "${rules.count { !it.enabled }} suspended",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            )
+        }
+
+        if (rules.isEmpty()) {
+            item(key = "automation-empty") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = JupiterDesign.CardShape,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("No saved automations", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Tap New Rule to create one. It will start suspended so you can " +
+                                "preview it before activation.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
         items(items = rules, key = { it.id }) { rule ->
             AutomationRuleCard(
                 rule = rule,
                 onToggle = { enabled -> onToggle(rule.id, enabled) },
-                onDelete = { onDelete(rule.id) },
+                onPreview = { onPreview(rule) },
+                onEdit = { onEdit(rule) },
+                onDelete = { onDelete(rule) },
             )
         }
     }
@@ -240,6 +314,8 @@ private fun AutomationList(
 private fun AutomationRuleCard(
     rule: AutomationRule,
     onToggle: (Boolean) -> Unit,
+    onPreview: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
@@ -279,10 +355,21 @@ private fun AutomationRuleCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Switch(
-                    checked = rule.enabled,
-                    onCheckedChange = onToggle,
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = if (rule.enabled) "Active" else "Suspended",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (rule.enabled) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    Switch(
+                        checked = rule.enabled,
+                        onCheckedChange = onToggle,
+                    )
+                }
             }
             Spacer(modifier = Modifier.size(12.dp))
             ConditionRow(
@@ -297,18 +384,183 @@ private fun AutomationRuleCard(
             Spacer(modifier = Modifier.size(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onDelete) {
+                TextButton(onClick = onPreview) {
                     Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete rule",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = Icons.Filled.Visibility,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
                     )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Try safely")
+                }
+                Row {
+                    IconButton(onClick = onEdit) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = "Edit rule",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "Delete rule",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun AutomationGuideCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CardShape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "How Automation works",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Automation organizes matching files only when you ask it to. " +
+                    "The five examples below start suspended, and file deletion is never allowed.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            GuideStep("1", "Choose a saved example, or create a New Rule.")
+            GuideStep("2", "Tap Try safely to count matches without changing anything.")
+            GuideStep("3", "Use Edit to rename it or change its When and Then fields.")
+            GuideStep("4", "Switch Suspended to Active only when the preview looks right.")
+            GuideStep("5", "Tap the play icon, review the confirmation, then Run now.")
+        }
+    }
+}
+
+@Composable
+private fun GuideStep(number: String, text: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Surface(
+            shape = JupiterDesign.PillShape,
+            color = MaterialTheme.colorScheme.primary,
+        ) {
+            Text(
+                text = number,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun EditRuleDialog(
+    rule: AutomationRule,
+    onSave: (name: String, whenText: String, thenText: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(rule.id) { mutableStateOf(rule.name) }
+    var whenText by remember(rule.id) { mutableStateOf(rule.whenText) }
+    var thenText by remember(rule.id) { mutableStateOf(rule.thenText) }
+    val destructive = AutomationSafety.isDestructiveAction(thenText)
+    val supported = AutomationSafety.isSupportedAction(thenText)
+    val canSave = name.isNotBlank() && whenText.isNotBlank() && supported
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit automation") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = whenText,
+                    onValueChange = { whenText = it },
+                    label = { Text("When") },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = thenText,
+                    onValueChange = { thenText = it },
+                    label = { Text("Then") },
+                    supportingText = {
+                        Text(
+                            when {
+                                destructive -> "Delete actions are forbidden."
+                                !supported -> "Use: move to a folder, or favorite."
+                                else -> "Safe action · file deletion is never allowed."
+                            },
+                        )
+                    },
+                    isError = thenText.isNotBlank() && !supported,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(name.trim(), whenText.trim(), thenText.trim()) },
+                enabled = canSave,
+            ) {
+                Text("Save changes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun DeleteRuleDialog(
+    ruleName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete automation?") },
+        text = {
+            Text(
+                "\"$ruleName\" will be removed from this list. No phone files will be deleted.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Delete automation") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable

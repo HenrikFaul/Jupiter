@@ -2,6 +2,7 @@ package com.jupiter.filemanager.data.index
 
 import android.content.Context
 import android.database.Cursor
+import android.os.Build
 import android.provider.MediaStore
 import com.jupiter.filemanager.core.util.extensionOf
 import com.jupiter.filemanager.core.util.fileTypeFor
@@ -118,10 +119,83 @@ class MediaStoreIndexSource @Inject constructor(
     }
 
     /**
-     * One newly-observed file from a MediaStore delta query: the [FileItem] plus its MediaStore
-     * `_id`, which the reconciler uses as a strictly-monotonic, unique checkpoint key.
+     * One newly-observed file from a MediaStore delta query: the [FileItem], MediaStore `_id`, and
+     * generation marker. Generation is authoritative on Android 11+; id is the Android 10 fallback.
      */
-    data class NewFile(val item: FileItem, val id: Long)
+    data class NewFile(
+        val item: FileItem,
+        val id: Long,
+        /** MediaStore GENERATION_MODIFIED; falls back to `_id` on older Android. */
+        val generation: Long = id,
+    )
+
+    override suspend fun currentVersion(): String? = withContext(dispatcher) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext null
+        runCatching {
+            MediaStore.getVersion(context, MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        }.getOrNull()
+    }
+
+    override suspend fun currentGeneration(): Long? = withContext(dispatcher) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext null
+        runCatching {
+            MediaStore.getGeneration(context, MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        }.getOrNull()
+    }
+
+    /**
+     * Android 11+ metadata delta. `GENERATION_MODIFIED` advances both when a row is inserted and
+     * when an in-progress download is finalized. Filtering `IS_PENDING = 0` avoids hashing partial
+     * bytes without losing the later completion update, which receives a newer generation.
+     */
+    override suspend fun queryChangedSinceGeneration(
+        sinceGeneration: Long,
+        limit: Int,
+    ): List<NewFile> = withContext(dispatcher) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext emptyList()
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.GENERATION_MODIFIED,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.DATA,
+        )
+        val selection = "${MediaStore.Files.FileColumns.GENERATION_MODIFIED} > ? AND " +
+            "${MediaStore.MediaColumns.IS_PENDING} = 0"
+        val args = arrayOf(sinceGeneration.toString())
+        val order = "${MediaStore.Files.FileColumns.GENERATION_MODIFIED} ASC, " +
+            "${MediaStore.Files.FileColumns._ID} ASC"
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+        runCatching {
+            context.contentResolver.query(collection, projection, selection, args, order)
+        }.getOrNull()?.use { c ->
+            val idIdx = c.getColumnIndex(MediaStore.Files.FileColumns._ID)
+            val generationIdx = c.getColumnIndex(MediaStore.Files.FileColumns.GENERATION_MODIFIED)
+            val nameIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val sizeIdx = c.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+            val dateIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
+            val mimeIdx = c.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
+            val dataIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+            val out = ArrayList<NewFile>(minOf(limit, 128))
+            while (c.moveToNext() && out.size < limit) {
+                currentCoroutineContext().ensureActive()
+                val item = runCatching {
+                    mapRow(c, nameIdx, sizeIdx, dateIdx, mimeIdx, dataIdx)
+                }.getOrNull() ?: continue
+                val id = if (idIdx >= 0 && !c.isNull(idIdx)) c.getLong(idIdx) else continue
+                val generation = if (generationIdx >= 0 && !c.isNull(generationIdx)) {
+                    c.getLong(generationIdx)
+                } else {
+                    continue
+                }
+                out += NewFile(item = item, id = id, generation = generation)
+            }
+            out
+        } ?: emptyList()
+    }
 
     /**
      * The highest MediaStore `_id` currently observable, or 0 when empty/unreadable. `_id` is the
@@ -167,7 +241,14 @@ class MediaStoreIndexSource @Inject constructor(
             MediaStore.Files.FileColumns.MIME_TYPE,
             MediaStore.Files.FileColumns.DATA,
         )
-        val selection = "${MediaStore.Files.FileColumns._ID} > ?"
+        // Android 10 fallback still must not consume a row while the producer is writing it.
+        // The trailing observer pass sees the same id after finalization; because the pending row
+        // was excluded, the id checkpoint has not advanced past the ordinary single-download case.
+        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "${MediaStore.Files.FileColumns._ID} > ? AND ${MediaStore.MediaColumns.IS_PENDING} = 0"
+        } else {
+            "${MediaStore.Files.FileColumns._ID} > ?"
+        }
         val args = arrayOf(sinceId.toString())
         val order = "${MediaStore.Files.FileColumns._ID} ASC"
 

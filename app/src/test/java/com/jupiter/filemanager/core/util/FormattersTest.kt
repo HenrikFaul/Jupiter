@@ -68,6 +68,25 @@ class FormattersTest {
     }
 
     @Test
+    fun formatStorageBytes_usesDecimalCapacityUnits() {
+        assertEquals("256 GB", formatStorageBytes(256_000_000_000L))
+        assertEquals("229.5 GB", formatStorageBytes(229_500_000_000L))
+    }
+
+    @Test
+    fun formatStorageBytes_doesNotChangeFileSizeFormatterSemantics() {
+        val capacity = 256_000_000_000L
+        assertEquals("256 GB", formatStorageBytes(capacity))
+        assertEquals("238.4 GB", formatBytes(capacity))
+    }
+
+    @Test
+    fun formatStorageBytes_zeroAndNegativeReturnZeroBytes() {
+        assertEquals("0 B", formatStorageBytes(0L))
+        assertEquals("0 B", formatStorageBytes(-1L))
+    }
+
+    @Test
     fun formatItemCount_one_isSingular() {
         assertEquals("1 item", formatItemCount(1))
     }

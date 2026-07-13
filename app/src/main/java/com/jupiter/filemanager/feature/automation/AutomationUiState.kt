@@ -18,6 +18,7 @@ data class AutomationUiState(
     val rules: List<AutomationRule> = emptyList(),
     val isLoading: Boolean = true,
     val runEnqueuedMessage: String? = null,
+    val previewMessage: String? = null,
 ) {
     /** True when at least one rule is enabled and therefore eligible to be run. */
     val canRun: Boolean

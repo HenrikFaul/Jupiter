@@ -35,12 +35,12 @@ class DuplicatesUiStateSizeFilterTest {
 
     @Test
     fun allSizesShowsEveryGroup() {
-        assertEquals(listOf("a", "b", "c"), state(SizeFilter.ALL).visibleGroups.map { it.hash })
+        assertEquals(listOf("c", "b", "a"), state(SizeFilter.ALL).visibleGroups.map { it.hash })
     }
 
     @Test
     fun oneMegabyteHidesTheTinyGroup() {
-        assertEquals(listOf("b", "c"), state(SizeFilter.MB_1).visibleGroups.map { it.hash })
+        assertEquals(listOf("c", "b"), state(SizeFilter.MB_1).visibleGroups.map { it.hash })
     }
 
     @Test
@@ -51,6 +51,12 @@ class DuplicatesUiStateSizeFilterTest {
 
     @Test
     fun hundredKilobyteHidesOnlyTheFiftyKbGroup() {
-        assertEquals(listOf("b", "c"), state(SizeFilter.KB_100).visibleGroups.map { it.hash })
+        assertEquals(listOf("c", "b"), state(SizeFilter.KB_100).visibleGroups.map { it.hash })
+    }
+
+    @Test
+    fun smallestFirstRestoresAscendingSizeReviewOrder() {
+        val ordered = state(SizeFilter.ALL).copy(sizeOrder = DuplicateSizeOrder.SMALLEST_FIRST)
+        assertEquals(listOf("a", "b", "c"), ordered.visibleGroups.map { it.hash })
     }
 }

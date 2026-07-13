@@ -6,8 +6,8 @@ package com.jupiter.filemanager.domain.model
  * The [whenText] describes the triggering condition (e.g. "a screenshot is added")
  * and [thenText] describes the resulting action (e.g. "move it to /Screenshots").
  * These are stored as free-form text so they can be authored either manually or
- * via natural-language assistance; execution of rules is a backend concern that is
- * not yet wired up.
+ * via natural-language assistance. The safe automation engine can preview every rule and executes
+ * only explicitly activated, user-confirmed organization actions; destructive actions are blocked.
  *
  * @param id stable unique identifier for the rule.
  * @param name human-readable name shown to the user.

@@ -16,10 +16,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -55,28 +54,28 @@ private data class WhatsNewHighlight(
  */
 private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
     WhatsNewHighlight(
-        icon = Icons.Filled.ColorLens,
-        title = "A calmer Jupiter design",
-        description = "Core screens now share the midnight-and-teal layout, compact cards, " +
-            "clearer hierarchy, and consistent controls.",
+        icon = Icons.Filled.Storage,
+        title = "Whole-device storage capacity",
+        description = "Storage cards now use Android's retail-capacity source and decimal units, " +
+            "so the total matches the device storage surface while protected space stays accounted for.",
+    ),
+    WhatsNewHighlight(
+        icon = Icons.Filled.Bolt,
+        title = "Automation you can understand",
+        description = "Five suspended examples, safe preview, edit, rename, activate, suspend, " +
+            "and rule removal are now explained step by step. Automation never deletes files.",
     ),
     WhatsNewHighlight(
         icon = Icons.Filled.ContentCopy,
-        title = "Safer duplicate review",
-        description = "Exact and similar results stay visibly separate. Select all only " +
-            "targets the results you can see and never selects the protected keeper.",
+        title = "Complete duplicate totals and controls",
+        description = "The hero counts exact and similar items together. Size filters, size order, " +
+            "Select all, and Deselect all are visible while every keeper remains protected.",
     ),
     WhatsNewHighlight(
-        icon = Icons.Filled.Security,
-        title = "Stronger Vault controls",
-        description = "Vault access can use device authentication or a local PIN, supports " +
-            "automatic locking, and confirms permanent deletion before changing data.",
-    ),
-    WhatsNewHighlight(
-        icon = Icons.Filled.Tune,
-        title = "Useful browsing preferences",
-        description = "File grouping, delete confirmation, default sorting, language, and Vault " +
-            "lock timing are now explicit settings instead of decorative switches.",
+        icon = Icons.Filled.AutoAwesome,
+        title = "Reliable arrival alerts",
+        description = "Completed downloads are detected through MediaStore generation changes, " +
+            "so a pending row can no longer make an identical or similar image notification disappear.",
     ),
 )
 
@@ -137,7 +136,8 @@ fun WhatsNewScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Version 0.51 focuses on visual consistency and safer file actions.",
+                        text = "Version 0.54 focuses on trustworthy storage totals, understandable " +
+                            "automation, and dependable duplicate detection.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
