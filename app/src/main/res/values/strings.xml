@@ -2,7 +2,7 @@
 <resources>
 
     <!-- App identity -->
-    <string name="app_name">Jupiter</string>
+    <string name="app_name">Jupiscan</string>
 
     <!-- Generic actions -->
     <string name="action_ok">OK</string>
@@ -45,7 +45,7 @@
 
     <!-- Permission flow -->
     <string name="permission_title">Allow file access</string>
-    <string name="permission_message">Jupiter needs access to your files to browse and manage storage.</string>
+    <string name="permission_message">Jupiscan needs access to your files to browse and manage storage.</string>
     <string name="permission_grant">Grant access</string>
 
 </resources>

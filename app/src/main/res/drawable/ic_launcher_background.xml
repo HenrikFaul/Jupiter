@@ -3,7 +3,7 @@
     Adaptive icon background layer.
 
     A 108x108dp vector filled with a vertical indigo gradient that matches the
-    Jupiter brand. The full 108dp canvas guarantees the background covers the
+    Jupiscan brand. The full 108dp canvas guarantees the background covers the
     icon for every device mask (circle, squircle, rounded square, etc.).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"

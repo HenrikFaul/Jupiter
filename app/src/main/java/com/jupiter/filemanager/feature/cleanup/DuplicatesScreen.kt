@@ -266,6 +266,8 @@ fun DuplicatesScreen(
                         item {
                             SummaryCard(
                                 duplicateItemCount = state.totalDuplicateItemCount,
+                                exactItemCount = state.duplicateItemCount(DuplicatePresentation.EXACT),
+                                similarItemCount = state.duplicateItemCount(DuplicatePresentation.SIMILAR),
                                 groupCount = state.sizeFilteredGroups.size,
                                 wastedBytes = state.sizeFilteredGroups.sumOf { it.wastedBytes },
                                 isScanning = state.isScanning,
@@ -380,7 +382,7 @@ fun DuplicatesScreen(
             title = { Text("Safe duplicate review") },
             text = {
                 Text(
-                    "Exact copies and visually similar photos stay separate. Jupiter protects " +
+                    "Exact copies and visually similar photos stay separate. Jupiscan protects " +
                         "the quality-ranked best file in every group, and deletion moves reviewed " +
                         "copies to Recycle Bin.",
                 )
@@ -570,7 +572,7 @@ private fun PermissionRequiredView() {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "To find duplicate files across your storage, Jupiter needs " +
+            text = "To find duplicate files across your storage, Jupiscan needs " +
                 "permission to access all files. Grant access and the scan will start " +
                 "automatically.",
             style = MaterialTheme.typography.bodyMedium,
@@ -672,6 +674,8 @@ private fun AnalyzingPhotosBanner() {
 @Composable
 private fun SummaryCard(
     duplicateItemCount: Int,
+    exactItemCount: Int,
+    similarItemCount: Int,
     groupCount: Int,
     wastedBytes: Long,
     isScanning: Boolean,
@@ -703,6 +707,15 @@ private fun SummaryCard(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
+                    text = buildString {
+                        append("Exact copies: $exactItemCount")
+                        if (similarItemCount > 0) append(" · Similar photos to review: $similarItemCount")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
                     text = "${formatBytes(wastedBytes)} can be freed",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
@@ -710,9 +723,9 @@ private fun SummaryCard(
                 )
                 Text(
                     text = if (isScanning) {
-                        "Smart detection · Still scanning"
+                        "Exact copies share identical content · Still scanning"
                     } else {
-                        "Smart detection · $groupCount groups · Safe to review"
+                        "Exact matches are identical · $groupCount groups · Safe to review"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1234,7 +1247,7 @@ private fun DuplicateSafetyFooter() {
             Column {
                 Text("Your files are safe", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    text = "Best copies are protected and reviewed deletions go to Recycle Bin.",
+                    text = "Exact matches have identical content. Best copies stay protected; reviewed deletions go to Recycle Bin for recovery.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

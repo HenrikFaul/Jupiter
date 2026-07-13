@@ -14,8 +14,8 @@ android {
         applicationId = "com.jupiter.filemanager"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.56.0"
+        versionCode = 9
+        versionName = "0.57.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -167,6 +167,7 @@ dependencies {
     implementation(libs.jsch)          // SFTP
     implementation(libs.okhttp)        // WebDAV + cloud REST (incl. Google Drive v3)
     implementation(libs.nanohttpd)     // embedded HTTP server for Wi-Fi desktop transfer
+    implementation(libs.zxing.core)    // locally generated QR pairing code for Jupiscan Relay
 
     // Google account sign-in + Drive authorization (Credential Manager + Identity).
     // The Drive REST v3 calls go through OkHttp above; no heavyweight google-api client.

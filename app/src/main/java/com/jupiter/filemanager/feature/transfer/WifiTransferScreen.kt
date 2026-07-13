@@ -3,7 +3,9 @@ package com.jupiter.filemanager.feature.transfer
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -39,9 +41,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -52,14 +56,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiter.filemanager.ui.components.JupiterCard
 import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.theme.JupiterDesign
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 
 /**
- * Wi-Fi transfer screen.
+ * Jupiscan Relay screen.
  *
- * Starts and stops a REAL on-device HTTP server ([com.jupiter.filemanager.data.transfer.WifiTransferServer],
- * managed by [WifiTransferViewModel]) that serves the public Downloads directory
- * over the local network. While running it shows the genuine reachable URL with a
- * copy affordance.
+ * Starts and stops a real, pairing-gated local server
+ * ([com.jupiter.filemanager.data.transfer.WifiTransferServer], managed by
+ * [WifiTransferViewModel]) that serves the public Downloads directory over the local network.
+ * While running it shows a real QR/link containing an in-memory session token.
  *
  * Honest constraint: the desktop/browser opening the URL and this phone must be on
  * the same Wi-Fi/LAN — this is surfaced explicitly in the UI.
@@ -77,7 +84,7 @@ fun WifiTransferScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Wi-Fi Transfer") },
+                title = { Text(text = "Jupiscan Relay") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -102,7 +109,7 @@ fun WifiTransferScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "Transfer over Wi-Fi",
+                text = "Jupiscan Relay",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
@@ -111,8 +118,8 @@ fun WifiTransferScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Start the server, then open the address below in a browser on a " +
-                    "computer that's on the same Wi-Fi network to download your files.",
+                text = "Start a short-lived pairing session, then scan this QR code on a computer " +
+                    "on the same Wi-Fi network. Only paired browsers can view your Downloads.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -129,16 +136,17 @@ fun WifiTransferScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            AddressCard(
+            PairingCard(
                 isRunning = uiState.isRunning,
-                url = uiState.url,
+                pairingUrl = uiState.pairingUrl,
+                pairingSessionId = uiState.pairingSessionId,
                 error = uiState.error,
-                onCopy = { uiState.url?.let { copyToClipboard(context, it) } },
+                onCopy = { uiState.pairingUrl?.let { copyToClipboard(context, it) } },
             )
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            SameNetworkNote()
+            TrustedNetworkNote()
         }
     }
 }
@@ -158,7 +166,7 @@ private fun HeaderBadge(running: Boolean, modifier: Modifier = Modifier) {
 }
 
 /**
- * Primary Start / Stop control. Starts or stops the real embedded server.
+ * Primary Start / Stop control. Starts or stops the explicit pairing session.
  */
 @Composable
 private fun StartStopButton(
@@ -185,18 +193,19 @@ private fun StartStopButton(
             modifier = Modifier.size(20.dp),
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Text(text = if (isRunning) "Stop server" else "Start server")
+        Text(text = if (isRunning) "Stop Relay" else "Start Relay")
     }
 }
 
 /**
- * Card showing the live server URL (when running) with a read-only, copyable
- * field, or guidance when stopped / errored.
+ * Card showing a real QR pairing code and the copyable one-time URL. The QR is generated locally
+ * from the current session only; no file path or transfer metadata leaves the device to create it.
  */
 @Composable
-private fun AddressCard(
+private fun PairingCard(
     isRunning: Boolean,
-    url: String?,
+    pairingUrl: String?,
+    pairingSessionId: String?,
     error: String?,
     onCopy: () -> Unit,
     modifier: Modifier = Modifier,
@@ -210,25 +219,38 @@ private fun AddressCard(
         ) {
             InfoRow(
                 icon = Icons.Filled.Router,
-                label = "Server",
+                label = "Relay",
                 value = when {
-                    isRunning -> "Running"
-                    error != null -> "Failed to start"
+                    isRunning -> "Paired session running"
+                    error != null -> "Unavailable"
                     else -> "Stopped"
                 },
             )
 
+            if (pairingUrl != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                RelayQrCode(pairingUrl = pairingUrl)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Session ${pairingSessionId ?: ""} · expires automatically in 10 minutes",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Address",
+                text = "Pairing link",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val displayUrl = url ?: "Start the server to get an address"
+            val displayUrl = pairingUrl ?: "Start Relay to create a one-time pairing link"
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -250,7 +272,7 @@ private fun AddressCard(
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontFamily = FontFamily.Monospace,
                         ),
-                        color = if (url != null) {
+                        color = if (pairingUrl != null) {
                             MaterialTheme.colorScheme.onSurface
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -263,12 +285,12 @@ private fun AddressCard(
                     )
                     IconButton(
                         onClick = onCopy,
-                        enabled = url != null,
+                        enabled = pairingUrl != null,
                     ) {
                         Icon(
                             imageVector = Icons.Filled.ContentCopy,
-                            contentDescription = "Copy URL",
-                            tint = if (url != null) {
+                            contentDescription = "Copy pairing link",
+                            tint = if (pairingUrl != null) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -298,6 +320,60 @@ private fun AddressCard(
         }
     }
 }
+
+@Composable
+private fun RelayQrCode(pairingUrl: String, modifier: Modifier = Modifier) {
+    val qr = remember(pairingUrl) { createQrBitmap(pairingUrl) }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (qr != null) {
+                Image(
+                    bitmap = qr.asImageBitmap(),
+                    contentDescription = "QR code for the current Jupiscan Relay pairing session",
+                    modifier = Modifier.size(220.dp),
+                )
+            } else {
+                Text(
+                    text = "The pairing link is ready. Use Copy link if the QR preview is unavailable.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Scan on your computer to pair",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+private fun createQrBitmap(value: String): Bitmap? = runCatching {
+    val matrix = QRCodeWriter().encode(
+        value,
+        BarcodeFormat.QR_CODE,
+        QR_SIZE_PX,
+        QR_SIZE_PX,
+        mapOf(EncodeHintType.MARGIN to 1),
+    )
+    Bitmap.createBitmap(QR_SIZE_PX, QR_SIZE_PX, Bitmap.Config.ARGB_8888).also { bitmap ->
+        for (x in 0 until QR_SIZE_PX) {
+            for (y in 0 until QR_SIZE_PX) {
+                bitmap.setPixel(x, y, if (matrix[x, y]) 0xFF101318.toInt() else 0xFFFFFFFF.toInt())
+            }
+        }
+    }
+}.getOrNull()
 
 /**
  * A leading-icon / label / value row used inside [AddressCard].
@@ -336,11 +412,11 @@ private fun InfoRow(
 }
 
 /**
- * Honest note clarifying that the desktop and the phone must share the same
- * Wi-Fi / LAN for the address to be reachable.
+ * Honest note clarifying the local-network trust boundary. Pairing prevents casual LAN access;
+ * this browser-based transport is not represented as end-to-end encrypted.
  */
 @Composable
-private fun SameNetworkNote(modifier: Modifier = Modifier) {
+private fun TrustedNetworkNote(modifier: Modifier = Modifier) {
     JupiterCard(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(JupiterDesign.CompactPadding),
@@ -358,15 +434,15 @@ private fun SameNetworkNote(modifier: Modifier = Modifier) {
             Spacer(modifier = Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "Same network required",
+                    text = "Use a trusted local network",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "The computer's browser and this phone must be connected to the " +
-                        "same Wi-Fi / local network. The server shares your Downloads folder " +
-                        "only while it's running and only on your LAN — it isn't reachable " +
-                        "from the internet.",
+                    text = "The computer and phone must share the same Wi-Fi / LAN. A new " +
+                        "random pairing token is required for every session and expires after " +
+                        "10 minutes. Stop Relay when finished; do not start it on an untrusted " +
+                        "public Wi-Fi network.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -380,6 +456,8 @@ private fun SameNetworkNote(modifier: Modifier = Modifier) {
  */
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-    clipboard?.setPrimaryClip(ClipData.newPlainText("Wi-Fi transfer URL", text))
-    Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
+    clipboard?.setPrimaryClip(ClipData.newPlainText("Jupiscan Relay pairing link", text))
+    Toast.makeText(context, "Pairing link copied", Toast.LENGTH_SHORT).show()
 }
+
+private const val QR_SIZE_PX = 320

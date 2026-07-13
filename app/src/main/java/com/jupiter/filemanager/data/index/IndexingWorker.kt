@@ -130,7 +130,7 @@ class IndexingWorker @AssistedInject constructor(
             "Indexing storage…"
         }
         val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Jupiter")
+            .setContentTitle("Jupiscan")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)

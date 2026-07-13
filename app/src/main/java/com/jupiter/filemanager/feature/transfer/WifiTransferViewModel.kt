@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiter.filemanager.data.transfer.RelaySession
 import com.jupiter.filemanager.data.transfer.WifiTransferServer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -11,26 +12,32 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import java.io.File
 import javax.inject.Inject
 
 /**
  * UI state for the Wi-Fi transfer screen.
  *
- * @property isRunning whether the embedded HTTP server is currently listening.
- * @property url the reachable LAN URL while running (e.g. "http://192.168.1.5:8080/"),
- *               or null when stopped or when no LAN address could be determined.
+ * @property isRunning whether the explicitly paired Relay server is currently listening.
+ * @property pairingUrl the one-time LAN pairing URL while running, or null when stopped.
+ * @property expiresAtMillis wall-clock expiry of the in-memory pairing session, or null when stopped.
  * @property error a human-readable error if the server failed to start.
  */
 data class WifiTransferUiState(
     val isRunning: Boolean = false,
-    val url: String? = null,
+    val pairingUrl: String? = null,
+    val pairingSessionId: String? = null,
+    val expiresAtMillis: Long? = null,
     val error: String? = null,
 )
 
 /**
- * Owns the lifecycle of a real [WifiTransferServer] that serves the device's
- * public Downloads directory over the local network.
+ * Owns the lifecycle of a real [WifiTransferServer] that serves the device's public Downloads
+ * directory only after a QR/copy-link pairing token is presented. The server uses an OS-selected
+ * local port and is torn down at the session deadline, on explicit stop and when this ViewModel is
+ * cleared.
  *
  * The server is started/stopped on demand and torn down when the ViewModel is
  * cleared so the socket is always released.
@@ -45,6 +52,8 @@ class WifiTransferViewModel @Inject constructor(
 
     @Volatile
     private var server: WifiTransferServer? = null
+
+    private var expiryJob: Job? = null
 
     /** Default served directory: the public Downloads folder, falling back to app files. */
     private fun servedDirectory(): File {
@@ -63,12 +72,13 @@ class WifiTransferViewModel @Inject constructor(
         return context.filesDir
     }
 
-    /** Starts the embedded server and publishes the reachable URL, or an error. */
+    /** Starts a new in-memory, time-limited Relay session and publishes its pairing URL. */
     fun start() {
         if (server != null) return
         viewModelScope.launch {
             val dir = servedDirectory()
-            val instance = WifiTransferServer(port = 8080, rootDir = dir)
+            val relaySession = RelaySession.create()
+            val instance = WifiTransferServer(rootDir = dir, relaySession = relaySession)
             val url = try {
                 instance.startServer()
             } catch (_: Throwable) {
@@ -76,7 +86,22 @@ class WifiTransferViewModel @Inject constructor(
             }
             if (url != null) {
                 server = instance
-                _uiState.value = WifiTransferUiState(isRunning = true, url = url, error = null)
+                _uiState.value = WifiTransferUiState(
+                    isRunning = true,
+                    pairingUrl = url,
+                    pairingSessionId = relaySession.token.takeLast(6).uppercase(),
+                    expiresAtMillis = relaySession.expiresAtMillis,
+                    error = null,
+                )
+                expiryJob?.cancel()
+                expiryJob = viewModelScope.launch {
+                    delay(relaySession.remainingMillis(System.currentTimeMillis()))
+                    if (server === instance) {
+                        stopInternal(
+                            message = "This Relay pairing session expired. Start a new session to share files again.",
+                        )
+                    }
+                }
             } else {
                 try {
                     instance.stopServer()
@@ -85,7 +110,7 @@ class WifiTransferViewModel @Inject constructor(
                 }
                 _uiState.value = WifiTransferUiState(
                     isRunning = false,
-                    url = null,
+                    pairingUrl = null,
                     error = "Couldn't start the server. Make sure you're connected to Wi-Fi.",
                 )
             }
@@ -94,8 +119,14 @@ class WifiTransferViewModel @Inject constructor(
 
     /** Stops the embedded server and clears the published URL. */
     fun stop() {
+        stopInternal(message = null)
+    }
+
+    private fun stopInternal(message: String?) {
+        expiryJob?.cancel()
+        expiryJob = null
         val running = server ?: run {
-            _uiState.value = WifiTransferUiState(isRunning = false, url = null, error = null)
+            _uiState.value = WifiTransferUiState(isRunning = false, error = message)
             return
         }
         try {
@@ -104,16 +135,11 @@ class WifiTransferViewModel @Inject constructor(
             // ignore — already stopped
         }
         server = null
-        _uiState.value = WifiTransferUiState(isRunning = false, url = null, error = null)
+        _uiState.value = WifiTransferUiState(isRunning = false, error = message)
     }
 
     override fun onCleared() {
         super.onCleared()
-        try {
-            server?.stopServer()
-        } catch (_: Throwable) {
-            // ignore — best-effort teardown
-        }
-        server = null
+        stopInternal(message = null)
     }
 }

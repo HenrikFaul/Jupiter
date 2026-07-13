@@ -120,7 +120,7 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
         ensureNotificationChannel()
         val text = if (total > 0) "Analyzing photos for duplicates — $done / $total" else "Analyzing photos…"
         val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Jupiter")
+            .setContentTitle("Jupiscan")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)

@@ -337,7 +337,7 @@ private fun AppActionsSheet(
             Spacer(Modifier.height(8.dp))
             Text(
                 text = "Android only lets the system Settings clear another app's private " +
-                    "data — Jupiter takes you straight to the right screen.",
+                    "data — Jupiscan takes you straight to the right screen.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -865,7 +865,7 @@ private fun AppPrivacyExplainer() {
                         "sealed off from every file manager — even with All files access. Installed " +
                         "APKs and app caches aren't browsable by any non-root file manager either. On " +
                         "most phones that hidden space is the biggest part of what's used. No app can " +
-                        "open those files (only a rooted device can), so Jupiter measures their size " +
+                        "open those files (only a rooted device can), so Jupiscan measures their size " +
                         "per app here instead of listing them as files.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -990,7 +990,7 @@ private fun UsageAccessRequired(modifier: Modifier) {
                 )
                 Text(
                     text = "Most of a full phone is app storage (games, app data and caches) that " +
-                        "Android hides from file managers. Grant Jupiter \"Usage access\" to show a " +
+                        "Android hides from file managers. Grant Jupiscan \"Usage access\" to show a " +
                         "per-app breakdown and account for that space.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

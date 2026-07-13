@@ -135,7 +135,7 @@ class FavoritesWidget : GlanceAppWidget() {
 
             if (favorites.isEmpty()) {
                 Text(
-                    text = "Add favorites in Jupiter",
+                    text = "Add favorites in Jupiscan",
                     style = TextStyle(color = subtle, fontSize = 13.sp),
                     maxLines = 2,
                 )

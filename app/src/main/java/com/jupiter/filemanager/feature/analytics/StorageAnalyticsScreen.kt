@@ -64,6 +64,7 @@ import com.jupiter.filemanager.core.util.formatItemCount
 import com.jupiter.filemanager.domain.model.CategoryUsage
 import com.jupiter.filemanager.domain.model.StorageCategory
 import com.jupiter.filemanager.domain.model.StorageOverview
+import com.jupiter.filemanager.domain.model.StorageTruth
 import com.jupiter.filemanager.ui.components.ErrorView
 import com.jupiter.filemanager.ui.components.LoadingView
 import com.jupiter.filemanager.ui.components.JupiterIconBadge
@@ -243,6 +244,10 @@ private fun AnalyticsContent(
                     )
                 }
             }
+        }
+
+        item(key = "storage-truth") {
+            StorageTruthCard(truth = StorageTruth.from(overview), isScanning = isScanning)
         }
 
         item(key = "app-storage-entry") {
@@ -718,7 +723,7 @@ private fun PermissionRequiredView(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "To analyze how your storage is used, Jupiter needs permission " +
+            text = "To analyze how your storage is used, Jupiscan needs permission " +
                 "to access all files on this device.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -769,4 +774,64 @@ private fun colorForCategory(category: StorageCategory): Color = when (category)
     StorageCategory.APPS -> JupiterDesign.CategoryApk
     StorageCategory.DOWNLOADS -> JupiterDesign.CategoryDownload
     StorageCategory.OTHER -> JupiterDesign.CategoryOther
+}
+
+/**
+ * Makes the Android storage boundary explicit instead of letting a category subtotal look like the
+ * device total. This is a trust surface: each number states whether it came from the platform or
+ * from Jupiscan's shared-file analysis.
+ */
+@Composable
+private fun StorageTruthCard(
+    truth: StorageTruth,
+    isScanning: Boolean,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = JupiterDesign.CompactCardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Storage truth",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Platform capacity and Jupiscan's file analysis are shown separately.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            TruthRow("Phone capacity", formatStorageBytes(truth.platformTotalBytes), "Android platform")
+            TruthRow("Free now", formatStorageBytes(truth.platformFreeBytes), "Android platform")
+            TruthRow(
+                "Shared files analyzed",
+                formatBytes(truth.analyzedSharedFileBytes),
+                if (isScanning) "still updating" else "categorized by Jupiscan",
+            )
+            TruthRow(
+                "Used outside shared-file analysis",
+                formatBytes(truth.usedOutsideSharedAnalysisBytes),
+                "app-private, system, or protected storage",
+            )
+        }
+    }
+}
+
+@Composable
+private fun TruthRow(label: String, value: String, source: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(source, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    }
 }

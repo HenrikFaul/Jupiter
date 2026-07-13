@@ -14,4 +14,15 @@
         domain="file"
         path="vault" />
 
+    <!-- Remote passwords/tokens and their non-secret endpoint metadata are device-local. Restoring
+         either half on another device creates a misleading or unusable connection state. -->
+    <exclude domain="sharedpref" path="jupiter_remote_credentials.xml" />
+    <exclude domain="sharedpref" path="jupiter_vault_pin.xml" />
+    <exclude domain="file" path="datastore/jupiter_connections.preferences_pb" />
+
+    <!-- The index can contain private file metadata and is rebuilt safely from the device. -->
+    <exclude domain="database" path="jupiter_index.db" />
+    <exclude domain="database" path="jupiter_index.db-wal" />
+    <exclude domain="database" path="jupiter_index.db-shm" />
+
 </full-backup-content>

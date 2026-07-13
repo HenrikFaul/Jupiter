@@ -77,10 +77,10 @@ class ConnectionRepositoryImpl @Inject constructor(
         username: String?,
         password: String?,
         basePath: String?,
-    ) {
+    ): Boolean {
         val name = displayName.trim()
         val trimmedHost = host.trim()
-        if (name.isEmpty() || trimmedHost.isEmpty()) return
+        if (name.isEmpty() || trimmedHost.isEmpty()) return false
         val id = UUID.randomUUID().toString()
         val remote = RemoteConnection(
             id = id,
@@ -93,13 +93,19 @@ class ConnectionRepositoryImpl @Inject constructor(
             basePath = basePath?.trim()?.takeIf { it.isNotEmpty() },
         )
         // Persist the secret encrypted, keyed by the new connection id, before
-        // the entry itself becomes observable.
-        credentialStore.savePassword(id, password)
-        dataStore.edit { prefs ->
-            val current = prefs[Keys.REMOTES].orEmpty().toMutableSet()
-            current.add(encodeRemote(remote))
-            prefs[Keys.REMOTES] = current
-        }
+        // the entry itself becomes observable. A password-bearing connection must never be
+        // added in a half-configured state after a crypto failure.
+        if (password != null && !credentialStore.savePassword(id, password)) return false
+        val persisted = runCatching {
+            dataStore.edit { prefs ->
+                val current = prefs[Keys.REMOTES].orEmpty().toMutableSet()
+                current.add(encodeRemote(remote))
+                prefs[Keys.REMOTES] = current
+            }
+            true
+        }.getOrDefault(false)
+        if (!persisted && password != null) credentialStore.deletePassword(id)
+        return persisted
     }
 
     override suspend fun removeRemote(id: String) {

@@ -4,12 +4,15 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.jupiter.filemanager.MainActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -74,7 +77,7 @@ class AndroidDuplicateNotificationPublisher @Inject constructor(
         val count = alert.existing.size
         val (title, text, idSalt) = when (alert.kind) {
             DuplicateKind.EXACT -> Triple(
-                "Duplicate detected",
+                "New download already on your device",
                 "${alert.newFile.name} — you already have " +
                     if (count == 1) "1 copy" else "$count copies",
                 0,
@@ -162,6 +165,7 @@ class AndroidDuplicateNotificationPublisher @Inject constructor(
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(reviewPendingIntent(notificationId))
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
@@ -177,6 +181,21 @@ class AndroidDuplicateNotificationPublisher @Inject constructor(
                 error.message ?: error::class.java.simpleName,
             )
         }
+    }
+
+    /** Opens the actual duplicate-review surface, never a dead-end notification. */
+    private fun reviewPendingIntent(notificationId: Int): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = "com.jupiter.filemanager.action.REVIEW_DUPLICATES"
+            putExtra(MainActivity.DUPLICATE_REVIEW_EXTRA, true)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        return PendingIntent.getActivity(
+            context,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     private companion object {

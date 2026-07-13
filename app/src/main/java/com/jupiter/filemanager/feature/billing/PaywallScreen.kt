@@ -110,7 +110,7 @@ fun PaywallScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Jupiter Pro") },
+                title = { Text(text = "Jupiscan Pro") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -161,7 +161,7 @@ private fun PaywallHeader() {
         JupiterWordmark()
         JupiterIconBadge(icon = Icons.Filled.WorkspacePremium, size = 72.dp)
         Text(
-            text = "Jupiter Pro preview",
+            text = "Jupiscan Pro preview",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -195,7 +195,7 @@ private fun EverythingFreeNote() {
             Spacer(modifier = Modifier.size(12.dp))
             Text(
                 text = "Good news: every feature below is currently free for everyone. " +
-                    "Pro is how you'll support Jupiter once paid plans arrive.",
+                    "Pro is how you'll support Jupiscan once paid plans arrive.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )

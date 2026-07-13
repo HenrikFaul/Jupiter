@@ -1,6 +1,6 @@
-# Jupiter — Changelog
+# Jupiscan — Changelog
 
-Append-only delivery history for **Jupiter**, a native Android file manager
+Append-only delivery history for **Jupiscan**, a native Android file manager
 (Kotlin · Jetpack Compose · Material 3 · MVVM/Hilt · Coroutines/Flow).
 
 ---
@@ -908,3 +908,49 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `git pull --ff-only origin main` a kör elején; a meglévő, nem követett `Requirements/` és `versioning.zip` fájlok érintetlenek.
 - A módosítások kizárólag Markdown dokumentumok; `app/`, manifest, Gradle, dependency, Kotlin és Android resource nem módosult.
 - `git diff --check` a dokumentációs patch után kötelező; Android build/test futtatása a következő, kódot módosító kör kapuja.
+
+## [jupiscan:0.57.0] - 2026-07-14
+
+**Scope / miért:** a termék a „biztonságosan döntő tárhely-asszisztens” irányba lép, de a felhasználó kifejezetten kérte, hogy **funkcionális regresszió nélkül** történjen, és a márkanév minden user-visible felületen Jupiscan legyen. A kör az Explainable Cleanup, Instant Download Guard, Storage Truth, Jupiscan Relay és Privacy & Recovery Center első, működő integrációját szállítja.
+
+### Added
+
+- **[dedup/ui]** Explainable Cleanup a heroban külön megmutatja a byte-azonos Exact és a csak felülvizsgálatra szolgáló Similar képek darabszámát; egyértelművé teszi a felszabadítható helyet, a keeper-védelmet és a Recycle Binből való visszaállítást.
+- **[dedup/notification,navigation]** Az érkezési duplikáció-értesítésre koppintva a felhasználó a tényleges Duplicate cleanup felülvizsgálatra jut. Az értesítés exact találatnál „New download already on your device” címet használ, de a meglévő tartós outbox/idempotencia változatlan.
+- **[storage/ui,domain]** `StorageTruth` modell és kártya: külön platform-kapacitás, szabad hely, elemezhető shared fájlok és a shared vizsgálaton kívüli foglalt rész. Az utóbbit nem címkézi hamisan app-adatnak.
+- **[transfer/data,ui]** Jupiscan Relay: memóriában élő, `SecureRandom` tokenes, QR-kódos párosítás; OS-választott port; 10 perces automatikus lejárat; minden listázás és fájlkérés token-köteles; böngésző-cache/referrer elleni válaszfejlécek. A párosítási token a belső fájllinkekben is továbbadódik, ezért a már párosított laptop valóban le tudja tölteni a listázott fájlt.
+- **[privacy/ui]** Privacy & Recovery Center a valódi Vault, NAS/remote connections, Recycle Bin, Relay és Data Transparency képernyők egyértelmű belépési pontjaival.
+- **[test]** `StorageTruthTest` és `RelaySessionTest`: kapacitás-elszámolás clampje, token-helyesség, lejárat és URL-safe 256-bites token regressziós ellenőrzése.
+
+### Changed
+
+- **[brand/ui]** Az alkalmazáscím, értesítési címek, widget, AI, permission, Storage/cleanup/vault/privacy/settings/billing szövegek és látható docs Jupiscanre váltottak. A `com.jupiter.filemanager` package, adatbázis/preference/intent azonosítók és történeti rekordok szándékosan maradnak: ezek átnevezése frissítési adatvesztést vagy második appot okozna.
+- **[remote/security]** Remote jelszó mentése most fail-closed: az EncryptedSharedPreferences hiba nem ír plaintext fallbackot. A NAS-jelszó nem `rememberSaveable`, és backup/data-extraction kizárás védi a credential-, Vault-PIN-, connection- és indexadatokat.
+- **[remote/downloads]** Új remote letöltés a `JupiscanDownloads` mappába érkezik, de a meglévő `JupiterDownloads` mappa előnyt élvez a korábbi fájlok elérhetőségéért.
+- **[build]** `versionCode` 9, `versionName` 0.57.0; QR-kód generáláshoz a `com.google.zxing:core:3.5.4` dependency került be.
+
+### Fixed
+
+- **[relay/functionality]** A korábbi gyökér URL `?pair=` query-je relatív fájllinkre nem öröklődött, ezért egy párosított böngésző is 401-et kapott letöltéskor. A lista most minden fájllinkhez a rövid élettartamú párosítási tokent adja, miközben az auth-gate megmarad.
+- **[brand]** A telepített Android alkalmazás címkéje többé nem „Jupiter”, hanem „Jupiscan”.
+
+### Regression checks
+
+- Exact döntés továbbra is kizárólag full content hash; a Similar scope nem törlési bizonyíték.
+- Méretszűrő, Select all/Deselect all, quality-ranked keeper-védelem és Recycle Bin workflow megmaradt; az új szöveg csak magyarázza őket.
+- A notification/outbox döntésperzisztencia és a permission/channel retry érintetlen; az új deep link csak a meglévő Duplicates képernyőre navigál.
+- Az Android alkalmazásazonosság, Room-adatbázisok, preferences és meglévő remote download folder kompatibilis maradt.
+
+### Known issues / remaining risk
+
+- Relay rövid élettartamú, párosított **trusted-LAN HTTP** megosztás. Nem állítjuk róla, hogy TLS vagy end-to-end titkosítás; csak megbízható helyi hálózaton szabad használni. Kétirányú feltöltés és desktop companion a következő, külön fenyegetésmodellezett kör.
+- A kereskedelmi release továbbra is valódi release signing keystore/CI secret beállítást igényel; a kör ezt nem tudja hitelesen konfigurálni külső kiadási jogosultság nélkül.
+- A Storage Truth teljes volume adatot mutat, de Android-védett/OEM területeket harmadik fél nem kategorizálhat fájlról fájlra; ez tudatosan „outside shared-file analysis”, nem hamis app-lista.
+
+### Verification
+
+- Munka előtt `git pull --ff-only origin main`; közvetlen `main`; meglévő `Requirements/` és `versioning.zip` untracked tartalom érintetlen.
+- `:app:compileDebugKotlin --no-daemon --console=plain` — **BUILD SUCCESSFUL**.
+- `:app:testDebugUnitTest --tests RelaySessionTest --tests StorageTruthTest --tests DuplicatesUiStateSizeFilterTest --tests DuplicatesUiStateSummaryTest --tests DuplicateDetectorTest --tests StorageCapacityPolicyTest --no-daemon --console=plain` — **BUILD SUCCESSFUL**.
+- `:app:assembleDebug --no-daemon --console=plain` — **BUILD SUCCESSFUL**; debug APK: `app/build/outputs/apk/debug/app-debug.apk`, 36 454 266 byte, SHA-256 `df640a09f0efd03cac643eda13809401f3785e5307fb85d6284b1167541f48e5`.
+- `git diff --check` — **PASS** (a CRLF-normalizációs figyelmeztetés nem whitespace-hiba). Push utáni CI eredmény csak a tényleges remote run után kerül ide.

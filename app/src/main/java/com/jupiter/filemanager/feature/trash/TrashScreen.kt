@@ -253,7 +253,7 @@ fun TrashScreen(
             text = {
                 Text(
                     if (uiState.autoDeleteDays > 0) {
-                        "Items remain recoverable for ${uiState.autoDeleteDays} days, then Jupiter permanently deletes them."
+                        "Items remain recoverable for ${uiState.autoDeleteDays} days, then Jupiscan permanently deletes them."
                     } else {
                         "Automatic deletion is OFF. Items remain recoverable until you permanently delete them."
                     },

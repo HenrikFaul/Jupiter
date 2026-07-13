@@ -83,7 +83,7 @@ fun AiAssistantScreen(
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(
-                                "Jupiter AI",
+                                "Jupiscan AI",
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
@@ -168,7 +168,7 @@ private fun EmptyConversation(
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Ask Jupiter AI",
+            text = "Ask Jupiscan AI",
             style = MaterialTheme.typography.headlineSmall,
         )
         Spacer(Modifier.height(8.dp))
@@ -285,7 +285,7 @@ private fun Composer(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Ask Jupiter AI…") },
+                placeholder = { Text("Ask Jupiscan AI…") },
                 shape = RoundedCornerShape(24.dp),
                 maxLines = 4,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),

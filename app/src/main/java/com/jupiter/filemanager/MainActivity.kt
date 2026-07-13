@@ -14,8 +14,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -38,7 +40,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Single-activity host for Jupiter.
+ * Single-activity host for the Jupiscan app.
  *
  * Annotated with [AndroidEntryPoint] so Hilt can inject the view models obtained
  * via [hiltViewModel]. Sets up the Compose content tree: applies the persisted
@@ -53,6 +55,9 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+
+    /** A notification can arrive while this activity is already visible (singleTop). */
+    private var pendingDuplicateReview by mutableStateOf(false)
 
     /** Schedules/keeps the background index survey alive. */
     @Inject
@@ -88,6 +93,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        pendingDuplicateReview = intent?.getBooleanExtra(DUPLICATE_REVIEW_EXTRA, false) == true
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -130,6 +136,7 @@ class MainActivity : AppCompatActivity() {
                     val navController = rememberNavController()
                     val outerBackStackEntry by navController.currentBackStackEntryAsState()
                     val outerRoute = outerBackStackEntry?.destination?.route
+                    val shouldOpenDuplicateReview = pendingDuplicateReview
 
                     // Widget deep link: the Favorites home-screen widget launches us with
                     // an OPEN_PATH extra; navigate straight to that folder once.
@@ -146,11 +153,27 @@ class MainActivity : AppCompatActivity() {
                     // composition-wide launch raced those gates and could put What's New in
                     // front of first-run access setup before the main shell existed.
                     LaunchedEffect(outerRoute) {
-                        if (outerRoute == Destination.Main.route ||
-                            outerRoute == Destination.MainTab.route
+                        if (!shouldOpenDuplicateReview &&
+                            (outerRoute == Destination.Main.route ||
+                                outerRoute == Destination.MainTab.route)
                         ) {
                             mainViewModel.maybeShowWhatsNew {
                                 navController.navigate(Destination.WhatsNew.route)
+                            }
+                        }
+                    }
+
+                    // A duplicate-arrival alert always leads to the real review queue.  Wait
+                    // for the established main shell so a notification never bypasses the
+                    // first-run permission/onboarding gates.
+                    LaunchedEffect(outerRoute, shouldOpenDuplicateReview) {
+                        if (shouldOpenDuplicateReview &&
+                            (outerRoute == Destination.Main.route ||
+                                outerRoute == Destination.MainTab.route)
+                        ) {
+                            pendingDuplicateReview = false
+                            navController.navigate(Destination.Duplicates.route) {
+                                launchSingleTop = true
                             }
                         }
                     }
@@ -161,6 +184,14 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(DUPLICATE_REVIEW_EXTRA, false)) {
+            pendingDuplicateReview = true
         }
     }
 
@@ -193,7 +224,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private companion object {
+    companion object {
         const val WIDGET_OPEN_PATH_EXTRA = "com.jupiter.filemanager.OPEN_PATH"
+        const val DUPLICATE_REVIEW_EXTRA = "com.jupiter.filemanager.OPEN_DUPLICATE_REVIEW"
     }
 }

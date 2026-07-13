@@ -373,10 +373,10 @@ private fun LockedContent(
             )
             Text(
                 text = if (pendingImportAwaitingAuthentication) {
-                    "Document selected. Authenticate again before Jupiter reads and encrypts it."
+                    "Document selected. Authenticate again before Jupiscan reads and encrypts it."
                 } else {
                     "Encrypted files stay private until your configured credential is verified. " +
-                        "Jupiter never unlocks this screen on a normal button press."
+                        "Jupiscan never unlocks this screen on a normal button press."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

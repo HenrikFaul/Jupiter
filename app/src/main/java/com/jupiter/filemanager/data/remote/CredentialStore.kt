@@ -11,105 +11,92 @@ import javax.inject.Singleton
 /**
  * Stores remote-connection passwords at rest, keyed by connection id.
  *
- * Backed by [EncryptedSharedPreferences] (AES256_GCM via a [MasterKey]). In the rare
- * case the Android KeyStore or the underlying crypto/IO layer throws, we fall back to a
- * plain [SharedPreferences] instance so the app never crashes. Passwords are stored under
- * keys prefixed with [KEY_PREFIX].
+ * Backed by [EncryptedSharedPreferences] (AES256_GCM via a [MasterKey]). Android KeyStore or
+ * encrypted-preference failures are deliberately **fail closed**: callers get a failed write or
+ * a null read and must ask the user to authenticate again. A secret must never survive by being
+ * written to ordinary [SharedPreferences]. Passwords are stored under keys prefixed with
+ * [KEY_PREFIX].
  */
 @Singleton
 class CredentialStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
 
-    private val prefs: SharedPreferences by lazy { createPrefs() }
+    /**
+     * The Result is cached so a broken KeyStore is handled consistently for the process lifetime.
+     * Retrying a failure by silently choosing another persistence backend would be a security
+     * downgrade, not a recovery strategy.
+     */
+    private val encryptedPrefs: Result<SharedPreferences> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        runCatching { createEncryptedPrefs() }
+    }
 
-    private fun createPrefs(): SharedPreferences {
-        return try {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                context,
-                ENCRYPTED_PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
-        } catch (t: Throwable) {
-            // KeyStore corruption / IO / GeneralSecurityException — never crash the app.
-            context.getSharedPreferences(FALLBACK_PREFS_NAME, Context.MODE_PRIVATE)
-        }
+    private fun createEncryptedPrefs(): SharedPreferences {
+        // A pre-v0.57 build could create this plaintext fallback file. It cannot be migrated
+        // safely while the Keystore is unavailable, so remove it before opening the encrypted
+        // store. This may require a remote re-authentication but never leaves a recoverable
+        // password/token on disk.
+        context.getSharedPreferences(LEGACY_FALLBACK_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            context,
+            ENCRYPTED_PREFS_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
     }
 
     private fun keyFor(connectionId: String): String = KEY_PREFIX + connectionId
 
-    fun savePassword(connectionId: String, password: String?) {
-        try {
-            val editor = prefs.edit()
-            if (password == null) {
-                editor.remove(keyFor(connectionId))
-            } else {
-                editor.putString(keyFor(connectionId), password)
-            }
-            editor.apply()
-        } catch (t: Throwable) {
-            // Swallow — persistence failures must not crash the caller.
-        }
-    }
+    fun savePassword(connectionId: String, password: String?): Boolean =
+        write(keyFor(connectionId), password)
 
     fun getPassword(connectionId: String): String? {
-        return try {
-            prefs.getString(keyFor(connectionId), null)
-        } catch (t: Throwable) {
-            null
-        }
+        val prefs = encryptedPrefs.getOrNull() ?: return null
+        return runCatching { prefs.getString(keyFor(connectionId), null) }.getOrNull()
     }
 
-    fun deletePassword(connectionId: String) {
-        try {
-            prefs.edit().remove(keyFor(connectionId)).apply()
-        } catch (t: Throwable) {
-            // Ignore.
-        }
-    }
+    fun deletePassword(connectionId: String): Boolean = write(keyFor(connectionId), null)
 
     private fun secretKeyFor(key: String): String = SECRET_PREFIX + key
 
     /**
      * Persists an arbitrary secret [value] under [key] in the same
      * [EncryptedSharedPreferences] store used for passwords. A null [value]
-     * removes the entry. Crash-safe: persistence failures are swallowed so the
-     * caller is never crashed by a KeyStore/IO error.
+     * removes the entry. The Boolean result lets a caller keep the UI responsive
+     * while refusing to claim that a secret was persisted after a KeyStore/IO error.
      */
-    fun saveSecret(key: String, value: String?) {
-        try {
-            val editor = prefs.edit()
-            if (value == null) {
-                editor.remove(secretKeyFor(key))
-            } else {
-                editor.putString(secretKeyFor(key), value)
-            }
-            editor.apply()
-        } catch (t: Throwable) {
-            // Swallow — persistence failures must not crash the caller.
-        }
-    }
+    fun saveSecret(key: String, value: String?): Boolean = write(secretKeyFor(key), value)
 
     /**
      * Reads a secret previously stored via [saveSecret], or null if absent or on
      * any KeyStore/crypto/IO failure.
      */
     fun getSecret(key: String): String? {
-        return try {
-            prefs.getString(secretKeyFor(key), null)
-        } catch (t: Throwable) {
-            null
-        }
+        val prefs = encryptedPrefs.getOrNull() ?: return null
+        return runCatching { prefs.getString(secretKeyFor(key), null) }.getOrNull()
+    }
+
+    private fun write(key: String, value: String?): Boolean {
+        val prefs = encryptedPrefs.getOrNull() ?: return false
+        return runCatching {
+            val editor = prefs.edit()
+            if (value == null) editor.remove(key) else editor.putString(key, value)
+            // `commit` gives the caller a truthful, synchronous persistence outcome. Remote
+            // definitions are only published after this succeeds.
+            editor.commit()
+        }.getOrDefault(false)
     }
 
     private companion object {
         const val ENCRYPTED_PREFS_NAME = "jupiter_remote_credentials"
-        const val FALLBACK_PREFS_NAME = "jupiter_remote_credentials_fallback"
+        const val LEGACY_FALLBACK_PREFS_NAME = "jupiter_remote_credentials_fallback"
         const val KEY_PREFIX = "pwd_"
         const val SECRET_PREFIX = "secret_"
     }

@@ -138,7 +138,7 @@ fun PermissionScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Jupiter is a file manager, so it needs access to all files on " +
+            text = "Jupiscan is a file manager, so it needs access to all files on " +
                 "your device to browse, organize, move and clean up your storage.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -211,7 +211,7 @@ fun PermissionScreen(
         Text(
             text = "Note: since Android 11, other apps' Android/data folders are off-limits to " +
                 "every file manager, and installed apps and caches aren't browsable without " +
-                "root. Jupiter still measures that hidden space per app under Storage Analytics " +
+                "root. Jupiscan still measures that hidden space per app under Storage Analytics " +
                 "→ App storage.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

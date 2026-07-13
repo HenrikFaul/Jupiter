@@ -14,6 +14,12 @@
         <exclude
             domain="file"
             path="vault" />
+        <exclude domain="sharedpref" path="jupiter_remote_credentials.xml" />
+        <exclude domain="sharedpref" path="jupiter_vault_pin.xml" />
+        <exclude domain="file" path="datastore/jupiter_connections.preferences_pb" />
+        <exclude domain="database" path="jupiter_index.db" />
+        <exclude domain="database" path="jupiter_index.db-wal" />
+        <exclude domain="database" path="jupiter_index.db-shm" />
     </cloud-backup>
 
     <device-transfer>
@@ -21,6 +27,12 @@
         <exclude
             domain="file"
             path="vault" />
+        <exclude domain="sharedpref" path="jupiter_remote_credentials.xml" />
+        <exclude domain="sharedpref" path="jupiter_vault_pin.xml" />
+        <exclude domain="file" path="datastore/jupiter_connections.preferences_pb" />
+        <exclude domain="database" path="jupiter_index.db" />
+        <exclude domain="database" path="jupiter_index.db-wal" />
+        <exclude domain="database" path="jupiter_index.db-shm" />
     </device-transfer>
 
 </data-extraction-rules>

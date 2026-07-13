@@ -397,7 +397,10 @@ private fun AddConnectionDialog(
     var host by rememberSaveable { mutableStateOf("") }
     var portText by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
+    // A password is intentionally transient. `rememberSaveable` can serialize state into an
+    // Android Bundle during rotation/process recreation; connection details may survive, but a
+    // secret must be entered again if the dialog is recreated.
+    var password by remember { mutableStateOf("") }
     var basePath by rememberSaveable { mutableStateOf("") }
     var selectedType by remember { mutableStateOf(ConnectionType.SMB) }
 

@@ -41,7 +41,7 @@ import com.jupiter.filemanager.ui.components.JupiterIconBadge
 import com.jupiter.filemanager.ui.theme.JupiterDesign
 
 /**
- * A static, honest "Your data & privacy in Jupiter" trust surface.
+ * A static, honest "Your data & privacy in Jupiscan" trust surface.
  *
  * This screen exists to close the Play-preference gap: users are wary of file
  * managers that request broad permissions without explaining why. It plainly
@@ -96,12 +96,12 @@ fun DataTransparencyScreen(
             Spacer(modifier = Modifier.height(0.dp))
 
             Text(
-                text = "Your data & privacy in Jupiter",
+                text = "Your data & privacy in Jupiscan",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Jupiter is a native, on-device file manager. Here is exactly " +
+                text = "Jupiscan is a native, on-device file manager. Here is exactly " +
                     "what it can access, why, and what happens to your data — in plain " +
                     "language, with nothing hidden.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -140,7 +140,7 @@ fun DataTransparencyScreen(
                 title = "Where your data lives",
             ) {
                 BulletLine("Everything stays on your device by default.")
-                BulletLine("Jupiter has no ads and no third-party trackers.")
+                BulletLine("Jupiscan has no ads and no third-party trackers.")
                 BulletLine(
                     "Nothing is uploaded anywhere except to the cloud or remote " +
                         "servers you explicitly connect.",
@@ -189,7 +189,7 @@ fun DataTransparencyScreen(
                 title = "In short",
             ) {
                 BulletLine(
-                    "Your files are yours. Jupiter keeps them on your device, " +
+                    "Your files are yours. Jupiscan keeps them on your device, " +
                         "encrypts what's sensitive, and only reaches the network for " +
                         "the connections you choose.",
                 )

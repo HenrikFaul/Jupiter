@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -78,7 +79,7 @@ fun PrivacyDashboardScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Privacy",
+                        text = "Privacy & Recovery",
                         style = MaterialTheme.typography.headlineSmall,
                     )
                 },
@@ -121,7 +122,7 @@ fun PrivacyDashboardScreen(
                 )
                 uiState.report != null -> PrivacyContent(
                     report = uiState.report!!,
-                    onViewDetails = { onOpenRoute(Destination.Vault.route) },
+                    onOpenRoute = onOpenRoute,
                 )
                 else -> EmptyView(
                     title = "No privacy data",
@@ -136,7 +137,7 @@ fun PrivacyDashboardScreen(
 @Composable
 private fun PrivacyContent(
     report: PrivacyReport,
-    onViewDetails: () -> Unit,
+    onOpenRoute: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -175,13 +176,13 @@ private fun PrivacyContent(
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
                 StatRow(
                     label = "Shared Links",
-                    value = "Not tracked",
+                    value = "Review providers",
                     icon = Icons.Filled.Share,
                 )
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
                 StatRow(
                     label = "Apps with Access",
-                    value = "Not tracked",
+                    value = "Review Android settings",
                     icon = Icons.Filled.Apps,
                 )
                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -196,7 +197,7 @@ private fun PrivacyContent(
         Spacer(modifier = Modifier.height(20.dp))
 
         Button(
-            onClick = onViewDetails,
+            onClick = { onOpenRoute(Destination.Vault.route) },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(
@@ -205,16 +206,123 @@ private fun PrivacyContent(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("View Details")
+            Text("Open secure Vault")
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(24.dp))
+
+        RecoveryCenter(onOpenRoute = onOpenRoute)
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Shared links and third-party app access are shown as not tracked; Jupiter does not infer a safe result from missing data.",
+            text = "Sharing and third-party app permissions are not inferred from missing data. " +
+                "Review them in their providers and Android settings.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * Single, action-oriented entry point for the places where a user can protect or recover data.
+ * Every tile routes to an existing, functioning surface rather than promising an opaque audit.
+ */
+@Composable
+private fun RecoveryCenter(onOpenRoute: (String) -> Unit) {
+    Text(
+        text = "Privacy & Recovery Center",
+        style = MaterialTheme.typography.titleLarge,
+        color = MaterialTheme.colorScheme.onBackground,
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+    Text(
+        text = "Protect sensitive files, review connected services, and recover reviewed cleanups.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+
+    RecoveryAction(
+        icon = Icons.Filled.Lock,
+        title = "Secure Vault",
+        detail = "Encrypted files protected by your Vault PIN.",
+        action = "Open Vault",
+        onClick = { onOpenRoute(Destination.Vault.route) },
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    RecoveryAction(
+        icon = Icons.Filled.Apps,
+        title = "Connected cloud & NAS",
+        detail = "Review configured network connections and remove access you no longer need.",
+        action = "Manage connections",
+        onClick = { onOpenRoute(Destination.NasConnections.route) },
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    RecoveryAction(
+        icon = Icons.Filled.Shield,
+        title = "Recycle Bin & recovery",
+        detail = "Restore files from reviewed cleanups before the bin is emptied.",
+        action = "Open Recycle Bin",
+        onClick = { onOpenRoute(Destination.Trash.route) },
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    RecoveryAction(
+        icon = Icons.Filled.Share,
+        title = "Jupiscan Relay sessions",
+        detail = "Start or stop the short-lived paired local sharing session.",
+        action = "Open Relay",
+        onClick = { onOpenRoute(Destination.WifiTransfer.route) },
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    RecoveryAction(
+        icon = Icons.Filled.VisibilityOff,
+        title = "Permissions & data transparency",
+        detail = "See what Jupiscan uses locally and why.",
+        action = "Review data use",
+        onClick = { onOpenRoute(Destination.DataTransparency.route) },
+    )
+}
+
+@Composable
+private fun RecoveryAction(
+    icon: ImageVector,
+    title: String,
+    detail: String,
+    action: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = JupiterDesign.CompactCardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            JupiterIconBadge(icon = icon, size = 42.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = action,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.End,
+            )
+        }
     }
 }
 

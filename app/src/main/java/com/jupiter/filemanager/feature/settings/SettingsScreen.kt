@@ -359,7 +359,7 @@ fun SettingsScreen(
                     onOpenRoute(Destination.DataTransparency.route)
                 }
                 SettingsGroupDivider()
-                SettingsNavigationRow(Icons.Filled.Star, "Jupiter Pro", "Benefits and support") {
+                SettingsNavigationRow(Icons.Filled.Star, "Jupiscan Pro", "Benefits and support") {
                     onOpenRoute(Destination.Paywall.route)
                 }
             }
@@ -369,7 +369,7 @@ fun SettingsScreen(
                 SettingsGroupDivider()
                 SettingsSwitchRow(
                     icon = Icons.Filled.Insights,
-                    title = "Help improve Jupiter",
+                    title = "Help improve Jupiscan",
                     subtitle = "Share anonymous usage data (opt-in)",
                     checked = uiState.analyticsOptIn,
                     onCheckedChange = viewModel::setAnalyticsOptIn,
@@ -715,7 +715,7 @@ private fun AccentPaletteDialog(
     onDismiss: () -> Unit,
     onAccentSelected: (Long) -> Unit,
 ) {
-    val choices = listOf(AccentChoice(0L, "Jupiter teal", MaterialTheme.colorScheme.primary)) +
+    val choices = listOf(AccentChoice(0L, "Jupiscan teal", MaterialTheme.colorScheme.primary)) +
         AccentPalette.drop(1).map { AccentChoice(it.argb, it.name, it.color) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -908,7 +908,7 @@ private fun AboutSection() {
         )
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text("About Jupiter", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+            Text("About Jupiscan", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
             Text(
                 "v${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}",
                 style = MaterialTheme.typography.bodySmall,
@@ -973,7 +973,7 @@ private fun VaultPinDialog(
         title = { Text(if (configured) "Change vault PIN" else "Set vault PIN") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Use 4–12 numeric digits. Jupiter stores only a salted PBKDF2 verifier.")
+            Text("Use 4–12 numeric digits. Jupiscan stores only a salted PBKDF2 verifier.")
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it.filter(Char::isDigit).take(12) },
@@ -1041,7 +1041,7 @@ private fun themeLabel(mode: ThemeMode): String = when (mode) {
 }
 
 private fun selectedAccentName(argb: Long): String = when (argb) {
-    0L -> "Jupiter teal"
+    0L -> "Jupiscan teal"
     else -> AccentPalette.firstOrNull { it.argb == argb }?.name ?: "Custom"
 }
 

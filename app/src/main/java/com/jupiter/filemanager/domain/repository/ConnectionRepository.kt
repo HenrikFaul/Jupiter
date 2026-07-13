@@ -44,7 +44,7 @@ interface ConnectionRepository {
         username: String?,
         password: String?,
         basePath: String?,
-    )
+    ): Boolean
 
     /**
      * Removes the remote connection identified by [id].

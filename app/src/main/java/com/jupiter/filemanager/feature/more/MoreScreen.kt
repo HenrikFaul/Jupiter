@@ -97,7 +97,7 @@ fun MoreScreen(
             item(key = "jupiter-tools-intro") {
                 JupiterCard {
                     Text(
-                        text = "Jupiter tools",
+                        text = "Jupiscan tools",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )

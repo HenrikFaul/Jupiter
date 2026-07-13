@@ -114,7 +114,7 @@ class NasConnectionsViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Success -> {
-                    connectionRepository.addRemote(
+                    val saved = connectionRepository.addRemote(
                         displayName = name,
                         type = type,
                         host = trimmedHost,
@@ -123,7 +123,17 @@ class NasConnectionsViewModel @Inject constructor(
                         password = trimmedPassword,
                         basePath = trimmedBasePath,
                     )
-                    dialogState.value = DialogState(visible = false)
+                    if (saved) {
+                        dialogState.value = DialogState(visible = false)
+                    } else {
+                        dialogState.update {
+                            it.copy(
+                                visible = true,
+                                testing = false,
+                                error = "Couldn't store this connection securely. Try again after unlocking your device.",
+                            )
+                        }
+                    }
                 }
 
                 is AppResult.Failure -> {

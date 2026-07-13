@@ -130,7 +130,7 @@ private fun JupiterCardContent(
     }
 }
 
-/** The visual wordmark used by the supplied references; the app/package remains Jupiter. */
+/** The visual Jupiscan wordmark used by the supplied references. */
 @Composable
 fun JupiterWordmark(
     modifier: Modifier = Modifier,

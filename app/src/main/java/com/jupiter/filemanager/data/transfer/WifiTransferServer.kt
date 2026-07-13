@@ -8,24 +8,29 @@ import java.net.NetworkInterface
 import java.net.URLConnection
 
 /**
- * Embedded HTTP server that exposes [rootDir] over the local Wi-Fi network so a
- * desktop browser can list and download files.
+ * Pairing-gated local Relay server that exposes [rootDir] only to a desktop which holds the
+ * in-memory [relaySession] token. The caller receives that token solely in the one-time pairing
+ * link/QR; it is never written to disk.
  *
- * Backed by NanoHTTPD. The root path ("/") returns a simple HTML directory index
- * linking to each file; any other path that resolves to a regular file inside
+ * Backed by NanoHTTPD. Every request needs the short-lived pairing token in either the `pair`
+ * query parameter or a `Bearer` authorization header. The root path ("/") then returns a simple
+ * HTML directory index linking to each file; any other path that resolves to a regular file inside
  * [rootDir] is streamed back as a chunked download.
  *
  * All IO is guarded so a malformed request or filesystem error never crashes the
  * process — failures degrade to an HTTP error response or a null start result.
  */
 class WifiTransferServer(
-    port: Int = 8080,
+    port: Int = 0,
     private val rootDir: File,
+    private val relaySession: RelaySession,
 ) : NanoHTTPD(port) {
 
     /**
-     * Starts listening and returns the reachable URL (e.g. `http://192.168.1.5:8080/`)
-     * or `null` if the socket could not be bound or no LAN address was found.
+     * Starts listening and returns the one-time reachable pairing URL (for example,
+     * `http://192.168.1.5:49152/?pair=…`) or `null` if the socket could not be bound or no LAN
+     * address was found. Port zero asks the OS for an ephemeral port, avoiding a predictable,
+     * permanently advertised local endpoint.
      */
     fun startServer(): String? {
         return try {
@@ -34,7 +39,7 @@ class WifiTransferServer(
                 stopServer()
                 return null
             }
-            "http://$ip:$listeningPort/"
+            "http://$ip:$listeningPort/?pair=${java.net.URLEncoder.encode(relaySession.token, "UTF-8")}"
         } catch (t: Throwable) {
             try {
                 stopServer()
@@ -56,6 +61,13 @@ class WifiTransferServer(
 
     override fun serve(session: IHTTPSession): Response {
         return try {
+            val now = System.currentTimeMillis()
+            if (relaySession.isExpired(now)) {
+                return errorResponse(Response.Status.UNAUTHORIZED, "This Relay session has expired. Start a new pairing session on your phone.")
+            }
+            if (!relaySession.isAuthorized(pairingToken(session), now)) {
+                return unauthorizedResponse()
+            }
             val rawUri = session.uri ?: "/"
             val decoded = try {
                 java.net.URLDecoder.decode(rawUri, "UTF-8")
@@ -82,13 +94,15 @@ class WifiTransferServer(
         }
     }
 
-    /** Builds an HTML index of the regular files directly inside [rootDir]. */
+    /** Builds an HTML index of the regular files directly inside [rootDir] after pairing. */
     private fun directoryIndexResponse(): Response {
         val builder = StringBuilder()
         builder.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">")
         builder.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
-        builder.append("<title>Jupiter Wi-Fi Transfer</title></head><body>")
-        builder.append("<h1>Jupiter Wi-Fi Transfer</h1>")
+        builder.append("<meta name=\"referrer\" content=\"no-referrer\">")
+        builder.append("<title>Jupiscan Relay</title></head><body>")
+        builder.append("<h1>Jupiscan Relay</h1>")
+        builder.append("<p>This paired session expires automatically. Stop it on your phone when you are done.</p>")
 
         val files = try {
             rootDir.listFiles()?.filter { it.isFile }?.sortedBy { it.name.lowercase() }
@@ -100,6 +114,11 @@ class WifiTransferServer(
             builder.append("<p>No files available.</p>")
         } else {
             builder.append("<ul>")
+            val encodedToken = try {
+                java.net.URLEncoder.encode(relaySession.token, "UTF-8")
+            } catch (_: Throwable) {
+                relaySession.token
+            }
             for (file in files) {
                 val encodedName = try {
                     java.net.URLEncoder.encode(file.name, "UTF-8").replace("+", "%20")
@@ -110,6 +129,11 @@ class WifiTransferServer(
                 val size = humanReadableSize(file.length())
                 builder.append("<li><a href=\"/")
                 builder.append(encodedName)
+                // Relative links do not preserve the root URL's query string. Carry the
+                // short-lived token forward so a successfully paired browser can actually
+                // fetch a listed file while unpaired requests still receive 401.
+                builder.append("?pair=")
+                builder.append(encodedToken)
                 builder.append("\">")
                 builder.append(displayName)
                 builder.append("</a> (")
@@ -120,7 +144,7 @@ class WifiTransferServer(
         }
 
         builder.append("</body></html>")
-        return newFixedLengthResponse(Response.Status.OK, "text/html", builder.toString())
+        return secureResponse(newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", builder.toString()))
     }
 
     /** Streams [file] as a chunked download with a best-effort MIME type. */
@@ -132,7 +156,7 @@ class WifiTransferServer(
             "Content-Disposition",
             "attachment; filename=\"${file.name.replace("\"", "")}\"",
         )
-        return response
+        return secureResponse(response)
     }
 
     /**
@@ -163,8 +187,33 @@ class WifiTransferServer(
         }
     }
 
+    private fun pairingToken(session: IHTTPSession): String? {
+        val authorization = session.headers["authorization"]
+        val bearer = authorization
+            ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
+            ?.substringAfter(' ')
+            ?.trim()
+        return bearer ?: session.parameters[PAIRING_PARAMETER]?.firstOrNull()
+    }
+
+    private fun unauthorizedResponse(): Response = secureResponse(
+        newFixedLengthResponse(
+            Response.Status.UNAUTHORIZED,
+            "text/plain; charset=utf-8",
+            "Pair this browser from the Jupiscan Relay QR code before accessing files.",
+        ).apply { addHeader("WWW-Authenticate", "Bearer") },
+    )
+
     private fun errorResponse(status: Response.Status, message: String): Response {
-        return newFixedLengthResponse(status, "text/plain", message)
+        return secureResponse(newFixedLengthResponse(status, "text/plain; charset=utf-8", message))
+    }
+
+    /** Prevent paired links, filenames and local responses from being retained by a browser cache. */
+    private fun secureResponse(response: Response): Response = response.apply {
+        addHeader("Cache-Control", "no-store, no-cache, must-revalidate")
+        addHeader("Pragma", "no-cache")
+        addHeader("Referrer-Policy", "no-referrer")
+        addHeader("X-Content-Type-Options", "nosniff")
     }
 
     private fun humanReadableSize(bytes: Long): String {
@@ -189,6 +238,7 @@ class WifiTransferServer(
     }
 
     private companion object {
+        const val PAIRING_PARAMETER = "pair"
         /** Returns the first non-loopback site-local IPv4 address, or null. */
         fun localIpAddress(): String? {
             return try {

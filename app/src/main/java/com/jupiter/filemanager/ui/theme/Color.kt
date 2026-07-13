@@ -201,12 +201,12 @@ private fun accent(name: String, argb: Long): AccentColor =
 /**
  * Curated list of selectable accent colors for the Personalization settings.
  *
- * The first entry ("Jupiter Teal") matches the brand primary so the default
+ * The first entry ("Jupiscan Teal") matches the brand primary so the default
  * selection preserves the current look. These are vivid, high-chroma seeds;
  * the theme derives a full tonal [ColorScheme] from the chosen seed.
  */
 val AccentPalette: List<AccentColor> = listOf(
-    accent("Jupiter Teal", 0xFF006D65),
+    accent("Jupiscan Teal", 0xFF006D65),
     accent("Indigo", 0xFF4F46E5),
     accent("Violet", 0xFF7C3AED),
     accent("Magenta", 0xFFC026D3),

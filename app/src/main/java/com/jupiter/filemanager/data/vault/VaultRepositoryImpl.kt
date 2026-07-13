@@ -466,7 +466,7 @@ class VaultRepositoryImpl @Inject constructor(
             setProperty(META_KEY_MODIFIED, lastModified.toString())
         }
         metaFile.outputStream().use { output ->
-            props.store(output, "Jupiter vault entry metadata")
+            props.store(output, "Jupiscan vault entry metadata")
             output.flush()
         }
     }

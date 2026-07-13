@@ -593,7 +593,7 @@ private fun PermissionRequiredView(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(top = 12.dp),
         )
         Text(
-            text = "Jupiter needs all-files access to scan your storage for large " +
+            text = "Jupiscan needs all-files access to scan your storage for large " +
                 "files and duplicates. Grant access, then return here to continue.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

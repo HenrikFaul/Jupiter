@@ -132,7 +132,8 @@ class RemoteAccessRepositoryImpl @Inject constructor(
     )
 
     /**
-     * Resolves the local destination file for a download, creating a "JupiterDownloads"
+     * Resolves the local destination file for a download, retaining the existing legacy folder
+     * when present and otherwise creating the Jupiscan-branded folder.
      * subfolder of the public Downloads directory. Falls back to the app-specific external
      * files directory when the public directory is unavailable.
      */
@@ -142,7 +143,8 @@ class RemoteAccessRepositoryImpl @Inject constructor(
             Environment.DIRECTORY_DOWNLOADS,
         )
         val baseDir = publicDownloads ?: context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        val targetDir = File(baseDir, DOWNLOAD_SUBFOLDER)
+        val legacyDir = File(baseDir, LEGACY_DOWNLOAD_SUBFOLDER)
+        val targetDir = if (legacyDir.exists()) legacyDir else File(baseDir, DOWNLOAD_SUBFOLDER)
         if (!targetDir.exists()) {
             targetDir.mkdirs()
         }
@@ -156,6 +158,7 @@ class RemoteAccessRepositoryImpl @Inject constructor(
     }
 
     private companion object {
-        const val DOWNLOAD_SUBFOLDER = "JupiterDownloads"
+        const val DOWNLOAD_SUBFOLDER = "JupiscanDownloads"
+        const val LEGACY_DOWNLOAD_SUBFOLDER = "JupiterDownloads"
     }
 }

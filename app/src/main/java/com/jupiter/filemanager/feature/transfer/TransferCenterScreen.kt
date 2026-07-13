@@ -167,7 +167,7 @@ fun TransferCenterScreen(
                 when (uiState.selectedTab) {
                     TransferCenterTab.TRANSFERS -> EmptyView(
                         title = "No active transfers",
-                        message = "Start a Nearby or Wi-Fi transfer to send and " +
+                        message = "Start a Nearby or Jupiscan Relay transfer to send and " +
                             "receive files between devices. Transfers in progress " +
                             "will appear here.",
                         icon = Icons.Filled.SwapVert,
@@ -218,8 +218,8 @@ private fun QuickStartRow(
         )
         QuickStartCard(
             icon = Icons.Filled.Wifi,
-            title = "Wi-Fi",
-            subtitle = "Share over local network",
+            title = "Jupiscan Relay",
+            subtitle = "Paired, 10-minute local sharing",
             onClick = onWifi,
             modifier = Modifier.weight(1f),
         )

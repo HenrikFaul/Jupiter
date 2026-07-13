@@ -690,7 +690,7 @@ private fun shareWithExternalApp(context: Context, item: FileItem): String? = tr
 } catch (_: IllegalArgumentException) {
     "This location cannot be shared securely"
 } catch (_: SecurityException) {
-    "Jupiter does not have permission to share this file"
+    "Jupiscan does not have permission to share this file"
 }
 
 /**
