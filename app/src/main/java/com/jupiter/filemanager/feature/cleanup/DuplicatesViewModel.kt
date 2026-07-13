@@ -205,7 +205,10 @@ class DuplicatesViewModel @Inject constructor(
         // Keep the perceptual-fingerprint backfill progressing so the VISUAL near-duplicate image
         // groups (added on scan completion below) cover more of the library on each rescan. Cheap:
         // KEEP policy never restarts an in-flight pass, and it exits immediately once nothing is left.
-        indexingScheduler.ensurePerceptualBackfill()
+        // Entering Duplicate cleanup is an explicit request to compare the existing photo
+        // library. Keep continuous indexing opt-in, but do not let that setting turn this
+        // user-visible tool into a misleading permanent "Similar photos (0)" result.
+        indexingScheduler.ensurePerceptualBackfill(explicitUserRequest = true)
         // A user-initiated fresh scan trusts the index (which no longer contains files deleted this
         // session — moveToTrash removed their rows), so the session delete-filter can be reset.
         if (!silent) deletedPaths.clear()

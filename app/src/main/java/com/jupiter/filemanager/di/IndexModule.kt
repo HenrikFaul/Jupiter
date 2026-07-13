@@ -115,6 +115,23 @@ object IndexModule {
         }
     }
 
+    /**
+     * v7 → v8: prior backfill code accidentally persisted the `UNHASHABLE` marker for *transient*
+     * BitmapFactory/provider/database failures. Those rows were then excluded forever from the
+     * visual-match pipeline, producing a false final `Similar photos (0)` on real galleries. Clear
+     * only those image descriptors once so the corrected worker retries them. Genuine corrupt files
+     * are harmless: the current source explicitly writes the sentinel again after this one retry.
+     */
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "UPDATE file_index SET perceptualHash = NULL, phash = NULL, ahash = NULL " +
+                    "WHERE isDirectory = 0 AND typeName = 'IMAGE' " +
+                    "AND perceptualHash = -9223372036854775808",
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideFileIndexDatabase(
@@ -124,6 +141,7 @@ object IndexModule {
             .addMigrations(MIGRATION_4_5)
             .addMigrations(MIGRATION_5_6)
             .addMigrations(MIGRATION_6_7)
+            .addMigrations(MIGRATION_7_8)
             .build()
 
     @Provides

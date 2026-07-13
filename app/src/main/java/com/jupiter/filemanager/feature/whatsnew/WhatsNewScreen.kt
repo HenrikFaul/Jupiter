@@ -55,16 +55,17 @@ private data class WhatsNewHighlight(
 private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
     WhatsNewHighlight(
         icon = Icons.Filled.Bolt,
-        title = "Arrival alerts that recover",
-        description = "A new file is now checked through MediaStore, common-folder file observation, " +
-            "and a durable catch-up pass. If Android blocks alerts, Jupiter keeps the decision and " +
-            "retries it when notifications are available again.",
+        title = "Visual duplicate checks that complete",
+        description = "Opening Duplicate cleanup now starts a real photo-descriptor pass, even when " +
+            "continuous indexing is off. Temporary reads are retried; only files the decoder rejects " +
+            "are excluded from similar-photo comparison.",
     ),
     WhatsNewHighlight(
         icon = Icons.Filled.Storage,
-        title = "Whole-device storage capacity",
-        description = "Storage cards now use Android's retail-capacity source and decimal units, " +
-            "so the total matches the device storage surface while protected space stays accounted for.",
+        title = "Correct retail storage totals",
+        description = "Raw binary filesystem allocations are normalized to the retail capacity shown " +
+            "by the device: a 256 GiB allocation is displayed as 256 GB, while free space remains " +
+            "the platform-reported value.",
     ),
     WhatsNewHighlight(
         icon = Icons.Filled.Bolt,
@@ -143,8 +144,8 @@ fun WhatsNewScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Version 0.55 makes duplicate-arrival alerts resilient to Android " +
-                            "permission changes, OEM timing, and temporary file-read delays.",
+                        text = "Version 0.56 restores visual duplicate coverage and corrects retail " +
+                            "storage totals without changing safe duplicate selection or deletion rules.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

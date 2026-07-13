@@ -302,11 +302,10 @@ fun mimeTypeFor(name: String): String? {
  * [FileType.FOLDER]. Files are matched by extension group, falling back to
  * [FileType.OTHER] when no group matches.
  */
-fun fileTypeFor(name: String, isDirectory: Boolean): FileType {
+fun fileTypeFor(name: String, isDirectory: Boolean, mimeType: String? = null): FileType {
     if (isDirectory) return FileType.FOLDER
     val extension = extensionOf(name)
-    if (extension.isEmpty()) return FileType.OTHER
-    return when (extension) {
+    val fromExtension = when (extension) {
         in IMAGE_EXTENSIONS -> FileType.IMAGE
         in VIDEO_EXTENSIONS -> FileType.VIDEO
         in AUDIO_EXTENSIONS -> FileType.AUDIO
@@ -315,6 +314,29 @@ fun fileTypeFor(name: String, isDirectory: Boolean): FileType {
         in ARCHIVE_EXTENSIONS -> FileType.ARCHIVE
         in CODE_EXTENSIONS -> FileType.CODE
         in DOCUMENT_EXTENSIONS -> FileType.DOCUMENT
+        else -> FileType.OTHER
+    }
+    return if (fromExtension != FileType.OTHER) fromExtension else fileTypeForMime(mimeType)
+}
+
+/**
+ * MediaStore knows a file's MIME type even when its display name has no extension. Keep that
+ * provider signal as a fallback so extensionless camera/download images still enter the image
+ * fingerprint pipeline rather than being permanently misclassified as [FileType.OTHER].
+ */
+fun fileTypeForMime(mimeType: String?): FileType {
+    val mime = mimeType?.trim()?.lowercase(Locale.US).orEmpty()
+    return when {
+        mime.startsWith("image/") -> FileType.IMAGE
+        mime.startsWith("video/") -> FileType.VIDEO
+        mime.startsWith("audio/") -> FileType.AUDIO
+        mime == "application/pdf" -> FileType.PDF
+        mime == "application/vnd.android.package-archive" -> FileType.APK
+        mime.startsWith("text/") -> FileType.CODE
+        mime == "application/msword" ||
+            mime.startsWith("application/vnd.openxmlformats-officedocument") ||
+            mime.startsWith("application/vnd.oasis.opendocument") ||
+            mime == "application/rtf" -> FileType.DOCUMENT
         else -> FileType.OTHER
     }
 }

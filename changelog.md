@@ -790,6 +790,48 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - **[remote]** Implementációs commit `3c6e9a9132d535d8341d413b992aef91aa76c4ba`; [Android CI run 29216712702](https://github.com/HenrikFaul/Jupiter/actions/runs/29216712702) **success**. Unit tests és Build APKs job zöld; debug/release artifact, build archive és `build-latest` GitHub Release publikálás sikeres.
 - **[release]** `app-debug.apk` 36 126 106 byte, SHA-256 `f346811d6abb7030e5335dd90738b25566c13e0c80946bd4b460ad7f9da0461a`; `app-release.apk` 7 870 103 byte, SHA-256 `9ed24c2c43a7cdeb730df88f747cad14f476ee5d016fb72517f0cf63e3f880e7`.
 
+## [jupiter:0.56.0] - 2026-07-13
+
+**Scope / miért:** készülékes visszajelzés szerint a Duplicate cleanup a sok kép ellenére `Similar photos (0)`-t mutatott, a Storage Analytics pedig egy névleges 256 GB-os készüléket `274,9 GB`-nak írt. Ez a kör a két gyökérokot javítja: a képi descriptor-backfill tartós, hibás kizárását és a bináris filesystem-kapacitás retail kijelzését. Funkcionális regresszió tiltott.
+
+### Added
+
+- **[dedup/policy]** `PerceptualBackfillPolicy` typed döntést ad: a ténylegesen decoder által elutasított kép `UNHASHABLE`, a null/átmeneti olvasási, provider-, Room- vagy decoder-hiba pedig retry. A Duplicate cleanup felhasználói megnyitása külön explicit backfill-kérés.
+- **[test]** Új perceptuális backfill-policy (retry / explicit UNHASHABLE / explicit felhasználói kérés) és MIME-alapú, kiterjesztés nélküli kép-osztályozási regressziós tesztek.
+- **[db]** Adatmegőrző Room v7→v8 migráció: csak IMAGE rekordokon törli a korábbi hibás `Long.MIN_VALUE` perceptuális sentinel értéket, hogy egyszer újra lefuthasson a valódi descriptor-számítás.
+
+### Changed
+
+- **[storage/data]** A raw, bináris GiB-ben érkező elsődleges kötetkapacitás a hozzá tartozó, decimális retail-tierre normalizálódik: 256 GiB → 256 GB. A platform által jelentett szabad hely változatlanul az igazságforrás; nem szabványos OEM-kapacitást nem írunk felül kitalált értékkel.
+- **[dedup/backfill]** Háttérben marad a Battery-not-low korlátozású, nem expedited work; a felhasználó által kért, azonnali Duplicate cleanup passz viszont érvényes, constraint nélküli expedited work (fallback-pel). Egy futás legfeljebb 50 000 képet dolgoz fel 100-as batch-ekben.
+- **[index/media]** A MediaStore MIME típusa bekerül a `MimeUtil` osztályozásba, ezért kiterjesztés nélküli `image/*` (például HEIC) rekord is belép a képi descriptor-backlogba.
+- **[build/ui]** `versionCode` 8, `versionName` 0.56.0; a What's New a valós képi backfill- és kapacitásjavítást mutatja.
+
+### Fixed
+
+- **[dedup/similar false negative]** A korábbi kód null eredménynél is végleges `UNHASHABLE` állapotot tárolt, így egy átmeneti hiba örökre eltüntethette a képet a Similar photos csoportból. Most csak az explicit dekóder-elutasítás végleges, minden más újrapróbálható.
+- **[dedup/scheduler]** Az expedited work és `BatteryNotLow` kombinációja WorkManagerben érvénytelen volt, a kivétel pedig elnyelődött, ezért a perceptuális worker létre sem jöhetett. A két ütemezési mód szétválasztása után a valódi WorkSpec sorba kerül és lefut.
+- **[storage/false total]** 274 877 906 944 nyers byte többé nem 274,9 GB-ként látszik egy 256 GB-os telefonon; az app a fogyasztói készülékek kapacitásjelölését követi.
+
+### Regression checks
+
+- Exact törlési bizonyíték továbbra is kizárólag full content hash; a perceptuális hash csak a Similar review csoportba sorol, és sem a keeper-, sem a Select all/Deselect all policy-t nem változtatja.
+- A v4→v5→v6→v7 migrációk mellett a v7→v8 is explicit és adatmegőrző; nincs `fallbackToDestructiveMigration()`.
+- Csak a korábbi, hibás IMAGE sentinel törlődik. A valóban dekódolhatatlan kép az új workerben ismét explicit `UNHASHABLE` lesz, nem kerül hamis Similar csoportba.
+
+### Verification
+
+- Munka előtt `git pull --ff-only origin main`; közvetlen `main`, az előző `Requirements/` és `versioning.zip` untracked tartalom érintetlen.
+- `./gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --no-build-cache` — **BUILD SUCCESSFUL**; XML: **60 suite / 360 teszt / 0 failure / 0 error / 0 skipped**.
+- A generált `lint-results-debug.xml` **215** meglévő, nem blokkoló findingot tartalmaz; a módosított `StorageVolumeProvider` és perceptuális backfill útvonalra nincs új finding.
+- API 34 `emulator-5554` frissítés: Room `user_version` 7→8; az öt régi, hibás sentinel IMAGE rekord ismét hiányzó descriptor lett; Duplicate cleanup megnyitása után a `PerceptualHashBackfillWorker` WorkSpec **SUCCEEDED**. A szándékosan sérült teszt-PNG-k az új futás után joggal lettek ismét `UNHASHABLE`; az összes valódi, olvasható képnél descriptor maradt.
+- `git diff --check` és remote Android CI eredmény a commit/push után kerül véglegesítésre ebben a dokumentumban.
+
+### Remaining risk
+
+- A Similar photos csak a már sikeresen dekódolható, indexelt képeket tudja összevetni. Nagy corpusnál a képernyő "Analyzing your photos" állapotot jelezhet, amíg a bounded worker a még hiányzó descriptorokat feldolgozza.
+- A gyártó platformja a teljes fizikailag foglalt területet total−free alapon közli, de harmadik fél nem böngészheti fájlszinten az Android 11+ zárt app-/OEM területeit; ezeket a kategória-bontás nem gyártja le mesterséges fájllistaként.
+
 ## [jupiter:0.55.0] - 2026-07-13
 
 **Scope / miért:** a valós készülékes visszajelzés szerint az ismét letöltött kép továbbra sem adott riasztást. Ez a kör az érkezés→index→full-hash→döntés→Android-értesítés teljes útját erősíti meg, különösen a frissítés utáni checkpoint-race, OEM fájl-/MediaStore-időzítés és korábban letiltott notification helyzetekben. Funkcionális regresszió tiltott.

@@ -109,16 +109,36 @@ class IndexingScheduler @Inject constructor(
      * never restarted; a finished one is re-enqueued (it exits immediately when there is
      * nothing left to fingerprint). Battery-not-low keeps the decode loop off a dying phone.
      */
-    fun ensurePerceptualBackfill() {
+    fun ensurePerceptualBackfill(explicitUserRequest: Boolean = false) {
         try {
+            val requestBuilder = androidx.work.OneTimeWorkRequestBuilder<PerceptualHashBackfillWorker>()
+                .setInputData(
+                    androidx.work.Data.Builder()
+                        .putBoolean(
+                            PerceptualHashBackfillWorker.KEY_EXPLICIT_USER_REQUEST,
+                            explicitUserRequest,
+                        )
+                        .build(),
+                )
+            if (explicitUserRequest) {
+                // Expedited work does not support the BatteryNotLow constraint. The previous
+                // combination threw during request construction and the catch below swallowed it,
+                // so the photo descriptor worker was never enqueued at all. A user who has opened
+                // Duplicate cleanup explicitly asked for this immediate, foreground-capable work.
+                requestBuilder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            } else {
+                requestBuilder.setConstraints(
+                    Constraints.Builder().setRequiresBatteryNotLow(true).build(),
+                )
+            }
             workManager.enqueueUniqueWork(
                 PerceptualHashBackfillWorker.UNIQUE_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
-                androidx.work.OneTimeWorkRequestBuilder<PerceptualHashBackfillWorker>()
-                    .setConstraints(
-                        Constraints.Builder().setRequiresBatteryNotLow(true).build(),
-                    )
-                    .build(),
+                // An explicit visit to Duplicate cleanup must not be silently shadowed by a
+                // queued background no-op from a disabled-indexing session. Restarting is safe:
+                // every completed descriptor is durable and the worker always resumes from only
+                // the remaining rows.
+                if (explicitUserRequest) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                requestBuilder.build(),
             )
         } catch (_: Exception) {
             // Best-effort.

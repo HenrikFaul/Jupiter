@@ -2,7 +2,6 @@ package com.jupiter.filemanager.data.storage
 
 import android.app.usage.StorageStatsManager
 import android.content.Context
-import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.os.storage.StorageManager
@@ -170,10 +169,10 @@ class StorageVolumeProvider @Inject constructor(
 
     /**
      * Asks the platform [StorageManager] for the user-facing description of the volume that
-     * contains [mountRoot]. Available on API 24+; returns null when unavailable.
+     * contains [mountRoot]. The app's minSdk is already above this API's introduction;
+     * returns null only when the platform cannot resolve this particular mount.
      */
     private fun platformVolumeDescription(mountRoot: String): String? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
         val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
             ?: return null
         val volume = runCatching { storageManager.getStorageVolume(File(mountRoot)) }.getOrNull()
@@ -197,9 +196,11 @@ class StorageVolumeProvider @Inject constructor(
  * the emulated-user-data filesystem. The latter excludes system/reserved partitions and is why a
  * 256 GB phone can otherwise appear as roughly 222 GiB in a third-party file manager.
  *
- * Android's storage service is the authoritative source used by system storage surfaces. The same
- * marketed-size rounding used by the Android framework is retained only when that API is absent or
- * restricted. The readable filesystem capacity remains the lower bound in every case.
+ * Android's storage service is the best available source for free bytes, but some OEM builds expose
+ * the physical filesystem in binary units there (for example `256 GiB` = `274,877,906,944` bytes).
+ * Showing that raw value as decimal GB makes a retail 256 GB phone look like a fictional 274.9 GB
+ * model. We therefore normalize only that well-known binary allocation shape to the retail tier;
+ * unusual platform-reported capacities (for example an honest 240 GB volume) remain unchanged.
  */
 @Singleton
 class PrimaryStorageCapacityResolver @Inject constructor(
@@ -247,13 +248,15 @@ internal fun selectPrimaryCapacity(
     platformTotalBytes: Long,
 ): Long {
     if (fileSystemTotalBytes <= 0L) return fileSystemTotalBytes
-    // A successful platform result is authoritative and already follows Android's user-display
-    // semantics. Framework-style bucket rounding is only a fallback when that API is unavailable.
-    return if (platformTotalBytes > 0L) {
-        maxOf(fileSystemTotalBytes, platformTotalBytes)
-    } else {
-        maxOf(fileSystemTotalBytes, roundToAdvertisedStorageSize(fileSystemTotalBytes))
-    }
+    val fileSystemRetail = roundToAdvertisedStorageSize(fileSystemTotalBytes)
+    if (platformTotalBytes <= 0L) return fileSystemRetail
+
+    // Keep an OEM's non-binary value when it already covers the readable filesystem. This preserves
+    // legitimate non-standard capacities while fixing the common `N GiB presented as N*1.073 GB`
+    // bug. If the platform reports less than the filesystem, fall back to the safe retail tier of
+    // the latter rather than under-reporting the usable volume.
+    val platformRetail = normalizeBinaryRetailCapacity(platformTotalBytes)
+    return if (platformRetail >= fileSystemTotalBytes) platformRetail else fileSystemRetail
 }
 
 internal fun selectPrimaryAvailableBytes(
@@ -272,21 +275,42 @@ internal fun selectPrimaryAvailableBytes(
 }
 
 /**
- * Mirrors Android's marketed storage-size buckets: 1, 2, 4 … 512 multiplied by powers of 1000.
- * For example, a 238.4 billion-byte user-data filesystem resolves to a 256 billion-byte device.
+ * Converts a readable data partition to the retail capacity shown on a device box/settings page.
+ *
+ * There are two important cases:
+ * - an exact binary allocation, e.g. `256 GiB`, maps to **256 GB**, not 274.9 GB and certainly
+ *   not the next 512 GB tier;
+ * - a smaller user-data partition (system/reserved space removed) maps upward to its next known
+ *   retail tier, e.g. 222–238 billion bytes maps to 256 GB.
  */
 internal fun roundToAdvertisedStorageSize(bytes: Long): Long {
     if (bytes <= 0L) return bytes
-    var value = 1L
-    var magnitude = 1L
-    while (value <= Long.MAX_VALUE / magnitude && value * magnitude < bytes) {
-        if (value < 512L) {
-            value *= 2L
-        } else {
-            value = 1L
-            if (magnitude > Long.MAX_VALUE / 1000L) return bytes
-            magnitude *= 1000L
-        }
-    }
-    return if (value <= Long.MAX_VALUE / magnitude) value * magnitude else bytes
+    return normalizeBinaryRetailCapacity(bytes)
+        .takeIf { it != bytes }
+        ?: RETAIL_CAPACITY_BYTES.firstOrNull { it >= bytes }
+        ?: bytes
 }
+
+/** Returns the decimal retail equivalent when [bytes] is an OEM's binary GiB allocation. */
+private fun normalizeBinaryRetailCapacity(bytes: Long): Long {
+    if (bytes < MIN_RETAIL_CAPACITY_BYTES) return bytes
+    val wholeGiB = (bytes + GIBIBYTE / 2L) / GIBIBYTE
+    val binaryBytes = wholeGiB * GIBIBYTE
+    val isCloseToWholeGiB = kotlin.math.abs(bytes - binaryBytes) <= GIBIBYTE / 100L
+    val decimalCandidate = wholeGiB * GIGABYTE
+    return if (isCloseToWholeGiB && decimalCandidate in RETAIL_CAPACITY_BYTES) {
+        decimalCandidate
+    } else {
+        bytes
+    }
+}
+
+private const val GIGABYTE = 1_000_000_000L
+private const val GIBIBYTE = 1_073_741_824L
+private const val MIN_RETAIL_CAPACITY_BYTES = 8L * GIGABYTE
+
+/** Common phone/tablet and larger-device advertised tiers, expressed in decimal bytes. */
+private val RETAIL_CAPACITY_BYTES = longArrayOf(
+    8L, 16L, 32L, 64L, 128L, 192L, 256L, 384L, 512L, 768L,
+    1_000L, 2_000L, 4_000L, 8_000L,
+).map { it * GIGABYTE }

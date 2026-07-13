@@ -36,6 +36,21 @@ class StorageCapacityPolicyTest {
     }
 
     @Test
+    fun binary256GiBNeverAppearsAs274Point9DecimalGb() {
+        // Some OEM StorageStats implementations expose the raw 256 GiB filesystem value. The
+        // user-facing capacity must still agree with the phone's 256 GB retail specification.
+        val raw256GiB = 256L * 1_073_741_824L
+        assertEquals(256_000_000_000L, roundToAdvertisedStorageSize(raw256GiB))
+        assertEquals(
+            256_000_000_000L,
+            selectPrimaryCapacity(
+                fileSystemTotalBytes = raw256GiB,
+                platformTotalBytes = raw256GiB,
+            ),
+        )
+    }
+
+    @Test
     fun successfulPlatformValueIsNotRebucketed() {
         assertEquals(
             240_000_000_000L,

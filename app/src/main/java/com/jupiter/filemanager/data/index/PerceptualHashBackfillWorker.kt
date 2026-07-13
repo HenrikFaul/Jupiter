@@ -29,10 +29,11 @@ import kotlinx.coroutines.flow.first
  * itself to a FOREGROUND service for a large backlog, so Doze / background-execution limits can't
  * throttle it into never finishing — the previous 2,000-per-run cap under WorkManager's exponential
  * retry backoff took ~20 hours-apart runs to cover a 40k-image library, which meant the duplicate
- * screen saw an essentially empty fingerprint set for a long time. Progress is GUARANTEED: every
- * attempted row is marked — with its hash, or [PerceptualHash.UNHASHABLE] for undecodable files — so
- * the work list always shrinks and a corrupt image can never loop forever. If the OS stops the worker
- * mid-pass it returns retry and resumes from the remaining backlog.
+ * screen saw an essentially empty fingerprint set for a long time. Crucially, a transient decode or
+ * database failure is NOT written as [PerceptualHash.UNHASHABLE]: doing so turns a temporary OEM
+ * decoder/provider hiccup into a permanent `Similar photos (0)` false negative. Truly undecodable
+ * files are still marked with that sentinel by [PerceptualHashSource], while retryable rows remain
+ * visible in the backlog and cause a bounded WorkManager retry.
  */
 @HiltWorker
 class PerceptualHashBackfillWorker @AssistedInject constructor(
@@ -45,7 +46,11 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         return try {
-            if (!settings.indexingEnabled.first()) return Result.success()
+            if (!mayRunPerceptualBackfill(
+                    indexingEnabled = settings.indexingEnabled.first(),
+                    explicitUserRequest = inputData.getBoolean(KEY_EXPLICIT_USER_REQUEST, false),
+                )
+            ) return Result.success()
 
             // Peek the backlog. Nothing to do → cheap success (no notification flashes).
             var batch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
@@ -62,23 +67,42 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
             while (batch.isNotEmpty()) {
                 currentCoroutineContext().ensureActive()
                 if (isStopped) return Result.retry()
+                var persistedThisBatch = 0
+                var retryableFailureSeen = false
                 for (item in batch) {
                     currentCoroutineContext().ensureActive()
                     if (isStopped) return Result.retry()
-                    // null = transient failure → try again on a later run; otherwise mark
-                    // (real fingerprint or UNHASHABLE in all layers) so this row leaves the
-                    // work list. One decode produces all three stacked hashes.
-                    val fp = perceptualHashSource.computeAll(item.path)
-                        ?: PerceptualFingerprint.UNHASHABLE
-                    runCatching {
-                        indexRepository.putPerceptualFingerprint(item.path, fp.dhash, fp.phash, fp.ahash)
+                    // `null` means retryable: preserve the missing state so it is never silently
+                    // excluded from Similar photos. UNHASHABLE is an explicit non-null result for
+                    // a genuinely unsupported/corrupt image and is safe to persist once.
+                    val fp = when (val decision = perceptualBackfillDecision(
+                        perceptualHashSource.computeAll(item.path),
+                    )) {
+                        PerceptualBackfillDecision.Retry -> {
+                            retryableFailureSeen = true
+                            continue
+                        }
+                        is PerceptualBackfillDecision.Persist -> decision.fingerprint
                     }
-                    processed++
+                    val persisted = runCatching {
+                        indexRepository.putPerceptualFingerprint(item.path, fp.dhash, fp.phash, fp.ahash)
+                    }.isSuccess
+                    if (persisted) {
+                        processed++
+                        persistedThisBatch++
+                    } else {
+                        retryableFailureSeen = true
+                    }
                 }
                 if (foreground) runCatching { setForeground(foregroundInfo(processed, remaining)) }
-                // Cap one execution so it always finishes within the foreground window, then let
-                // WorkManager continue immediately (the first retries use a short backoff, so a big
-                // library still converges in a couple of runs — not the ~20 the old 2k cap needed).
+                // If the current batch made no durable progress, querying it again would spin on the
+                // same transient rows. Yield to WorkManager instead; the missing rows remain a
+                // truthful coverage signal and the next attempt can recover after the OEM/provider
+                // has settled.
+                if (persistedThisBatch == 0 && retryableFailureSeen) return Result.retry()
+                // Keep an exceptionally large library bounded per foreground execution. The 50k
+                // ceiling covers the reported 40k-photo corpus in one contiguous attempt instead of
+                // splitting it into old 2k/20k backoff-spaced runs.
                 if (processed >= MAX_PER_RUN) return Result.retry()
                 batch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
             }
@@ -111,17 +135,16 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
     }
 
     private fun ensureNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = applicationContext.getSystemService(NotificationManager::class.java)
-            if (manager != null && manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
-                manager.createNotificationChannel(
-                    NotificationChannel(
-                        NOTIFICATION_CHANNEL_ID,
-                        "Photo analysis",
-                        NotificationManager.IMPORTANCE_LOW,
-                    ).apply { setShowBadge(false) },
-                )
-            }
+        // minSdk 26: notification channels always exist on every supported device.
+        val manager = applicationContext.getSystemService(NotificationManager::class.java)
+        if (manager != null && manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID,
+                    "Photo analysis",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply { setShowBadge(false) },
+            )
         }
     }
 
@@ -129,14 +152,17 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
         /** Unique work name (KEEP semantics; see IndexingScheduler). */
         const val UNIQUE_WORK_NAME = "perceptual-hash-backfill"
 
+        /** Input flag used only for the user-visible Duplicate cleanup tool. */
+        const val KEY_EXPLICIT_USER_REQUEST = "explicit_user_request"
+
         private const val BATCH_SIZE = 100
 
         /**
-         * Per-run cap so one foreground execution stays well within the OS foreground window (~5 min
-         * of decoding) while still covering all but the largest libraries in one or two runs. Far
-         * larger than the old 2,000 cap, which needed ~20 backoff-spaced runs for a 40k gallery.
+         * Per-run cap so one foreground execution remains bounded while covering the reported
+         * 40k-photo corpus in a single contiguous attempt. Rows are processed in small DB batches,
+         * so this does not grow memory with library size.
          */
-        private const val MAX_PER_RUN = 20_000
+        private const val MAX_PER_RUN = 50_000
 
         /** Backlog at/above which the pass runs as a foreground service so it isn't throttled. */
         private const val FOREGROUND_THRESHOLD = 400

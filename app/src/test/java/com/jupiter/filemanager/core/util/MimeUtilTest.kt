@@ -140,6 +140,22 @@ class MimeUtilTest {
     }
 
     @Test
+    fun fileTypeFor_extensionlessMediaStoreImageUsesMimeFallback() {
+        assertEquals(
+            FileType.IMAGE,
+            fileTypeFor("20260713_0149", isDirectory = false, mimeType = "image/heic"),
+        )
+    }
+
+    @Test
+    fun fileTypeFor_unknownMimeDoesNotTurnOtherFilesIntoDocuments() {
+        assertEquals(
+            FileType.OTHER,
+            fileTypeFor("blob", isDirectory = false, mimeType = "application/octet-stream"),
+        )
+    }
+
+    @Test
     fun fileTypeFor_isCaseInsensitive() {
         // extensionOf lowercases, so uppercase extensions still classify.
         assertEquals(FileType.IMAGE, fileTypeFor("PHOTO.JPG", isDirectory = false))

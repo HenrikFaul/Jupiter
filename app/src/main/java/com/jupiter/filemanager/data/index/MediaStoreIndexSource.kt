@@ -334,7 +334,9 @@ class MediaStoreIndexSource @Inject constructor(
             isDirectory = false,
             sizeBytes = size,
             lastModified = dateSeconds * 1000L,
-            type = fileTypeFor(name, isDirectory = false),
+            // Extensionless camera/download files still have a MediaStore MIME type. Feed it into
+            // the shared classifier so they are eligible for perceptual image backfill.
+            type = fileTypeFor(name, isDirectory = false, mimeType = mime),
             extension = extensionOf(name),
             mimeType = mime,
             isHidden = name.startsWith('.'),
