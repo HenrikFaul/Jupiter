@@ -879,3 +879,32 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 
 - Android/OEM nem garantál tetszőleges zárt-app folyamat azonnali felébresztését; a direct observer csak élő processben gyorsít. A WorkManager, foreground és periodic reconciliation a tartós convergence rétegek, ezért Doze/OEM throttle mellett a riasztás késhet, de nem maradhat a transient checkpoint-advance miatt végleg elveszett.
 - Nincs fizikai Samsung/Chrome teljes körös instrumentációs bizonyíték ebben a repo-környezetben; a fenti API 34 runtime proof és a célzott JVM/Robolectric tesztek nem helyettesítik azt.
+
+## [jupiter:research-2026-07-14] - 2026-07-14
+
+**Scope / miért:** a Jupiterhez csak példaként átadott BI, growth strategy, crazy innovations és security-vulnerability-audit módszertanok alapján külön növekedési/innovációs kutatás és Android mobilbiztonsági audit készült. A felhasználó kifejezetten csak elemzést és dokumentációt kért; alkalmazásfunkció, UI, build vagy dependency nem változhatott.
+
+### Added
+
+- **[docs/research]** `docs/research/2026-07-14-growth-and-crazy-innovations.md`: bizonyítéki szintekkel kezelt growth research, öt kreatív iteráció, rangsorolt kezdeményezések, konkrét UI-koncepciók (Explainable Cleanup, Storage Truth Ledger, Arrival Lens, Jupiter Relay), opt-in mérési specifikáció és validációs kapuk.
+- **[docs/security]** `docs/security/2026-07-14-mobile-security-audit.md`: statikus Android/CI/backup/remote/archive audit fenyegetésmodellel, pozitív kontrollokkal, P0/P1/P2 megállapításokkal és ellenőrzési mátrixszal.
+- **[versioning]** `260714_00_growth-security-research.md` és `260714_00_research-continuation-contract.md`: a kutatási kör teljes requirement-, bizonyíték- és nem-regressziós szerződése, valamint az engedélyköteles következő kódolási kör sorrendje.
+
+### Changed
+
+- **[product strategy / docs]** A meglévő „Find anything, free up space, safely” irány konkretizálva lett: a növekedési elsőbbség nem új feature-halmozás, hanem magyarázható, visszafordítható cleanup, megbízható arrival ellenőrzés és csak utána védett Relay átadás.
+
+### Fixed
+
+- **[docs accuracy]** A termékstratégia jövőidejű „QR-paired” / „signed releases” céljai és a jelenlegi kódállapot közötti eltérés explicit kockázatként dokumentálva lett; a dokumentáció nem állít valótlan production-security vagy MASVS megfelelést.
+
+### Known issues
+
+- **[P0 security]** A release jelenleg debug keystore-t használ; `CredentialStore` crypto-hiba esetén plaintext fallbackot használ; a Wi-Fi Transfer hitelesítés nélküli HTTP LAN share. Ezek stop-ship tételek a kapcsolódó biztonsági állításokhoz, de ebben a dokumentációs körben szándékosan nem módosultak.
+- **[evidence gap]** Nem futott dinamikus penetrációs teszt, dependency/CVE scan, backup restore audit, traffic inspection vagy fizikai 40k corpus benchmark; a dokumentumok ezeket nyitott validációs kapuként kezelik.
+
+### Verification
+
+- `git pull --ff-only origin main` a kör elején; a meglévő, nem követett `Requirements/` és `versioning.zip` fájlok érintetlenek.
+- A módosítások kizárólag Markdown dokumentumok; `app/`, manifest, Gradle, dependency, Kotlin és Android resource nem módosult.
+- `git diff --check` a dokumentációs patch után kötelező; Android build/test futtatása a következő, kódot módosító kör kapuja.
