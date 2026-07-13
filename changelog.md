@@ -787,4 +787,5 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - Runtime UI: Home `of 8.0 GB` retail-total; mind az öt suspended Automation preset renderelt; `Try safely` → `Safe preview: 0 files match. Nothing was changed.`; Duplicates → `duplicate items`, Exact/Similar, size filter/order, Select all/Deselect all renderelt.
 - Valós arrival próba: meglévő PNG bájtazonos másolata MediaStore scan után `Duplicate detected` notificationt adott (`you already have 2 copies`); a kör által létrehozott proof fájl utána eltávolítva.
 - `git diff --check` — whitespace-hiba nincs; csak a repository CRLF-normalizációs figyelmeztetései.
-- GitHub Actions / release asset: a commit/push utáni konkrét run alapján töltendő ki; jelen ponton nincs előre kijelentett CI-siker.
+- **[remote]** Implementációs commit `3c6e9a9132d535d8341d413b992aef91aa76c4ba`; [Android CI run 29216712702](https://github.com/HenrikFaul/Jupiter/actions/runs/29216712702) **success**. Unit tests és Build APKs job zöld; debug/release artifact, build archive és `build-latest` GitHub Release publikálás sikeres.
+- **[release]** `app-debug.apk` 36 126 106 byte, SHA-256 `f346811d6abb7030e5335dd90738b25566c13e0c80946bd4b460ad7f9da0461a`; `app-release.apk` 7 870 103 byte, SHA-256 `9ed24c2c43a7cdeb730df88f747cad14f476ee5d016fb72517f0cf63e3f880e7`.
