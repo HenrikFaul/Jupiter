@@ -156,15 +156,20 @@ class IndexingScheduler @Inject constructor(
      * without a `getForegroundInfo()` override fails on API < 31 (WorkManager runs it as a
      * foreground service there). A plain job runs on every API level and needs no notification.
      */
-    fun reconcileDedupNow() {
+    fun reconcileDedupNow(initialDelayMillis: Long = 0L) {
         try {
+            val request = OneTimeWorkRequestBuilder<DedupReconcileWorker>().apply {
+                if (initialDelayMillis > 0L) {
+                    setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+                }
+            }.build()
             workManager.enqueueUniqueWork(
                 DedupReconcileWorker.UNIQUE_WORK_NAME,
                 // A change arriving while a reconcile is RUNNING must leave a trailing pass.
                 // KEEP silently dropped that final signal; APPEND_OR_REPLACE serializes a fresh
                 // pass behind the current one and replaces only a failed/cancelled chain.
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
-                OneTimeWorkRequestBuilder<DedupReconcileWorker>().build(),
+                request,
             )
         } catch (_: Exception) {
             // Best-effort.

@@ -15,7 +15,7 @@ import androidx.room.RoomDatabase
  */
 @Database(
     entities = [FileIndexEntry::class, IndexState::class, DedupDecision::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class FileIndexDatabase : RoomDatabase() {

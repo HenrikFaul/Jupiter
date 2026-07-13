@@ -130,6 +130,7 @@ fun DuplicatesScreen(
     onMainTabSelected: ((JupiterMainTab) -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
@@ -174,6 +175,15 @@ fun DuplicatesScreen(
                     else viewModel.selectDuplicatesKeepingBest()
                 },
                 onRescan = viewModel::scan,
+                onOpenDuplicateAlertSettings = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            },
+                        )
+                    }
+                },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -393,6 +403,7 @@ private fun DuplicatesHeader(
     onMenuExpandedChange: (Boolean) -> Unit,
     onToggleSelection: () -> Unit,
     onRescan: () -> Unit,
+    onOpenDuplicateAlertSettings: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -438,6 +449,17 @@ private fun DuplicatesHeader(
                         onClick = {
                             onMenuExpandedChange(false)
                             onRescan()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Duplicate alert settings") },
+                        enabled = enabled,
+                        leadingIcon = {
+                            Icon(Icons.Outlined.HelpOutline, contentDescription = null)
+                        },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onOpenDuplicateAlertSettings()
                         },
                     )
                 }

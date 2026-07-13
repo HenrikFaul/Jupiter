@@ -131,16 +131,22 @@ class MediaStoreIndexSource @Inject constructor(
 
     override suspend fun currentVersion(): String? = withContext(dispatcher) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext null
-        runCatching {
+        val version = try {
             MediaStore.getVersion(context, MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        }.getOrNull()
+        } catch (failure: Exception) {
+            throw MediaStoreDeltaQueryException("MediaStore version probe failed", failure)
+        }
+        version.takeIf { it.isNotBlank() }
+            ?: throw MediaStoreDeltaQueryException("MediaStore returned an empty version")
     }
 
     override suspend fun currentGeneration(): Long? = withContext(dispatcher) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return@withContext null
-        runCatching {
+        try {
             MediaStore.getGeneration(context, MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        }.getOrNull()
+        } catch (failure: Exception) {
+            throw MediaStoreDeltaQueryException("MediaStore generation probe failed", failure)
+        }
     }
 
     /**
@@ -169,9 +175,15 @@ class MediaStoreIndexSource @Inject constructor(
             "${MediaStore.Files.FileColumns._ID} ASC"
         val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
-        runCatching {
+        val cursor = try {
             context.contentResolver.query(collection, projection, selection, args, order)
-        }.getOrNull()?.use { c ->
+                ?: throw MediaStoreDeltaQueryException("MediaStore returned no delta cursor")
+        } catch (failure: MediaStoreDeltaQueryException) {
+            throw failure
+        } catch (failure: Exception) {
+            throw MediaStoreDeltaQueryException("MediaStore generation delta query failed", failure)
+        }
+        cursor.use { c ->
             val idIdx = c.getColumnIndex(MediaStore.Files.FileColumns._ID)
             val generationIdx = c.getColumnIndex(MediaStore.Files.FileColumns.GENERATION_MODIFIED)
             val nameIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
@@ -180,21 +192,29 @@ class MediaStoreIndexSource @Inject constructor(
             val mimeIdx = c.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
             val dataIdx = c.getColumnIndex(MediaStore.Files.FileColumns.DATA)
             val out = ArrayList<NewFile>(minOf(limit, 128))
-            while (c.moveToNext() && out.size < limit) {
+            var boundaryGeneration: Long? = null
+            while (c.moveToNext()) {
                 currentCoroutineContext().ensureActive()
-                val item = runCatching {
-                    mapRow(c, nameIdx, sizeIdx, dateIdx, mimeIdx, dataIdx)
-                }.getOrNull() ?: continue
-                val id = if (idIdx >= 0 && !c.isNull(idIdx)) c.getLong(idIdx) else continue
                 val generation = if (generationIdx >= 0 && !c.isNull(generationIdx)) {
                     c.getLong(generationIdx)
                 } else {
                     continue
                 }
+                // The persisted cursor is generation-only. Once the requested page is full,
+                // retain every row sharing its final generation and stop before the next one;
+                // otherwise `generation > checkpoint` would permanently skip a split tie.
+                if (out.size >= limit && boundaryGeneration != null && generation != boundaryGeneration) {
+                    break
+                }
+                val item = runCatching {
+                    mapRow(c, nameIdx, sizeIdx, dateIdx, mimeIdx, dataIdx)
+                }.getOrNull() ?: continue
+                val id = if (idIdx >= 0 && !c.isNull(idIdx)) c.getLong(idIdx) else continue
                 out += NewFile(item = item, id = id, generation = generation)
+                if (out.size == limit) boundaryGeneration = generation
             }
             out
-        } ?: emptyList()
+        }
     }
 
     /**
@@ -331,3 +351,9 @@ class MediaStoreIndexSource @Inject constructor(
         val COLLECTION = MediaStore.Files.getContentUri("external")
     }
 }
+
+/** A retryable provider failure; the reconciler must not settle its generation past this gap. */
+class MediaStoreDeltaQueryException(
+    message: String,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)

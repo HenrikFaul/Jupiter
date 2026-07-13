@@ -46,9 +46,23 @@ class DedupReconcilerTest {
     /** Records every file handed to the detector. */
     private class RecordingInspector : ArrivalInspector {
         val seen = mutableListOf<FileItem>()
-        override suspend fun onFileArrived(item: FileItem): DuplicateAlert? {
+        override suspend fun inspectArrival(item: FileItem): ArrivalInspectionResult {
             seen.add(item)
-            return null
+            return ArrivalInspectionResult.Unique
+        }
+    }
+
+    private class RetryOnceInspector : ArrivalInspector {
+        val seen = mutableListOf<FileItem>()
+        private var shouldRetry = true
+        override suspend fun inspectArrival(item: FileItem): ArrivalInspectionResult {
+            seen += item
+            return if (shouldRetry) {
+                shouldRetry = false
+                ArrivalInspectionResult.Retry("file is not readable yet")
+            } else {
+                ArrivalInspectionResult.Unique
+            }
         }
     }
 
@@ -81,6 +95,7 @@ class DedupReconcilerTest {
         private val version: String,
         private val current: Long,
         private val changes: List<MediaStoreIndexSource.NewFile>,
+        private val legacyChanges: List<MediaStoreIndexSource.NewFile> = emptyList(),
     ) : NewFileSource {
         override suspend fun currentVersion() = version
         override suspend fun currentGeneration() = current
@@ -89,7 +104,8 @@ class DedupReconcilerTest {
                 .sortedWith(compareBy<MediaStoreIndexSource.NewFile> { it.generation }.thenBy { it.id })
                 .take(limit)
         override suspend fun maxObservedId() = changes.maxOfOrNull { it.id } ?: 0L
-        override suspend fun queryNewSince(sinceId: Long, limit: Int) = emptyList<MediaStoreIndexSource.NewFile>()
+        override suspend fun queryNewSince(sinceId: Long, limit: Int) =
+            legacyChanges.filter { it.id > sinceId }.sortedBy { it.id }.take(limit)
     }
 
     private fun file(id: Long) = MediaStoreIndexSource.NewFile(
@@ -267,4 +283,193 @@ class DedupReconcilerTest {
         assertEquals("rebuilt-db", indexState.state?.mediaStoreVersion)
         assertEquals(9L, indexState.state?.lastMediaStoreGeneration)
     }
+
+    @Test
+    fun `generation upgrade drains arrivals after legacy id checkpoint before baselining`() =
+        runTest(dispatcher) {
+            val arrivedDuringUpgrade = file(5_001L).copy(generation = 77L)
+            val inspector = RecordingInspector()
+            val indexState = FakeIndexStateRepository(
+                IndexState(
+                    volumeId = IndexState.PRIMARY_VOLUME,
+                    mediaStoreVersion = null,
+                    lastMediaStoreGeneration = 0L,
+                ),
+            )
+            val store = FakeCheckpointStore(checkpoint = 5_000L)
+            val reconciler = DedupReconciler(
+                FakeGenerationSource(
+                    version = "v54",
+                    current = 80L,
+                    changes = emptyList(),
+                    legacyChanges = listOf(arrivedDuringUpgrade),
+                ),
+                inspector,
+                store,
+                FakeGate(true),
+                indexState,
+                dispatcher,
+            )
+
+            assertEquals(1, reconciler.reconcile())
+            assertEquals(listOf(arrivedDuringUpgrade.item.path), inspector.seen.map { it.path })
+            assertEquals(5_001L, store.checkpoint)
+            assertEquals("v54", indexState.state?.mediaStoreVersion)
+            assertEquals(80L, indexState.state?.lastMediaStoreGeneration)
+        }
+
+    @Test
+    fun `generation upgrade does not baseline a legacy backlog beyond fairness cap`() =
+        runTest(dispatcher) {
+            val backlog = (5_001L..7_001L).map { id -> file(id).copy(generation = 90L) }
+            val inspector = RecordingInspector()
+            val indexState = FakeIndexStateRepository(
+                IndexState(
+                    volumeId = IndexState.PRIMARY_VOLUME,
+                    mediaStoreVersion = null,
+                    lastMediaStoreGeneration = 0L,
+                ),
+            )
+            val store = FakeCheckpointStore(checkpoint = 5_000L)
+            val reconciler = DedupReconciler(
+                FakeGenerationSource(
+                    version = "v54",
+                    current = 100L,
+                    changes = emptyList(),
+                    legacyChanges = backlog,
+                ),
+                inspector,
+                store,
+                FakeGate(true),
+                indexState,
+                dispatcher,
+            )
+
+            assertEquals(2_000, reconciler.reconcile())
+            assertEquals(7_000L, store.checkpoint)
+            assertEquals(null, indexState.state?.mediaStoreVersion)
+            assertEquals(0L, indexState.state?.lastMediaStoreGeneration)
+
+            assertEquals(1, reconciler.reconcile())
+            assertEquals(7_001L, store.checkpoint)
+            assertEquals(2_001, inspector.seen.size)
+            assertEquals("v54", indexState.state?.mediaStoreVersion)
+            assertEquals(100L, indexState.state?.lastMediaStoreGeneration)
+        }
+
+    @Test
+    fun `temporarily unreadable finalized row does not advance generation and retries later`() =
+        runTest(dispatcher) {
+            val completed = file(9L).copy(generation = 42L)
+            val inspector = RetryOnceInspector()
+            val indexState = FakeIndexStateRepository(
+                IndexState(
+                    volumeId = IndexState.PRIMARY_VOLUME,
+                    mediaStoreVersion = "v1",
+                    lastMediaStoreGeneration = 40L,
+                ),
+            )
+            val reconciler = DedupReconciler(
+                FakeGenerationSource("v1", current = 42L, changes = listOf(completed)),
+                inspector,
+                FakeCheckpointStore(checkpoint = 9L),
+                FakeGate(true),
+                indexState,
+                dispatcher,
+            )
+
+            var retryThrown = false
+            try {
+                reconciler.reconcile()
+            } catch (_: ArrivalInspectionRetryException) {
+                retryThrown = true
+            }
+            assertTrue("transient inspection is propagated to WorkManager", retryThrown)
+            assertEquals(40L, indexState.state?.lastMediaStoreGeneration)
+
+            assertEquals(1, reconciler.reconcile())
+            assertEquals(42L, indexState.state?.lastMediaStoreGeneration)
+            assertEquals(2, inspector.seen.size)
+        }
+
+    @Test
+    fun `provider delta query failure does not settle observed generation`() = runTest(dispatcher) {
+        val indexState = FakeIndexStateRepository(
+            IndexState(
+                volumeId = IndexState.PRIMARY_VOLUME,
+                mediaStoreVersion = "v1",
+                lastMediaStoreGeneration = 40L,
+            ),
+        )
+        val failingSource = object : NewFileSource {
+            override suspend fun currentVersion() = "v1"
+            override suspend fun currentGeneration() = 50L
+            override suspend fun queryChangedSinceGeneration(sinceGeneration: Long, limit: Int):
+                List<MediaStoreIndexSource.NewFile> = throw MediaStoreDeltaQueryException("offline")
+            override suspend fun maxObservedId() = 0L
+            override suspend fun queryNewSince(sinceId: Long, limit: Int) =
+                emptyList<MediaStoreIndexSource.NewFile>()
+        }
+        val reconciler = DedupReconciler(
+            failingSource,
+            RecordingInspector(),
+            FakeCheckpointStore(checkpoint = 1L),
+            FakeGate(true),
+            indexState,
+            dispatcher,
+        )
+
+        var retryThrown = false
+        try {
+            reconciler.reconcile()
+        } catch (_: MediaStoreDeltaQueryException) {
+            retryThrown = true
+        }
+        assertTrue("provider failure is retryable", retryThrown)
+        assertEquals(40L, indexState.state?.lastMediaStoreGeneration)
+    }
+
+    @Test
+    fun `generation probe failure does not fall back to id or overwrite generation state`() =
+        runTest(dispatcher) {
+            val indexState = FakeIndexStateRepository(
+                IndexState(
+                    volumeId = IndexState.PRIMARY_VOLUME,
+                    mediaStoreVersion = "v1",
+                    lastMediaStoreGeneration = 40L,
+                ),
+            )
+            var legacyQueried = false
+            val failingSource = object : NewFileSource {
+                override suspend fun currentVersion(): String? =
+                    throw MediaStoreDeltaQueryException("version unavailable")
+                override suspend fun maxObservedId() = 99L
+                override suspend fun queryNewSince(sinceId: Long, limit: Int):
+                    List<MediaStoreIndexSource.NewFile> {
+                    legacyQueried = true
+                    return listOf(file(99L))
+                }
+            }
+            val store = FakeCheckpointStore(checkpoint = 10L)
+            val reconciler = DedupReconciler(
+                failingSource,
+                RecordingInspector(),
+                store,
+                FakeGate(true),
+                indexState,
+                dispatcher,
+            )
+
+            var retryThrown = false
+            try {
+                reconciler.reconcile()
+            } catch (_: MediaStoreDeltaQueryException) {
+                retryThrown = true
+            }
+            assertTrue("probe failure is retryable", retryThrown)
+            assertTrue("API R failure must not silently use the legacy id cursor", !legacyQueried)
+            assertEquals(10L, store.checkpoint)
+            assertEquals("v1", indexState.state?.mediaStoreVersion)
+            assertEquals(40L, indexState.state?.lastMediaStoreGeneration)
+        }
 }

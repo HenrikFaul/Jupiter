@@ -6,10 +6,12 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jupiter.filemanager.core.util.DefaultPathPolicy
 import com.jupiter.filemanager.core.util.PathPolicy
+import com.jupiter.filemanager.data.index.AndroidDuplicateNotificationPublisher
 import com.jupiter.filemanager.data.index.ArrivalInspector
 import com.jupiter.filemanager.data.index.DedupCheckpointStore
 import com.jupiter.filemanager.data.index.DedupDecisionDao
 import com.jupiter.filemanager.data.index.DuplicateDetector
+import com.jupiter.filemanager.data.index.DuplicateNotificationPublisher
 import com.jupiter.filemanager.data.index.FileIndexDao
 import com.jupiter.filemanager.data.index.FileIndexDatabase
 import com.jupiter.filemanager.data.index.FileIndexRepositoryImpl
@@ -90,6 +92,29 @@ object IndexModule {
         }
     }
 
+    /**
+     * v6 → v7: turns a duplicate decision into a durable notification outbox. Historical rows are
+     * intentionally PENDING: they are collapsed into a single retry summary, so an alert that was
+     * silently blocked by Android before this migration is not lost forever or replayed as spam.
+     */
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE dedup_decision ADD COLUMN deliveryState TEXT NOT NULL " +
+                    "DEFAULT 'PENDING'",
+            )
+            db.execSQL(
+                "ALTER TABLE dedup_decision ADD COLUMN deliveryAttempts INTEGER NOT NULL DEFAULT 0",
+            )
+            db.execSQL(
+                "ALTER TABLE dedup_decision ADD COLUMN lastDeliveryAttemptAt INTEGER NOT NULL " +
+                    "DEFAULT 0",
+            )
+            db.execSQL("ALTER TABLE dedup_decision ADD COLUMN deliveredAt INTEGER")
+            db.execSQL("ALTER TABLE dedup_decision ADD COLUMN lastDeliveryFailure TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideFileIndexDatabase(
@@ -98,6 +123,7 @@ object IndexModule {
         Room.databaseBuilder(context, FileIndexDatabase::class.java, "jupiter_index.db")
             .addMigrations(MIGRATION_4_5)
             .addMigrations(MIGRATION_5_6)
+            .addMigrations(MIGRATION_6_7)
             .build()
 
     @Provides
@@ -146,6 +172,11 @@ abstract class IndexBindingsModule {
 
     @Binds
     abstract fun bindArrivalInspector(impl: DuplicateDetector): ArrivalInspector
+
+    @Binds
+    abstract fun bindDuplicateNotificationPublisher(
+        impl: AndroidDuplicateNotificationPublisher,
+    ): DuplicateNotificationPublisher
 
     @Binds
     abstract fun bindMediaFingerprintSource(

@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.jupiter.filemanager.data.index.DuplicateDetector
 import com.jupiter.filemanager.data.index.IndexingScheduler
 import com.jupiter.filemanager.data.preferences.SettingsDataStore
 import com.jupiter.filemanager.domain.model.ThemeMode
@@ -64,6 +65,13 @@ class MainActivity : AppCompatActivity() {
     lateinit var indexStateRepository: IndexStateRepository
 
     /**
+     * A duplicate decision and Android notification delivery are separate durable lifecycles.
+     * Foreground/resume retries a decision that was detected while alerts were blocked.
+     */
+    @Inject
+    lateinit var duplicateDetector: DuplicateDetector
+
+    /**
      * Android 13+ requires the runtime POST_NOTIFICATIONS grant for ANY notification to be
      * visible — including the indexing foreground-progress notification and the
      * "duplicate detected" alert. Nothing ever requested it, so on modern devices every
@@ -71,7 +79,11 @@ class MainActivity : AppCompatActivity() {
      * enhancement, never a gate.
      */
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            lifecycleScope.launch {
+                runCatching { duplicateDetector.retryPendingNotifications() }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -175,6 +187,9 @@ class MainActivity : AppCompatActivity() {
                     indexingScheduler.reconcileDedupNow()
                 }
             }
+            // Never couple delivery retry to enabling future indexing: a duplicate may already
+            // have been detected while Android notifications or the dedicated channel were off.
+            runCatching { duplicateDetector.retryPendingNotifications() }
         }
     }
 

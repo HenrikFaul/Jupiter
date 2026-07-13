@@ -54,6 +54,13 @@ private data class WhatsNewHighlight(
  */
 private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
     WhatsNewHighlight(
+        icon = Icons.Filled.Bolt,
+        title = "Arrival alerts that recover",
+        description = "A new file is now checked through MediaStore, common-folder file observation, " +
+            "and a durable catch-up pass. If Android blocks alerts, Jupiter keeps the decision and " +
+            "retries it when notifications are available again.",
+    ),
+    WhatsNewHighlight(
         icon = Icons.Filled.Storage,
         title = "Whole-device storage capacity",
         description = "Storage cards now use Android's retail-capacity source and decimal units, " +
@@ -136,8 +143,8 @@ fun WhatsNewScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Version 0.54 focuses on trustworthy storage totals, understandable " +
-                            "automation, and dependable duplicate detection.",
+                        text = "Version 0.55 makes duplicate-arrival alerts resilient to Android " +
+                            "permission changes, OEM timing, and temporary file-read delays.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

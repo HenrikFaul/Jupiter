@@ -1,14 +1,6 @@
 package com.jupiter.filemanager.data.index
 
-import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.jupiter.filemanager.data.index.dedup.DedupTier
 import com.jupiter.filemanager.data.index.dedup.LayerSignal
 import com.jupiter.filemanager.data.index.dedup.SimilarityLayer
@@ -20,6 +12,7 @@ import com.jupiter.filemanager.domain.model.FileType
 import com.jupiter.filemanager.domain.repository.FileIndexRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.MessageDigest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -56,9 +49,22 @@ data class DuplicateAlert(
  * [DedupReconciler] can be unit-tested against a recording fake — no Room, no files, no
  * SharedFlow-collection timing.
  */
+sealed interface ArrivalInspectionResult {
+    data object Unique : ArrivalInspectionResult
+    data class Alerted(val alert: DuplicateAlert) : ArrivalInspectionResult
+    data class Retry(val reason: String, val cause: Throwable? = null) : ArrivalInspectionResult
+}
+
 interface ArrivalInspector {
-    /** Inspects [item]; returns the alert it produced, or null when unique/not comparable. */
-    suspend fun onFileArrived(item: FileItem): DuplicateAlert?
+    /** Inspects [item] without conflating a unique file with a transient processing failure. */
+    suspend fun inspectArrival(item: FileItem): ArrivalInspectionResult
+
+    /** Compatibility seam for direct callers that only need the optional alert. */
+    suspend fun onFileArrived(item: FileItem): DuplicateAlert? =
+        when (val result = inspectArrival(item)) {
+            is ArrivalInspectionResult.Alerted -> result.alert
+            is ArrivalInspectionResult.Unique, is ArrivalInspectionResult.Retry -> null
+        }
 }
 
 /**
@@ -80,43 +86,85 @@ interface ArrivalInspector {
  */
 @Singleton
 class DuplicateDetector @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @ApplicationContext context: Context,
     private val indexRepository: FileIndexRepository,
     private val perceptualHashSource: PerceptualHashSource,
     private val structuralFingerprintSource: StructuralFingerprintSource,
     private val mediaFingerprintSource: MediaFingerprintSource,
     private val dedupDecisionDao: DedupDecisionDao,
+    private val notificationPublisher: DuplicateNotificationPublisher,
     @IoDispatcher private val dispatcher: CoroutineDispatcher,
 ) : ArrivalInspector {
 
-    private val _alerts = MutableSharedFlow<DuplicateAlert>(extraBufferCapacity = 32)
+    /** Convenience constructor retained for focused tests and non-Hilt callers. */
+    constructor(
+        context: Context,
+        indexRepository: FileIndexRepository,
+        perceptualHashSource: PerceptualHashSource,
+        structuralFingerprintSource: StructuralFingerprintSource,
+        mediaFingerprintSource: MediaFingerprintSource,
+        dedupDecisionDao: DedupDecisionDao,
+        dispatcher: CoroutineDispatcher,
+    ) : this(
+        context,
+        indexRepository,
+        perceptualHashSource,
+        structuralFingerprintSource,
+        mediaFingerprintSource,
+        dedupDecisionDao,
+        AndroidDuplicateNotificationPublisher(context),
+        dispatcher,
+    )
 
-    @Volatile
-    private var channelReady = false
+    private val _alerts = MutableSharedFlow<DuplicateAlert>(extraBufferCapacity = 32)
 
     /** Hot stream of duplicate alerts for the UI (in addition to the notification). */
     fun observeDuplicateAlerts(): Flow<DuplicateAlert> = _alerts.asSharedFlow()
 
+    /** Read-only delivery diagnostics for permission/settings guidance surfaces. */
+    fun notificationDeliveryHealth(): DuplicateNotificationHealth = notificationPublisher.health()
+
     /**
      * Inspects one newly-arrived [item]: indexes it, then checks exact and (for images)
      * perceptual duplicates. Emits an alert + notification on the first match kind found.
-     * Returns the alert it produced, or null when the file is unique / not comparable.
-     * Never throws.
+     * Returns a typed outcome so durable cursors never mistake a transient IO/decode failure for
+     * a unique file. Cancellation still propagates normally.
      */
-    override suspend fun onFileArrived(item: FileItem): DuplicateAlert? = withContext(dispatcher) {
-        runCatching {
-            if (item.isDirectory) return@withContext null
-            // Always index first: even a unique file must be comparable against FUTURE arrivals.
-            indexRepository.indexFile(item)
+    override suspend fun inspectArrival(item: FileItem): ArrivalInspectionResult =
+        withContext(dispatcher) {
+            try {
+                // A prior decision may have been persisted while Android notifications were
+                // blocked. Every real arrival is a cheap opportunity to retry one collapsed batch.
+                retryPendingNotificationsInContext()
+                val alert = detectArrival(item)
+                if (alert == null) {
+                    ArrivalInspectionResult.Unique
+                } else {
+                    ArrivalInspectionResult.Alerted(alert)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                ArrivalInspectionResult.Retry(
+                    reason = error.message ?: error::class.java.simpleName,
+                    cause = error,
+                )
+            }
+        }
 
-            val typeClass = TypeClass.fromFileType(item.type)
+    private suspend fun detectArrival(item: FileItem): DuplicateAlert? {
+        if (item.isDirectory) return null
+        // Always index first: even a unique file must be comparable against FUTURE arrivals.
+        indexRepository.indexFile(item)
 
-            // 1) EXACT byte-identical duplicate → fused to tier EXACT (identity dominates).
-            val exact = indexRepository.findContentDuplicates(item)
-            if (exact.isNotEmpty()) {
+        val typeClass = TypeClass.fromFileType(item.type)
+
+        // 1) EXACT byte-identical duplicate → fused to tier EXACT (identity dominates).
+        val exact = indexRepository.findContentDuplicates(item)
+        if (exact.isNotEmpty()) {
                 val score = SimilarityScorer.score(typeClass, exactIdentity = true, signals = emptyList())
                 val copies = if (exact.size == 1) "1 file" else "${exact.size} files"
-                return@withContext emit(
+                return emit(
                     DuplicateAlert(
                         newFile = item,
                         existing = exact,
@@ -130,16 +178,19 @@ class DuplicateDetector @Inject constructor(
             // 2) SIMILAR picture (images only): fingerprint + near-dHash lookup, fused through the
             // perceptual layer so the alert carries a confidence tier + explanation.
             if (item.type == FileType.IMAGE) {
-                val fp = perceptualHashSource.computeAll(item.path) ?: return@withContext null
+                val fp = perceptualHashSource.computeAll(item.path)
+                    ?: throw TransientArrivalException("Image fingerprint temporarily unavailable")
                 indexRepository.putPerceptualFingerprint(item.path, fp.dhash, fp.phash, fp.ahash)
                 val hash = fp.dhash
-                if (hash == PerceptualHash.UNHASHABLE) return@withContext null
+                if (hash == PerceptualHash.UNHASHABLE) return null
                 // Ensure every already-indexed image carries a fingerprint BEFORE comparing, so a
                 // months-old original the background backfill has not yet reached is actually in
                 // the comparison set. Without this, findNearDuplicateImages only sees rows already
                 // fingerprinted, so the most common case — a freshly downloaded/recompressed copy
                 // of an un-backfilled original — silently never matched (the reported bug).
-                ensureImagesFingerprinted()
+                if (!ensureImagesFingerprinted()) {
+                    throw TransientArrivalException("Existing image fingerprint coverage incomplete")
+                }
                 val similar = indexRepository.findNearDuplicateImages(
                     path = item.path,
                     hash = hash,
@@ -153,7 +204,7 @@ class DuplicateDetector @Inject constructor(
                         signals = listOf(LayerSignal(SimilarityLayer.PERCEPTUAL, 0.92)),
                     )
                     val imgs = if (similar.size == 1) "an image" else "${similar.size} images"
-                    return@withContext emit(
+                    return emit(
                         DuplicateAlert(
                             newFile = item,
                             existing = similar,
@@ -169,9 +220,11 @@ class DuplicateDetector @Inject constructor(
             // 3) SIMILAR text/code (near-identical after reformatting/editing) via SimHash.
             if (item.type == FileType.CODE) {
                 val simHash = structuralFingerprintSource.textSimHash(item.path)
-                    ?: return@withContext null
+                    ?: throw TransientArrivalException("Text fingerprint temporarily unavailable")
                 indexRepository.putStructuralHash(item.path, simHash)
-                ensureStructuralFingerprinted()
+                if (!ensureStructuralFingerprinted()) {
+                    throw TransientArrivalException("Existing structural fingerprint coverage incomplete")
+                }
                 val similar = indexRepository.findNearDuplicateText(
                     path = item.path,
                     simHash = simHash,
@@ -184,7 +237,7 @@ class DuplicateDetector @Inject constructor(
                         signals = listOf(LayerSignal(SimilarityLayer.SEMANTIC, 0.9)),
                     )
                     val files = if (similar.size == 1) "a file" else "${similar.size} files"
-                    return@withContext emit(
+                    return emit(
                         DuplicateAlert(
                             newFile = item,
                             existing = similar,
@@ -200,10 +253,12 @@ class DuplicateDetector @Inject constructor(
             // 4) SAME archive contents (repacked, possibly different compression) via member-tree.
             if (item.type == FileType.ARCHIVE || item.type == FileType.APK) {
                 val treeHash = structuralFingerprintSource.archiveTreeHash(item.path)
-                    ?: return@withContext null
+                    ?: throw TransientArrivalException("Archive fingerprint temporarily unavailable")
                 indexRepository.putStructuralHash(item.path, treeHash)
-                if (treeHash == StructuralHash.UNHASHABLE) return@withContext null
-                ensureStructuralFingerprinted()
+                if (treeHash == StructuralHash.UNHASHABLE) return null
+                if (!ensureStructuralFingerprinted()) {
+                    throw TransientArrivalException("Existing structural fingerprint coverage incomplete")
+                }
                 val same = indexRepository.findSameArchiveContents(
                     path = item.path,
                     treeHash = treeHash,
@@ -215,7 +270,7 @@ class DuplicateDetector @Inject constructor(
                         signals = listOf(LayerSignal(SimilarityLayer.STRUCTURAL, 0.95)),
                     )
                     val files = if (same.size == 1) "an archive" else "${same.size} archives"
-                    return@withContext emit(
+                    return emit(
                         DuplicateAlert(
                             newFile = item,
                             existing = same,
@@ -261,9 +316,8 @@ class DuplicateDetector @Inject constructor(
                 )
                 else -> null
             }
-            if (mediaAlert != null) return@withContext mediaAlert
-            null
-        }.getOrNull()
+            if (mediaAlert != null) return mediaAlert
+            return null
     }
 
     /**
@@ -281,10 +335,13 @@ class DuplicateDetector @Inject constructor(
         noun: String,
         detail: String,
     ): DuplicateAlert? {
-        val hash = compute(item.path) ?: return null
+        val hash = compute(item.path)
+            ?: throw TransientArrivalException("Media fingerprint temporarily unavailable")
         indexRepository.putStructuralHash(item.path, hash)
         if (hash == StructuralHash.UNHASHABLE) return null
-        ensureStructuralFingerprinted()
+        if (!ensureStructuralFingerprinted()) {
+            throw TransientArrivalException("Existing media fingerprint coverage incomplete")
+        }
         val similar = find(item.path, hash)
         if (similar.isEmpty()) return null
         val score = SimilarityScorer.score(
@@ -311,12 +368,13 @@ class DuplicateDetector @Inject constructor(
      * [ensureImagesFingerprinted]: a transient IO failure yields null (kept for a later run) while a
      * genuinely non-comparable file is marked [StructuralHash.UNHASHABLE] so the work list shrinks.
      */
-    private suspend fun ensureStructuralFingerprinted() {
+    private suspend fun ensureStructuralFingerprinted(): Boolean {
         while (true) {
             currentCoroutineContext().ensureActive()
             val batch = indexRepository.filesNeedingStructuralHash(FINGERPRINT_BATCH)
-            if (batch.isEmpty()) return
+            if (batch.isEmpty()) return true
             var stored = 0
+            var transientFailures = 0
             for (file in batch) {
                 currentCoroutineContext().ensureActive()
                 val fingerprint = when (file.type) {
@@ -327,12 +385,22 @@ class DuplicateDetector @Inject constructor(
                     FileType.PDF -> mediaFingerprintSource.pdfRenderHash(file.path)
                     FileType.AUDIO -> mediaFingerprintSource.audioAcousticHash(file.path)
                     else -> StructuralHash.UNHASHABLE // out of scope → mark so it leaves the list
-                } ?: StructuralHash.UNHASHABLE // transient failure → mark to guarantee progress
-                if (runCatching { indexRepository.putStructuralHash(file.path, fingerprint) }.isSuccess) {
-                    stored++
                 }
-            }
-            if (stored == 0) return
+                if (fingerprint == null) {
+                    transientFailures++
+                    continue
+                }
+                if (runCatching {
+                        indexRepository.putStructuralHash(file.path, fingerprint)
+                    }.isSuccess
+                ) {
+                    stored++
+                } else {
+                    transientFailures++
+                }
+        }
+            if (transientFailures > 0) return false
+            if (stored == 0) return false
         }
     }
 
@@ -347,53 +415,60 @@ class DuplicateDetector @Inject constructor(
      * can never loop forever. Honours cancellation; per-file failures are isolated (compute never
      * throws; the store is guarded) so one bad row can't abort the pass.
      */
-    private suspend fun ensureImagesFingerprinted() {
+    private suspend fun ensureImagesFingerprinted(): Boolean {
         while (true) {
             currentCoroutineContext().ensureActive()
             val batch = indexRepository.imagesNeedingPerceptualHash(FINGERPRINT_BATCH)
-            if (batch.isEmpty()) return
+            if (batch.isEmpty()) return true
             var stored = 0
+            var transientFailures = 0
             for (image in batch) {
                 currentCoroutineContext().ensureActive()
                 val fp = perceptualHashSource.computeAll(image.path)
-                    ?: PerceptualFingerprint.UNHASHABLE
+                if (fp == null) {
+                    transientFailures++
+                    continue
+                }
                 val ok = runCatching {
                     indexRepository.putPerceptualFingerprint(image.path, fp.dhash, fp.phash, fp.ahash)
                 }.isSuccess
-                if (ok) stored++
+                if (ok) {
+                    stored++
+                } else {
+                    transientFailures++
+                }
             }
             // Termination guarantee: every row is marked (hash or UNHASHABLE), so a non-empty batch
             // normally shrinks the backlog. If NOTHING could be stored (persistent write failure),
             // the same batch would return forever — stop instead of spinning.
-            if (stored == 0) return
+            if (transientFailures > 0) return false
+            if (stored == 0) return false
         }
     }
 
     private suspend fun emit(alert: DuplicateAlert): DuplicateAlert? {
-        if (!recordDecision(alert)) return null
+        val decision = recordDecision(alert) ?: return null
         _alerts.tryEmit(alert)
-        notify(alert)
+        deliverNewDecision(alert, decision)
         return alert
     }
 
-    private suspend fun recordDecision(alert: DuplicateAlert): Boolean {
+    private suspend fun recordDecision(alert: DuplicateAlert): DedupDecision? {
         val existingPaths = alert.existing.map { it.path }.distinct().sorted()
         val key = canonicalDecisionKey(
             newPath = alert.newFile.path,
             existingPaths = existingPaths,
             kind = alert.kind,
         )
-        val inserted = dedupDecisionDao.insert(
-            DedupDecision(
-                decisionKey = key,
-                kind = alert.kind.name,
-                newPath = alert.newFile.path,
-                existingPaths = existingPaths.joinToString(separator = "\n"),
-                algorithmVersion = DECISION_ALGORITHM_VERSION,
-                createdAt = System.currentTimeMillis(),
-            ),
+        val decision = DedupDecision(
+            decisionKey = key,
+            kind = alert.kind.name,
+            newPath = alert.newFile.path,
+            existingPaths = existingPaths.joinToString(separator = "\n"),
+            algorithmVersion = DECISION_ALGORITHM_VERSION,
+            createdAt = System.currentTimeMillis(),
         )
-        return inserted != -1L
+        return decision.takeIf { dedupDecisionDao.insert(it) != -1L }
     }
 
     private fun canonicalDecisionKey(
@@ -415,69 +490,82 @@ class DuplicateDetector @Inject constructor(
         return digest.joinToString(separator = "") { "%02x".format(it) }
     }
 
-    private fun notify(alert: DuplicateAlert) {
-        if (!notificationsAllowed()) return
-        val count = alert.existing.size
-        val (title, text, idSalt) = when (alert.kind) {
-            DuplicateKind.EXACT -> Triple(
-                "Duplicate detected",
-                "${alert.newFile.name} — you already have " +
-                    if (count == 1) "1 copy" else "$count copies",
-                0,
-            )
-            DuplicateKind.SIMILAR -> Triple(
-                "Similar file detected",
-                // The alert's own explanation is type-specific (image / text / archive), so the
-                // notification reads correctly whichever near-duplicate layer fired.
-                "${alert.newFile.name} — ${alert.explanation}",
-                SIMILAR_ID_SALT,
-            )
-        }
-        runCatching {
-            ensureChannel()
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle(title)
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .build()
-            NotificationManagerCompat.from(context)
-                .notify(alert.newFile.path.hashCode() xor idSalt, notification)
-        }
+    /**
+     * Retries a bounded pending batch as one summary notification. Safe to call from Activity
+     * foreground/permission callbacks and observer paths; DAO claiming prevents double delivery.
+     */
+    suspend fun retryPendingNotifications() = withContext(dispatcher) {
+        retryPendingNotificationsInContext()
     }
 
-    private fun notificationsAllowed(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
-        return ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun ensureChannel() {
-        if (channelReady) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Duplicate alerts",
-                    NotificationManager.IMPORTANCE_DEFAULT,
-                ).apply {
-                    description = "Alerts when a newly added file duplicates existing content"
-                },
+    private suspend fun retryPendingNotificationsInContext() {
+        val attemptedAt = System.currentTimeMillis()
+        val claimed = dedupDecisionDao.claimDeliveryBatch(
+            attemptedAt = attemptedAt,
+            staleBefore = attemptedAt - DELIVERY_CLAIM_TIMEOUT_MS,
+            limit = MAX_PENDING_SUMMARY,
+        )
+        if (claimed.isEmpty()) return
+        val result = runCatching {
+            notificationPublisher.publishPendingSummary(claimed)
+        }.getOrElse { error ->
+            NotificationDeliveryResult(
+                status = NotificationDeliveryStatus.FAILED,
+                detail = error.message ?: error::class.java.simpleName,
             )
         }
-        channelReady = true
+        persistDeliveryResult(claimed.map { it.decisionKey }, result)
+    }
+
+    private suspend fun deliverNewDecision(alert: DuplicateAlert, decision: DedupDecision) {
+        val attemptedAt = System.currentTimeMillis()
+        val claimed = dedupDecisionDao.claimDelivery(
+            decisionKey = decision.decisionKey,
+            attemptedAt = attemptedAt,
+            staleBefore = attemptedAt - DELIVERY_CLAIM_TIMEOUT_MS,
+        )
+        if (claimed != 1) return
+        val result = runCatching {
+            notificationPublisher.publish(alert)
+        }.getOrElse { error ->
+            NotificationDeliveryResult(
+                status = NotificationDeliveryStatus.FAILED,
+                detail = error.message ?: error::class.java.simpleName,
+            )
+        }
+        persistDeliveryResult(listOf(decision.decisionKey), result)
+    }
+
+    private suspend fun persistDeliveryResult(
+        decisionKeys: List<String>,
+        result: NotificationDeliveryResult,
+    ) {
+        when (result.status) {
+            NotificationDeliveryStatus.DELIVERED ->
+                dedupDecisionDao.markDelivered(decisionKeys, System.currentTimeMillis())
+            NotificationDeliveryStatus.BLOCKED ->
+                dedupDecisionDao.releaseDelivery(
+                    decisionKeys,
+                    DedupDeliveryState.BLOCKED.name,
+                    result.detail,
+                )
+            NotificationDeliveryStatus.FAILED ->
+                dedupDecisionDao.releaseDelivery(
+                    decisionKeys,
+                    DedupDeliveryState.FAILED.name,
+                    result.detail,
+                )
+        }
     }
 
     private companion object {
-        const val CHANNEL_ID = "jupiter_duplicate_alerts"
-        const val SIMILAR_ID_SALT = 0x5A5A5A5A
         const val DECISION_ALGORITHM_VERSION = 1
+        const val MAX_PENDING_SUMMARY = 100
+        const val DELIVERY_CLAIM_TIMEOUT_MS = 5 * 60 * 1000L
 
         /** Rows fingerprinted per batch while draining the perceptual-hash backlog on demand. */
         const val FINGERPRINT_BATCH = 100
     }
+
+    private class TransientArrivalException(message: String) : Exception(message)
 }

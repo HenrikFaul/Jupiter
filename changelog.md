@@ -789,3 +789,49 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `git diff --check` — whitespace-hiba nincs; csak a repository CRLF-normalizációs figyelmeztetései.
 - **[remote]** Implementációs commit `3c6e9a9132d535d8341d413b992aef91aa76c4ba`; [Android CI run 29216712702](https://github.com/HenrikFaul/Jupiter/actions/runs/29216712702) **success**. Unit tests és Build APKs job zöld; debug/release artifact, build archive és `build-latest` GitHub Release publikálás sikeres.
 - **[release]** `app-debug.apk` 36 126 106 byte, SHA-256 `f346811d6abb7030e5335dd90738b25566c13e0c80946bd4b460ad7f9da0461a`; `app-release.apk` 7 870 103 byte, SHA-256 `9ed24c2c43a7cdeb730df88f747cad14f476ee5d016fb72517f0cf63e3f880e7`.
+
+## [jupiter:0.55.0] - 2026-07-13
+
+**Scope / miért:** a valós készülékes visszajelzés szerint az ismét letöltött kép továbbra sem adott riasztást. Ez a kör az érkezés→index→full-hash→döntés→Android-értesítés teljes útját erősíti meg, különösen a frissítés utáni checkpoint-race, OEM fájl-/MediaStore-időzítés és korábban letiltott notification helyzetekben. Funkcionális regresszió tiltott.
+
+### Added
+
+- **[dedup/notification-outbox]** A `dedup_decision` rekord tartós delivery-életciklust kapott (`PENDING`, `DELIVERING`, `BLOCKED`, `FAILED`, `DELIVERED`), claim-olt retry-jal és összevont summary notificationnel. A Room v6→v7 explicit, adatmegőrző migrációja nem dobja el az indexet vagy a korábbi döntéseket.
+- **[dedup/observation]** Bounded, rekurzív `FileObserver` safety net figyeli a Downloads, DCIM, Pictures, Movies, Documents és Music fákat; a CREATE/CLOSE_WRITE/MOVED_TO jelre azonnal tartós WorkManager backup is készül, majd két stabil méret/mtime ablak után processbeli ellenőrzés fut.
+- **[dedup/ui]** A Duplicate cleanup menü `Duplicate alert settings` eleme a rendszer alkalmazás-értesítés beállításaihoz vezet, így a felhasználó a permissiont és a `Duplicate alerts` csatornát közvetlenül helyre tudja állítani.
+- **[test]** Retryable arrival, blocked/failed notification delivery retry, 2001 elemű legacy-backlog, MediaStore probe/query hiba, same-generation lapozás és FileObserver policy regressziós lefedettség.
+
+### Changed
+
+- **[dedup/arrival]** Az `ArrivalInspector` már typed `Unique` / `Alerted` / `Retry` eredményt ad. Átmeneti index-, hash-, decode-, Room- vagy provider-hiba nem azonos többé az egyedi fájllal, ezért a checkpoint nem léphet át egy még nem olvasható letöltésen.
+- **[dedup/delta]** Android 11+ alatt a MediaStore version/generation probe vagy delta-query hibája retryable marad; nincs veszélyes `_ID` fallback és nincs „üres siker” miatti generation-settle. Az azonos generationhöz tartozó page-határ minden kötött sort együtt tart.
+- **[dedup/upgrade]** v0.54 `_ID` checkpointból generation modellre frissítéskor az új érkezések legacy-gapje teljesen lefut, és csak utána kerül quiet generation baseline. A 2000-es fairness cap így nem nyelheti le a 2001. fájlt.
+- **[app-lifecycle]** Permission callback és minden foreground újrapróbálja a korábban Android által blokkolt, már biztonságosan meghozott dedup-döntések kézbesítését; az új indexelés indításától függetlenül.
+- **[build/ui]** `versionCode` 7, `versionName` 0.55.0; What's New az új helyreálló arrival-alert viselkedést írja le.
+
+### Fixed
+
+- **[real-device false negative]** Egy frissítés után, a generation baseline felvétele előtt letöltött kép többé nem kerülhet csendes baseline-ba.
+- **[notification delivery]** Permission-, app-level notification- vagy channel-tiltás többé nem jelenti azt, hogy a canonical dedup-decision örökre „már értesített” állapotba kerül. Engedélyezés után egyszeri összesített riasztás kézbesíthető.
+- **[process/OEM resilience]** A processben élő ellenőrzés nem csak WorkManagerre vár, de process death esetén a jel pillanatában sorba tett tartós backup és a meglévő periodic/foreground catch-up konvergál.
+
+### Regression checks
+
+- Exact duplikációt továbbra is kizárólag teljes content hash dönt el; a perceptuális/strukturális rétegek nem válhatnak törlési bizonyítékká.
+- A canonical döntéskulcs, keeper-védelem, Exact/Similar scope, méretszűrő, Select all/Deselect all és Recycle Bin workflow változatlanul megmaradt.
+- A meglévő v4→v5→v6 Room migrációk mellett v6→v7 is explicit; nincs `fallbackToDestructiveMigration()`.
+- A navigáció, Hilt graph és a korábbi képernyő-API-k csak additívan változtak; a Duplicates menü új eleme nem módosít törlési vagy kiválasztási műveletet.
+
+### Verification
+
+- `main` frissítése munka előtt `git pull --ff-only origin main`; a korábbi untracked `versioning.zip` érintetlen.
+- Cache nélküli tiszta `:app:clean :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --no-build-cache` kör után az XML: **59 suite / 354 teszt / 0 failure / 0 error / 0 skipped**.
+- `lintDebug` újragenerálva: az új publisherből származó MissingPermission jelzés javítva; a reportban csak a korábban meglévő 40 Media3 opt-in és 2 Compose finding maradt, `abortOnError=false` meglévő build-policy mellett.
+- API 34 `emulator-5554`: All Files Access + notification permission mellett egy új `/Download/jupiter_arrival_copy.png` bájtazonos másolat ténylegesen `Duplicate detected — you already have 1 copy` system notificationt adott; az SQLite outbox rekord `DELIVERED|1`.
+- Ugyanezen emulátoron upgrade után a már függő durable döntések `Duplicate files detected` összesített riasztásként megjelentek a notification permission engedélyezésekor.
+- `git diff --check`: whitespace-hiba nincs (csak repository CRLF figyelmeztetés).
+
+### Remaining risk
+
+- Android/OEM nem garantál tetszőleges zárt-app folyamat azonnali felébresztését; a direct observer csak élő processben gyorsít. A WorkManager, foreground és periodic reconciliation a tartós convergence rétegek, ezért Doze/OEM throttle mellett a riasztás késhet, de nem maradhat a transient checkpoint-advance miatt végleg elveszett.
+- Nincs fizikai Samsung/Chrome teljes körös instrumentációs bizonyíték ebben a repo-környezetben; a fenti API 34 runtime proof és a célzott JVM/Robolectric tesztek nem helyettesítik azt.

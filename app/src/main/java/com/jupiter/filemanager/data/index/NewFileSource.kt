@@ -15,7 +15,9 @@ interface NewFileSource {
 
     /**
      * Finalized rows modified after [sinceGeneration]. Unlike `_ID`, the generation changes when a
-     * pending download row is finalized, so the completed bytes cannot be skipped.
+     * pending download row is finalized, so the completed bytes cannot be skipped. Implementations
+     * that cap a page at [limit] must include every row tied at the last returned generation;
+     * generation alone is the persisted cursor, so splitting a tie would skip the remainder.
      */
     suspend fun queryChangedSinceGeneration(
         sinceGeneration: Long,

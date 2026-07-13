@@ -49,13 +49,12 @@ class DedupReconciler @Inject constructor(
 
     /**
      * Processes all files newer than the checkpoint through the detector and advances the
-     * checkpoint. Returns the number of files inspected. Never throws.
+     * checkpoint. Returns the number of files inspected. A transient provider/inspection failure
+     * is propagated so [DedupReconcileWorker] can retry without advancing the durable cursor.
      */
     suspend fun reconcile(): Int = withContext(dispatcher) {
         if (mutex.isLocked) return@withContext 0 // a reconcile is already in flight; skip.
-        mutex.withLock {
-            runCatching { reconcileLocked() }.getOrDefault(0)
-        }
+        mutex.withLock { reconcileLocked() }
     }
 
     private suspend fun reconcileLocked(): Int {
@@ -88,35 +87,69 @@ class DedupReconciler @Inject constructor(
             return 0
         }
 
+        return reconcileIdDelta(checkpoint).inspected
+    }
+
+    /** Android 10 cursor, also used once when upgrading a legacy id checkpoint to generations. */
+    private suspend fun reconcileIdDelta(
+        checkpoint: Long,
+        recordIndexState: Boolean = true,
+    ): IdDeltaResult {
         var since = checkpoint
         var inspected = 0
         while (true) {
             currentCoroutineContext().ensureActive()
             val batch = newFileSource.queryNewSince(since, BATCH_SIZE)
-            if (batch.isEmpty()) break
+            if (batch.isEmpty()) return IdDeltaResult(inspected, drained = true)
 
             var batchMax = since
             for (newFile in batch) {
                 currentCoroutineContext().ensureActive()
-                arrivalInspector.onFileArrived(newFile.item)
+                inspectOrRetry(newFile.item)
                 inspected++
                 batchMax = maxOf(batchMax, newFile.id) // ids are unique + strictly increasing
             }
 
             since = DedupCheckpoint.advance(since, batchMax)
             checkpointStore.setCheckpointId(since)
-            indexStateRepository.recordDeltaSync(version = null, generation = since)
+            if (recordIndexState) {
+                indexStateRepository.recordDeltaSync(version = null, generation = since)
+            }
 
-            if (batch.size < BATCH_SIZE) break // drained
-            if (inspected >= MAX_PER_RUN) break // fairness cap; next trigger continues
+            if (batch.size < BATCH_SIZE) return IdDeltaResult(inspected, drained = true)
+            if (inspected >= MAX_PER_RUN) {
+                // A full final page cannot prove there is no next page. Leave generation at its
+                // migration default; the next trigger resumes from the durable id checkpoint.
+                return IdDeltaResult(inspected, drained = false)
+            }
         }
-        return inspected
     }
 
     private suspend fun reconcileGeneration(version: String, observedGeneration: Long): Int {
         val state = indexStateRepository.current()
         val sinceStored = state?.lastMediaStoreGeneration ?: 0L
-        // A MediaStore database rebuild changes the opaque version and invalidates generation
+        // v0.54 introduced the generation columns on top of the already-persisted `_ID` cursor.
+        // Quietly baselining generation immediately used to create an upgrade race: files that
+        // arrived after the legacy id checkpoint but before the first generation-aware pass were
+        // swallowed into the new baseline and never inspected. Drain precisely that gap first.
+        // This remains alert-storm safe because `_ID > legacyCheckpoint` contains only arrivals
+        // the previous installed build had not examined.
+        if (state?.mediaStoreVersion == null && sinceStored <= 0L) {
+            val legacyCheckpoint = checkpointStore.getCheckpointId()
+            val drain = if (legacyCheckpoint > 0L) {
+                // Keep the generation fields at their migration defaults until the whole gap is
+                // drained. If a later page retries, the next run must resume the id bootstrap
+                // instead of mistaking a partial id marker for a generation baseline.
+                reconcileIdDelta(legacyCheckpoint, recordIndexState = false)
+            } else {
+                IdDeltaResult(inspected = 0, drained = true)
+            }
+            if (!drain.drained) return drain.inspected
+            indexStateRepository.recordDeltaSync(version, observedGeneration)
+            return drain.inspected
+        }
+
+        // A real MediaStore database rebuild changes the opaque version and invalidates generation
         // comparisons. Establish a quiet baseline rather than alerting on the whole old library.
         if (state?.mediaStoreVersion != version || sinceStored <= 0L) {
             indexStateRepository.recordDeltaSync(version, observedGeneration)
@@ -140,7 +173,7 @@ class DedupReconciler @Inject constructor(
             var batchMax = since
             for (changedFile in batch) {
                 currentCoroutineContext().ensureActive()
-                arrivalInspector.onFileArrived(changedFile.item)
+                inspectOrRetry(changedFile.item)
                 inspected++
                 batchMax = maxOf(batchMax, changedFile.generation)
             }
@@ -157,13 +190,32 @@ class DedupReconciler @Inject constructor(
         return inspected
     }
 
+    /** A retryable inspection must leave the entire current batch before its checkpoint. */
+    private suspend fun inspectOrRetry(item: com.jupiter.filemanager.domain.model.FileItem) {
+        when (val result = arrivalInspector.inspectArrival(item)) {
+            is ArrivalInspectionResult.Unique, is ArrivalInspectionResult.Alerted -> Unit
+            is ArrivalInspectionResult.Retry -> throw ArrivalInspectionRetryException(
+                result.reason,
+                result.cause,
+            )
+        }
+    }
+
     private companion object {
         const val BATCH_SIZE = 200
 
         /** Cap per run so a huge backlog (first foreground after a long absence) stays bounded. */
         const val MAX_PER_RUN = 2_000
     }
+
+    private data class IdDeltaResult(val inspected: Int, val drained: Boolean)
 }
+
+/** Propagated to WorkManager so a temporarily unreadable/undecodable arrival is retried. */
+class ArrivalInspectionRetryException(
+    message: String,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
 
 /** Pure checkpoint-advance math, extracted so the loop-termination guarantee is unit-tested. */
 object DedupCheckpoint {
