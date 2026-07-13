@@ -954,3 +954,4 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `:app:testDebugUnitTest --tests RelaySessionTest --tests StorageTruthTest --tests DuplicatesUiStateSizeFilterTest --tests DuplicatesUiStateSummaryTest --tests DuplicateDetectorTest --tests StorageCapacityPolicyTest --no-daemon --console=plain` — **BUILD SUCCESSFUL**.
 - `:app:assembleDebug --no-daemon --console=plain` — **BUILD SUCCESSFUL**; debug APK: `app/build/outputs/apk/debug/app-debug.apk`, 36 454 266 byte, SHA-256 `df640a09f0efd03cac643eda13809401f3785e5307fb85d6284b1167541f48e5`.
 - `git diff --check` — **PASS** (a CRLF-normalizációs figyelmeztetés nem whitespace-hiba). Push utáni CI eredmény csak a tényleges remote run után kerül ide.
+- **[remote]** Implementációs commit `edb1796` közvetlenül `origin/main`-re pusholva. GitHub Actions eredményt ez a kör még nem állít; az külön, remote bizonyíték.
