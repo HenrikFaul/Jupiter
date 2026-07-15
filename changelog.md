@@ -1003,8 +1003,8 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - HenrisForge lessons taxonomy: **17 zöld / 0 piros**; az új Android lecke a megfelelő szekcióban.
 - `git diff --check`: whitespace-hiba nincs; csak a repository CRLF-normalizációs figyelmeztetései.
 - Implementációs commit `614f6ba6305c46440f635f815950d0f9a24a7e6c` közvetlenül `origin/main`-re pusholva.
-- GitHub Actions `Android CI` run `29413813907`: **SUCCESS**; JVM unit tests, debug/release assemble, artifact upload, build archive és `build-latest` release-publikálás mind sikeres.
-- Publikált `app-debug.apk`: **36 470 650 byte**, SHA-256 `285a46d9ebb40b3e7c3231081e81427e23ccc63e08acd979897caaddee3fdc0b`; publikált `app-release.apk`: **7 919 743 byte**, SHA-256 `c60edd3830ea435e7812e8121100ef0b2ed93f72a8eb4ed3f59e7c285f614574`.
+- GitHub Actions `Android CI` run `29413813907`: **SUCCESS**; JVM unit tests, debug/release assemble, artifact upload, build archive és `build-latest` release-publikálás mind sikeres. A kizárólag dokumentációs `3cbe0bb` commitot ellenőrző run `29414560668` szintén **SUCCESS**.
+- A `build-latest` kiadásban publikált stabil debug artifact: `app-debug.apk`, **36 470 650 byte**, SHA-256 `285a46d9ebb40b3e7c3231081e81427e23ccc63e08acd979897caaddee3fdc0b`. A release artifact összeállítása és publikálása is zöld; arra nem rögzítünk állandó digestet, mert a jelenlegi release build nem byte-reprodukálható két azonos forrású CI-futás között.
 
 ### Known issues / remaining risk
 
