@@ -177,8 +177,24 @@ interface FileIndexDao {
      * Stores a text/archive structural fingerprint. Targeted UPDATE for the same reason as
      * [updateHash]: it must never disturb a concurrent survey's generation stamp.
      */
-    @Query("UPDATE file_index SET structuralHash = :hash WHERE path = :path")
+    @Query(
+        "UPDATE file_index SET structuralHash = :hash, structuralSignature = NULL, " +
+            "structuralExtent = NULL, structuralVersion = 0 WHERE path = :path",
+    )
     suspend fun updateStructuralHash(path: String, hash: Long)
+
+    /** Atomically stores every component of a versioned media descriptor. */
+    @Query(
+        "UPDATE file_index SET structuralHash = :hash, structuralSignature = :signature, " +
+            "structuralExtent = :extent, structuralVersion = :version WHERE path = :path",
+    )
+    suspend fun updateMediaFingerprint(
+        path: String,
+        hash: Long,
+        signature: String,
+        extent: Long?,
+        version: Int,
+    )
 
     /**
      * Path + structural hash of every fingerprinted file of the given [typeNames] (the comparison
@@ -186,7 +202,8 @@ interface FileIndexDao {
      * uncomparable files never match. Comparing only within one type keeps the shared column safe.
      */
     @Query(
-        "SELECT path, structuralHash AS structuralHash FROM file_index " +
+        "SELECT path, structuralHash AS structuralHash, structuralSignature, " +
+            "structuralExtent, structuralVersion FROM file_index " +
             "WHERE structuralHash IS NOT NULL AND structuralHash != :unhashable " +
             "AND isDirectory = 0 AND typeName IN (:typeNames)",
     )
@@ -345,4 +362,7 @@ data class PathPerceptualHash(
 data class PathStructuralHash(
     val path: String,
     val structuralHash: Long,
+    val structuralSignature: String? = null,
+    val structuralExtent: Long? = null,
+    val structuralVersion: Int = 0,
 )

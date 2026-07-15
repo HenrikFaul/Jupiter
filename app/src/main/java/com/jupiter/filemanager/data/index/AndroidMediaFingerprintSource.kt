@@ -9,6 +9,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.os.ParcelFileDescriptor
+import android.os.Build
 import java.io.File
 import java.nio.ByteBuffer
 import javax.inject.Inject
@@ -29,7 +30,9 @@ import kotlin.math.min
 @Singleton
 class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSource {
 
-    override fun videoKeyframeHash(path: String): Long? {
+    override fun videoKeyframeHash(path: String): Long? = videoFingerprint(path)?.primaryHash
+
+    override fun videoFingerprint(path: String): MediaFingerprint? {
         val file = File(path)
         if (!file.isFile) return null
         val retriever = MediaMetadataRetriever()
@@ -37,28 +40,51 @@ class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSour
             retriever.setDataSource(path)
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            // A representative frame near the middle is far more distinctive than the first frame
-            // (title cards / black lead-ins collide); OPTION_CLOSEST_SYNC keeps it cheap.
-            val midUs = if (durationMs > 0) durationMs * 1000L / 2 else -1L
-            val frame: Bitmap = (
-                if (midUs >= 0) {
-                    retriever.getFrameAtTime(midUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            if (durationMs <= 0L) return MediaFingerprint.single(StructuralHash.UNHASHABLE)
+
+            // A VIDEO is temporal content, not one thumbnail. Sample fixed 10/30/50/70/90%
+            // positions (the same shape used by the desktop reference engine) and preserve the
+            // ordered vector. Black/title cards are retained for alignment but ignored by the
+            // matcher as low-information evidence.
+            val hashes = VIDEO_SAMPLE_PERCENTAGES.mapNotNull { percent ->
+                val atUs = durationMs * 1000L * percent / 100L
+                // OPTION_CLOSEST (not CLOSEST_SYNC) is intentional: long-GOP videos may have one
+                // sync frame near every requested position, recreating a fake five-sample vector.
+                // API 27+ asks the decoder for a tiny frame to bound memory; API 26 uses the same
+                // temporal semantics and lets BitmapDHash downscale it immediately.
+                val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    retriever.getScaledFrameAtTime(
+                        atUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST,
+                        VIDEO_FRAME_DIMEN,
+                        VIDEO_FRAME_DIMEN,
+                    )
                 } else {
-                    retriever.frameAtTime
+                    retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                } ?: return@mapNotNull null
+                try {
+                    BitmapDHash.of(frame)
+                } finally {
+                    frame.recycle()
                 }
-                ) ?: return StructuralHash.UNHASHABLE
-            val hash = BitmapDHash.of(frame)
-            frame.recycle()
-            hash
+            }
+            if (hashes.size < MIN_VIDEO_SAMPLES ||
+                hashes.count(MediaFingerprintMatcher::isInformative) < MIN_VIDEO_SAMPLES
+            ) {
+                return MediaFingerprint.single(StructuralHash.UNHASHABLE)
+            }
+            MediaFingerprint(hashes = hashes, extent = durationMs)
         } catch (_: Exception) {
             // setDataSource throws for a non-media / unsupported container → conservative UNHASHABLE.
-            StructuralHash.UNHASHABLE
+            MediaFingerprint.single(StructuralHash.UNHASHABLE)
         } finally {
             runCatching { retriever.release() }
         }
     }
 
-    override fun pdfRenderHash(path: String): Long? {
+    override fun pdfRenderHash(path: String): Long? = pdfFingerprint(path)?.primaryHash
+
+    override fun pdfFingerprint(path: String): MediaFingerprint? {
         val file = File(path)
         if (!file.isFile) return null
         var pfd: ParcelFileDescriptor? = null
@@ -66,38 +92,44 @@ class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSour
         return try {
             pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             renderer = PdfRenderer(pfd)
-            if (renderer.pageCount <= 0) return StructuralHash.UNHASHABLE
-            // PdfRenderer.Page has close() but does not implement Closeable → close explicitly.
-            val page = renderer.openPage(0)
-            try {
-                // Cap the render so a huge page can't blow up memory; keep the page aspect ratio.
-                val scale = minOf(
-                    RENDER_MAX_DIMEN.toFloat() / page.width,
-                    RENDER_MAX_DIMEN.toFloat() / page.height,
-                    1f,
-                )
-                val w = maxOf(1, (page.width * scale).toInt())
-                val h = maxOf(1, (page.height * scale).toInt())
-                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                // PdfRenderer draws transparent where the page has no content; a white backing
-                // keeps the luminance structure the same as a viewer would show.
-                Canvas(bitmap).drawColor(Color.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                val hash = BitmapDHash.of(bitmap)
-                bitmap.recycle()
-                hash
-            } finally {
-                runCatching { page.close() }
+            val pageCount = renderer.pageCount
+            if (pageCount <= 0) return MediaFingerprint.single(StructuralHash.UNHASHABLE)
+            val pageIndexes = listOf(0, pageCount / 2, pageCount - 1).distinct()
+            val hashes = pageIndexes.map { index ->
+                // PdfRenderer.Page has close() but does not implement Closeable → close explicitly.
+                val page = renderer.openPage(index)
+                try {
+                    val scale = minOf(
+                        RENDER_MAX_DIMEN.toFloat() / page.width,
+                        RENDER_MAX_DIMEN.toFloat() / page.height,
+                        1f,
+                    )
+                    val w = maxOf(1, (page.width * scale).toInt())
+                    val h = maxOf(1, (page.height * scale).toInt())
+                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    Canvas(bitmap).drawColor(Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    try {
+                        BitmapDHash.of(bitmap)
+                    } finally {
+                        bitmap.recycle()
+                    }
+                } finally {
+                    runCatching { page.close() }
+                }
             }
+            MediaFingerprint(hashes = hashes, extent = pageCount.toLong())
         } catch (_: Exception) {
-            StructuralHash.UNHASHABLE // not a readable PDF (or encrypted) → conservative
+            MediaFingerprint.single(StructuralHash.UNHASHABLE) // unreadable/encrypted → conservative
         } finally {
             runCatching { renderer?.close() }
             runCatching { pfd?.close() }
         }
     }
 
-    override fun audioAcousticHash(path: String): Long? {
+    override fun audioAcousticHash(path: String): Long? = audioFingerprint(path)?.primaryHash
+
+    override fun audioFingerprint(path: String): MediaFingerprint? {
         val file = File(path)
         if (!file.isFile) return null
         val extractor = MediaExtractor()
@@ -107,10 +139,13 @@ class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSour
             val trackIndex = (0 until extractor.trackCount).firstOrNull { i ->
                 extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
                     ?.startsWith("audio/") == true
-            } ?: return StructuralHash.UNHASHABLE
+            } ?: return MediaFingerprint.single(StructuralHash.UNHASHABLE)
             extractor.selectTrack(trackIndex)
             val format = extractor.getTrackFormat(trackIndex)
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: return StructuralHash.UNHASHABLE
+            val mime = format.getString(MediaFormat.KEY_MIME)
+                ?: return MediaFingerprint.single(StructuralHash.UNHASHABLE)
+            val durationMs = runCatching { format.getLong(MediaFormat.KEY_DURATION) / 1000L }
+                .getOrDefault(0L)
             val channels = runCatching { format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) }
                 .getOrDefault(1).coerceAtLeast(1)
 
@@ -119,10 +154,12 @@ class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSour
             codec.start()
 
             val energies = decodeEnergyEnvelope(extractor, codec, channels)
-            if (energies == null || energies.size < WINDOWS) return StructuralHash.UNHASHABLE
-            envelopeHash(energies)
+            if (energies == null || energies.size < WINDOWS || durationMs <= 0L) {
+                return MediaFingerprint.single(StructuralHash.UNHASHABLE)
+            }
+            MediaFingerprint(hashes = listOf(envelopeHash(energies)), extent = durationMs)
         } catch (_: Exception) {
-            StructuralHash.UNHASHABLE
+            MediaFingerprint.single(StructuralHash.UNHASHABLE)
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
@@ -233,6 +270,10 @@ class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSour
     private companion object {
         /** Longest edge (px) of a rendered PDF page before the 9×8 dHash reduction. */
         const val RENDER_MAX_DIMEN = 320
+
+        val VIDEO_SAMPLE_PERCENTAGES = listOf(10L, 30L, 50L, 70L, 90L)
+        const val MIN_VIDEO_SAMPLES = 3
+        const val VIDEO_FRAME_DIMEN = 96
 
         /** 64 loudness windows → one bit each → a 64-bit envelope fingerprint. */
         const val WINDOWS = 64

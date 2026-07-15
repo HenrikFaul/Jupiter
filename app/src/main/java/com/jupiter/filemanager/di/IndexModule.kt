@@ -132,6 +132,27 @@ object IndexModule {
         }
     }
 
+    /**
+     * v8 → v9: media similarity moves from one unsafe 64-bit thumbnail hash to a versioned,
+     * ordered multi-sample signature plus duration/page-count gate. Existing text/archive/image
+     * descriptors stay intact. Only VIDEO/PDF/AUDIO structural descriptors are requeued because
+     * comparing their v1 values with v2 would recreate the reported false-positive clusters.
+     */
+    private val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE file_index ADD COLUMN structuralSignature TEXT")
+            db.execSQL("ALTER TABLE file_index ADD COLUMN structuralExtent INTEGER")
+            db.execSQL(
+                "ALTER TABLE file_index ADD COLUMN structuralVersion INTEGER NOT NULL DEFAULT 0",
+            )
+            db.execSQL(
+                "UPDATE file_index SET structuralHash = NULL, structuralSignature = NULL, " +
+                    "structuralExtent = NULL, structuralVersion = 0 " +
+                    "WHERE isDirectory = 0 AND typeName IN ('VIDEO', 'PDF', 'AUDIO')",
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideFileIndexDatabase(
@@ -142,6 +163,7 @@ object IndexModule {
             .addMigrations(MIGRATION_5_6)
             .addMigrations(MIGRATION_6_7)
             .addMigrations(MIGRATION_7_8)
+            .addMigrations(MIGRATION_8_9)
             .build()
 
     @Provides

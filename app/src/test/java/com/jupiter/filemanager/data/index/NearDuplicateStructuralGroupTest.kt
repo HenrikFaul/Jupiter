@@ -65,7 +65,21 @@ class NearDuplicateStructuralGroupTest {
                 ),
             ),
         )
-        repo.putStructuralHash(file.absolutePath, hash)
+        when (type) {
+            FileType.VIDEO -> repo.putMediaFingerprint(
+                file.absolutePath,
+                MediaFingerprint(List(5) { hash }, extent = 10_000L),
+            )
+            FileType.PDF -> repo.putMediaFingerprint(
+                file.absolutePath,
+                MediaFingerprint(List(3) { hash }, extent = 3L),
+            )
+            FileType.AUDIO -> repo.putMediaFingerprint(
+                file.absolutePath,
+                MediaFingerprint(listOf(hash), extent = 10_000L),
+            )
+            else -> repo.putStructuralHash(file.absolutePath, hash)
+        }
         return file.absolutePath
     }
 
@@ -78,8 +92,9 @@ class NearDuplicateStructuralGroupTest {
         val zipA = indexed("a.zip", FileType.ARCHIVE, 0x55L)
         val zipB = indexed("b.zip", FileType.ARCHIVE, 0x55L)
 
-        val videoA = indexed("a.mp4", FileType.VIDEO, 0x2000L)
-        val videoB = indexed("b.mp4", FileType.VIDEO, 0x2001L)
+        val videoBase = 0x1234_5678_9ABC_DEF0L
+        val videoA = indexed("a.mp4", FileType.VIDEO, videoBase)
+        val videoB = indexed("b.mp4", FileType.VIDEO, videoBase xor 0b1L)
 
         val groups = repo.nearDuplicateStructuralGroups()
 
@@ -89,5 +104,20 @@ class NearDuplicateStructuralGroupTest {
         assertTrue(pathSets.contains(setOf(zipA, zipB)))
         assertTrue(pathSets.contains(setOf(videoA, videoB)))
         assertEquals("three structural/media similar groups expected", 3, groups.size)
+    }
+
+    @Test
+    fun videoBridgeCannotTransitivelyMergeUnrelatedEndpoints() = runTest(dispatcher) {
+        val base = 0x1234_5678_9ABC_DEF0L
+        val a = indexed("bridge-a.mp4", FileType.VIDEO, base)
+        val b = indexed("bridge-b.mp4", FileType.VIDEO, base xor 0x1FL) // 5 bits from A
+        val c = indexed("bridge-c.mp4", FileType.VIDEO, base xor 0x3FFL) // 5 from B, 10 from A
+
+        val videoGroups = repo.nearDuplicateStructuralGroups()
+            .filter { group -> group.files.all { it.type == FileType.VIDEO } }
+
+        assertEquals("only the mutually-confirmed pair may remain", 1, videoGroups.size)
+        assertEquals(setOf(a, b), videoGroups.single().files.map { it.path }.toSet())
+        assertTrue(videoGroups.none { group -> group.files.any { it.path == c } })
     }
 }

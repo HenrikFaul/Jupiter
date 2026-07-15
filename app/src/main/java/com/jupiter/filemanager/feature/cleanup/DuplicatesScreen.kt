@@ -305,14 +305,14 @@ fun DuplicatesScreen(
                             item {
                                 EmptyView(
                                     title = if (state.presentation == DuplicatePresentation.SIMILAR) {
-                                        "No similar photos yet"
+                                        "No similar items yet"
                                     } else {
                                         "No exact duplicates"
                                     },
                                     message = if (state.presentation == DuplicatePresentation.SIMILAR) {
                                         "Photo analysis continues in the background and will surface matches here."
                                     } else {
-                                        "Switch to Similar photos to review visually matching images."
+                                        "Switch to Similar items to review high-confidence media and file matches."
                                     },
                                     icon = if (state.presentation == DuplicatePresentation.SIMILAR) {
                                         Icons.Outlined.Image
@@ -382,7 +382,7 @@ fun DuplicatesScreen(
             title = { Text("Safe duplicate review") },
             text = {
                 Text(
-                    "Exact copies and visually similar photos stay separate. Jupiscan protects " +
+                    "Exact copies and high-confidence similar items stay separate. Jupiscan protects " +
                         "the quality-ranked best file in every group, and deletion moves reviewed " +
                         "copies to Recycle Bin.",
                 )
@@ -533,7 +533,7 @@ private fun DuplicatePresentationSelector(
                     Icon(Icons.Outlined.Image, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Similar photos ($similarCount)",
+                        text = "Similar items ($similarCount)",
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
@@ -709,14 +709,14 @@ private fun SummaryCard(
                 Text(
                     text = buildString {
                         append("Exact copies: $exactItemCount")
-                        if (similarItemCount > 0) append(" · Similar photos to review: $similarItemCount")
+                        if (similarItemCount > 0) append(" · Similar items to review: $similarItemCount")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
                 Text(
-                    text = "${formatBytes(wastedBytes)} can be freed",
+                    text = "${formatBytes(wastedBytes)} potential savings after review",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp),
@@ -809,7 +809,7 @@ private fun DuplicateGroupCard(
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = best?.name ?: if (group.similar) "Similar photos" else "Exact files",
+                    text = best?.name ?: if (group.similar) "Similar items to review" else "Exact files",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -821,7 +821,11 @@ private fun DuplicateGroupCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "${formatBytes(group.wastedBytes)} can be freed",
+                    text = if (group.similar) {
+                        "${formatBytes(group.wastedBytes)} potential after review"
+                    } else {
+                        "${formatBytes(group.wastedBytes)} can be freed"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
@@ -867,6 +871,7 @@ private fun DuplicateGroupCard(
                     DuplicateFileRow(
                         file = file,
                         isKept = index == 0,
+                        isSimilar = group.similar,
                         canSelect = file.path !in protectedKeeperPaths && !isBusy,
                         isSelected = file.path in selectedPaths,
                         quality = quality,
@@ -1032,6 +1037,7 @@ private fun DuplicateStackPreview(files: List<FileItem>) {
 private fun DuplicateFileRow(
     file: FileItem,
     isKept: Boolean,
+    isSimilar: Boolean,
     canSelect: Boolean,
     isSelected: Boolean,
     quality: MediaQuality?,
@@ -1120,7 +1126,7 @@ private fun DuplicateFileRow(
                     )
                 } else {
                     QualityBadge(
-                        text = "DUPLICATE",
+                        text = if (isSimilar) "SIMILAR · REVIEW" else "DUPLICATE",
                         containerColor = MaterialTheme.colorScheme.surfaceVariant,
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

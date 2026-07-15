@@ -62,6 +62,12 @@ data class FileIndexEntry(
      * (never retried, never matched). See [StructuralFingerprintSource].
      */
     val structuralHash: Long? = null,
+    /** Ordered v2 media signature (hex longs); null for text/archive and legacy media rows. */
+    val structuralSignature: String? = null,
+    /** Video/audio duration in ms or PDF page count, used as a hard type-aware comparison gate. */
+    val structuralExtent: Long? = null,
+    /** Producer algorithm version; incompatible/legacy media descriptors are never compared. */
+    val structuralVersion: Int = 0,
     /**
      * Cheap head+tail pre-filter hash (SHA-1 over the first and last 64 KiB), computed lazily for
      * same-size duplicate candidates so the expensive full-content hash only runs on files whose

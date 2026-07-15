@@ -955,3 +955,56 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - `:app:assembleDebug --no-daemon --console=plain` — **BUILD SUCCESSFUL**; debug APK: `app/build/outputs/apk/debug/app-debug.apk`, 36 454 266 byte, SHA-256 `df640a09f0efd03cac643eda13809401f3785e5307fb85d6284b1167541f48e5`.
 - `git diff --check` — **PASS** (a CRLF-normalizációs figyelmeztetés nem whitespace-hiba). Push utáni CI eredmény csak a tényleges remote run után kerül ide.
 - **[remote]** Implementációs commit `edb1796` közvetlenül `origin/main`-re pusholva. GitHub Actions eredményt ez a kör még nem állít; az külön, remote bizonyíték.
+
+## [jupiscan:0.58.0] - 2026-07-15
+
+**Scope / miért:** valós készüléken a Similar duplicate csoport egyetlen, 31 elemű kártyába teljesen eltérő videókat és képi tartalmakat vont össze. A kör a metadata/deszkriptor-készítést, a fájltípusonkénti összehasonlítást, a klaszterképzést és a hidegindítási duplicate-cache-t javítja, az exact hash, keeper, szűrő, kijelölés és Recycle Bin folyamat regressziója nélkül.
+
+### Added
+
+- **[dedup/data]** Verziózott `MediaFingerprint`: rendezett hash-vektor, duration/page-count extent és producer-algoritmusverzió. A Room v8→v9 migráció új oszlopokat ad hozzá adatvesztés nélkül.
+- **[dedup/video]** Öt időpontból (10/30/50/70/90%) vett, valódi legközelebbi videóképkocka; API 27+-on 96×96-os decoder output. A fekete/egyszínű, alacsony információtartalmú frame nem egyezési bizonyíték.
+- **[dedup/pdf/audio]** PDF-nél első/középső/utolsó oldal + page-count hard gate; audiónál energy-envelope + duration hard gate.
+- **[dedup/algorithm]** `MediaFingerprintMatcher` fájltípusonként külön bizonyítási küszöbökkel. A csoportok complete-link megerősítést kapnak: minden új tag minden meglévő taggal egyezik, így az A~B és B~C kapcsolat nem rántja össze az egymástól eltérő A és C fájlt.
+- **[test]** Media timeline, duration/page-count, low-information veto, legacy descriptor fail-closed, image/video transitive-bridge és duplicate-cache cold-reload regressziós tesztek.
+
+### Changed
+
+- **[dedup/image]** Az image arrival és csoportosítás a teljes dHash+pHash+aHash stacket használja. A dHash jelöltkapu marad, de legalább egy független pHash/aHash családnak is meg kell erősítenie; hiányos legacy stack nem hoz review-csoportot a backfill befejezése előtt.
+- **[dedup/media]** A korábbi közös, egyetlen 64 bites Hamming-küszöb megszűnt. Videó, PDF és audio kizárólag a saját többtényezős comparatorán keresztül egyezhet.
+- **[dedup/migration]** Upgrade-kor csak a régi VIDEO/PDF/AUDIO `structuralHash` descriptorok kerülnek újraszámítási sorba; exact content hash, image stack, text SimHash és archive tree hash megmarad.
+- **[dedup/ui]** A fül és badge `Similar items` / `SIMILAR · REVIEW` szöveget használ; similar eredménynél a byte-mennyiség „potential after review”, nem biztosan felszabadítható hely.
+- **[build]** `versionCode` 10, `versionName` 0.58.0; a What's New a többmintás, láncolásbiztos összehasonlítást ismerteti.
+
+### Fixed
+
+- **[false positive]** Egy közös középső/sync frame vagy fekete címkép többé nem elegendő idegen videók összecsomagolásához.
+- **[cluster safety]** A single-link/union-find tranzitív komponens csak jelöltgenerátor; a megjelenő csoport complete-link partíció, összehasonlítási budget kimerülése pedig fail-closed singleton, nem vak merge.
+- **[cache safety]** A v1 `duplicate_scan_snapshot.tsv` elveszítette a `similar` flaget és újranyitáskor exactként rekonstruálta a csoportot. A verziózott v2 snapshot megőrzi a flaget; a régi formátum törlődik és friss scan készül.
+- **[backfill outcome]** Átmeneti media decode/provider/store `null` nem válik többé végleges `UNHASHABLE` rekorddá; a worker retry-t kér és a descriptor újrapróbálható marad.
+
+### Regression checks
+
+- Exact csoport csak teljes content hash alapján készül; a gyors/perceptuális/strukturális descriptor nem emelkedhet exact döntéssé.
+- Text/code SimHash, archive/APK member-tree egyezés, image stack, arrival notification/outbox és MediaStore checkpoint út megmaradt.
+- Select all/Deselect all továbbra is csak a látható scope-ban dolgozik, minden quality-ranked keeper védett, a törlés Recycle Binbe megy.
+- A v4→v5→v6→v7→v8 migrációk mellé explicit v8→v9 került; destructive fallback nincs.
+- A régi médiadeszkriptor nem keverhető v2-vel; algoritmusverzió- vagy metadata-hiánynál a döntés fail-closed.
+
+### Verification
+
+- Kör elején `git pull --ff-only origin main`: **Already up to date**; közvetlen `main`. A meglévő untracked `Requirements/` és `versioning.zip` érintetlen.
+- `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin --no-daemon`: **BUILD SUCCESSFUL**.
+- Célzott matcher/group/cache/detector tesztek: **BUILD SUCCESSFUL**.
+- Teljes `:app:testDebugUnitTest --no-daemon`: **64 suite / 373 test / 0 failure / 0 error / 0 skipped**.
+- `adb devices -l`: nincs csatlakoztatott eszköz, ezért valódi Samsung-codec/corpus instrumentációt ez a kör nem állít.
+- `:app:lintDebug --no-daemon`: **BUILD SUCCESSFUL**. A report 219 meglévő findingot tartalmaz az `abortOnError=false` projektpolicy mellett (42 `UnusedResources` error, 40 Media3 `UnsafeOptInUsageError`, dependency/warning tételek); a módosított fájlok közül csak a korábban is meglévő API-30 All-Files-Access `InlinedApi` warning szerepel, új dedup/migráció finding nincs.
+- `:app:assembleDebug --no-daemon`: **BUILD SUCCESSFUL**. APK: `app/build/outputs/apk/debug/app-debug.apk`, **36 470 650 byte**, SHA-256 `be143753642f8468ce98e43ba46b2761adc61ad4cd16b2654ec11c8ad8e8f58b`.
+- HenrisForge lessons taxonomy: **17 zöld / 0 piros**; az új Android lecke a megfelelő szekcióban.
+- `git diff --check`: whitespace-hiba nincs; csak a repository CRLF-normalizációs figyelmeztetései.
+- Commit/push és GitHub Actions eredmény a git gate után kerül rögzítésre; távoli CI-zöldet ez a sor még nem állít.
+
+### Known issues / remaining risk
+
+- A platform media decoder viselkedése codec/OEM-függő. A tiszta comparator, repository, Room és Robolectric út tesztelt, de a felhasználó konkrét Samsung videókorpuszán csak új APK-val végzett device rerun bizonyítja a tényleges találati arányt.
+- A similar algoritmus szándékosan precision-first: eltérő duration/page-count, háromnál kevesebb informatív videóframe vagy hiányos descriptor esetén inkább nem mutat jelöltet, mint idegen fájlt ajánljon takarításra.

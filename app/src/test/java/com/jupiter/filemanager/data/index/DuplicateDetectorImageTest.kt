@@ -120,6 +120,21 @@ class DuplicateDetectorImageTest {
         val copy = File(tempDir, "download_FB_IMG.jpg")
         save(drawScene(120, 90, inverted = false), copy, Bitmap.CompressFormat.JPEG, 70)
 
+        val source = PerceptualHashSource()
+        val originalFp = requireNotNull(source.computeAll(original.absolutePath))
+        val copyFp = requireNotNull(source.computeAll(copy.absolutePath))
+        assertTrue(
+            "same-picture stack must pass: d=" +
+                PerceptualHash.hammingDistance(originalFp.dhash, copyFp.dhash) +
+                " p=" + PerceptualHash.hammingDistance(originalFp.phash, copyFp.phash) +
+                " a=" + PerceptualHash.hammingDistance(originalFp.ahash, copyFp.ahash),
+            PerceptualHash.isSamePicture(
+                originalFp.dhash, copyFp.dhash,
+                originalFp.phash, copyFp.phash,
+                originalFp.ahash, copyFp.ahash,
+            ),
+        )
+
         val alert = detector.onFileArrived(imageItem(copy))
 
         assertEquals("a similar-image alert must fire", DuplicateKind.SIMILAR, alert?.kind)

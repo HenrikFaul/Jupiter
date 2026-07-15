@@ -64,7 +64,9 @@ class NearDuplicateImageGroupTest {
             extension = "jpg",
         )
         repo.upsert(listOf(item))
-        repo.putPerceptualHash(file.absolutePath, hash)
+        // Production grouping requires the full stack; using the same scripted value for all
+        // layers keeps this test focused on grouping/LSH rather than Android bitmap decoding.
+        repo.putPerceptualFingerprint(file.absolutePath, hash, hash, hash)
         return file.absolutePath
     }
 
@@ -116,5 +118,19 @@ class NearDuplicateImageGroupTest {
         image("only.jpg", sizeBytes = 100, hash = 0x1L)
         image("far.jpg", sizeBytes = 100, hash = 0xFFFF_FFFFL)
         assertEquals(emptyList<Any>(), repo.nearDuplicateImageGroups(threshold = 8))
+    }
+
+    @Test
+    fun imageBridgeCannotTransitivelyMergeUnrelatedEndpoints() = runTest(dispatcher) {
+        val baseHash = 0x1234_5678_9ABC_DEF0L
+        val a = image("bridge-a.jpg", 300, baseHash)
+        val b = image("bridge-b.jpg", 200, baseHash xor 0x1FL) // 5 bits from A
+        val c = image("bridge-c.jpg", 100, baseHash xor 0x3FFL) // 5 from B, 10 from A
+
+        val groups = repo.nearDuplicateImageGroups(threshold = 8)
+
+        assertEquals(1, groups.size)
+        assertEquals(setOf(a, b), groups.single().files.map { it.path }.toSet())
+        assertTrue(groups.none { group -> group.files.any { it.path == c } })
     }
 }

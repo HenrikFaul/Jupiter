@@ -55,10 +55,10 @@ private data class WhatsNewHighlight(
 private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
     WhatsNewHighlight(
         icon = Icons.Filled.Bolt,
-        title = "Visual duplicate checks that complete",
-        description = "Opening Duplicate cleanup now starts a real photo-descriptor pass, even when " +
-            "continuous indexing is off. Temporary reads are retried; only files the decoder rejects " +
-            "are excluded from similar-photo comparison.",
+        title = "High-precision duplicate review",
+        description = "Videos are now compared across five timeline samples, PDFs across multiple " +
+            "pages, and photos through independent visual hashes. Every item in a Similar group " +
+            "must match the whole group, preventing unrelated files from chaining together.",
     ),
     WhatsNewHighlight(
         icon = Icons.Filled.Storage,

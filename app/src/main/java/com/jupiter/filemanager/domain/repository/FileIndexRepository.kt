@@ -3,6 +3,8 @@ package com.jupiter.filemanager.domain.repository
 import com.jupiter.filemanager.domain.model.DuplicateGroup
 import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.IndexStats
+import com.jupiter.filemanager.data.index.MediaFingerprint
+import com.jupiter.filemanager.data.index.PerceptualFingerprint
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -85,6 +87,9 @@ interface FileIndexRepository {
     /** Stores a text/archive structural (SimHash / member-tree) fingerprint for [path]. */
     suspend fun putStructuralHash(path: String, hash: Long)
 
+    /** Stores an ordered, versioned VIDEO/PDF/AUDIO descriptor and its duration/page-count gate. */
+    suspend fun putMediaFingerprint(path: String, fingerprint: MediaFingerprint)
+
     /**
      * Returns indexed TEXT/CODE files whose [com.jupiter.filemanager.data.index.dedup.TextSimHash]
      * is within [threshold] Hamming distance of [simHash] — the same text reformatted, re-indented,
@@ -103,19 +108,19 @@ interface FileIndexRepository {
      * Returns indexed VIDEO files whose representative-keyframe dHash is within [threshold] Hamming
      * distance of [hash] — a re-encoded/recompressed copy of the same footage. Existence-pruned.
      */
-    suspend fun findNearDuplicateVideo(path: String, hash: Long, threshold: Int): List<FileItem>
+    suspend fun findNearDuplicateVideo(path: String, fingerprint: MediaFingerprint): List<FileItem>
 
     /**
      * Returns indexed PDF files whose rendered-page dHash is within [threshold] Hamming distance of
      * [hash] — the same document re-exported or scanned at another resolution. Existence-pruned.
      */
-    suspend fun findNearDuplicatePdf(path: String, hash: Long, threshold: Int): List<FileItem>
+    suspend fun findNearDuplicatePdf(path: String, fingerprint: MediaFingerprint): List<FileItem>
 
     /**
      * Returns indexed AUDIO files whose loudness-envelope fingerprint is within [threshold] Hamming
      * distance of [hash] — a re-encoded copy of the same recording. Existence-pruned.
      */
-    suspend fun findNearDuplicateAudio(path: String, hash: Long, threshold: Int): List<FileItem>
+    suspend fun findNearDuplicateAudio(path: String, fingerprint: MediaFingerprint): List<FileItem>
 
     /**
      * Next batch of indexed files that still lack a structural fingerprint (TEXT/CODE, ARCHIVE/APK,
@@ -130,7 +135,12 @@ interface FileIndexRepository {
      * (Hamming distance ≤ [threshold] of 64). Excludes [path] itself and anything marked
      * unhashable. Complements [findContentDuplicates], which only sees identical bytes.
      */
-    suspend fun findNearDuplicateImages(path: String, hash: Long, threshold: Int): List<FileItem>
+    /** Stacked dHash+pHash+aHash lookup used by production decisions. */
+    suspend fun findNearDuplicateImages(
+        path: String,
+        fingerprint: PerceptualFingerprint,
+        threshold: Int,
+    ): List<FileItem>
 
     /**
      * Next batch of indexed images that still lack a perceptual fingerprint, for the

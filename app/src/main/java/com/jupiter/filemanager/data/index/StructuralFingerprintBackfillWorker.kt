@@ -40,15 +40,30 @@ class StructuralFingerprintBackfillWorker @AssistedInject constructor(
                 for (item in batch) {
                     currentCoroutineContext().ensureActive()
                     if (isStopped) return Result.retry()
-                    val fingerprint = when (item.type) {
-                        FileType.CODE -> structuralFingerprintSource.textSimHash(item.path)
-                        FileType.ARCHIVE, FileType.APK -> structuralFingerprintSource.archiveTreeHash(item.path)
-                        FileType.VIDEO -> mediaFingerprintSource.videoKeyframeHash(item.path)
-                        FileType.PDF -> mediaFingerprintSource.pdfRenderHash(item.path)
-                        FileType.AUDIO -> mediaFingerprintSource.audioAcousticHash(item.path)
-                        else -> StructuralHash.UNHASHABLE
-                    } ?: StructuralHash.UNHASHABLE
-                    runCatching { indexRepository.putStructuralHash(item.path, fingerprint) }
+                    val stored = when (item.type) {
+                        FileType.CODE -> structuralFingerprintSource.textSimHash(item.path)?.let { hash ->
+                            runCatching { indexRepository.putStructuralHash(item.path, hash) }
+                        }
+                        FileType.ARCHIVE, FileType.APK ->
+                            structuralFingerprintSource.archiveTreeHash(item.path)?.let { hash ->
+                                runCatching { indexRepository.putStructuralHash(item.path, hash) }
+                            }
+                        FileType.VIDEO -> mediaFingerprintSource.videoFingerprint(item.path)?.let { fp ->
+                            runCatching { indexRepository.putMediaFingerprint(item.path, fp) }
+                        }
+                        FileType.PDF -> mediaFingerprintSource.pdfFingerprint(item.path)?.let { fp ->
+                            runCatching { indexRepository.putMediaFingerprint(item.path, fp) }
+                        }
+                        FileType.AUDIO -> mediaFingerprintSource.audioFingerprint(item.path)?.let { fp ->
+                            runCatching { indexRepository.putMediaFingerprint(item.path, fp) }
+                        }
+                        else -> runCatching {
+                            indexRepository.putStructuralHash(item.path, StructuralHash.UNHASHABLE)
+                        }
+                    }
+                    // null is transient: leave the row missing and retry. Never turn a temporary
+                    // decoder/provider failure into a permanent UNHASHABLE exclusion.
+                    if (stored == null || stored.isFailure) return Result.retry()
                     processed++
                 }
                 if (processed >= MAX_PER_RUN) return Result.retry()

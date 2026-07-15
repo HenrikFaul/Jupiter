@@ -28,4 +28,52 @@ interface MediaFingerprintSource {
 
     /** Coarse acoustic fingerprint (energy-envelope hash), for re-encoded audio near-dups. */
     fun audioAcousticHash(path: String): Long?
+
+    /**
+     * Multi-sample VIDEO descriptor. Implementations should sample the same normalized timeline
+     * positions for every file; the default keeps test/third-party implementations source
+     * compatible but production overrides it with a real temporal signature.
+     */
+    fun videoFingerprint(path: String): MediaFingerprint? =
+        videoKeyframeHash(path)?.let { MediaFingerprint.single(it) }
+
+    /** Multi-page PDF descriptor (first/middle/last page in the Android implementation). */
+    fun pdfFingerprint(path: String): MediaFingerprint? =
+        pdfRenderHash(path)?.let { MediaFingerprint.single(it) }
+
+    /** Acoustic descriptor plus recording duration. */
+    fun audioFingerprint(path: String): MediaFingerprint? =
+        audioAcousticHash(path)?.let { MediaFingerprint.single(it) }
+}
+
+/**
+ * Persistable, type-aware media descriptor. [hashes] is an ordered temporal/page signature and
+ * [extent] is duration in milliseconds (video/audio) or page count (PDF). A descriptor version is
+ * stored with every row so an algorithm upgrade can fail closed instead of comparing incompatible
+ * fingerprints.
+ */
+data class MediaFingerprint(
+    val hashes: List<Long>,
+    val extent: Long? = null,
+    val version: Int = CURRENT_VERSION,
+) {
+    val primaryHash: Long get() = hashes.firstOrNull() ?: StructuralHash.UNHASHABLE
+
+    fun encode(): String = hashes.joinToString(",") { it.toULong().toString(16).padStart(16, '0') }
+
+    companion object {
+        /** v2 replaces the unsafe single-frame/single-page media descriptors. */
+        const val CURRENT_VERSION = 2
+
+        fun single(hash: Long, extent: Long? = null): MediaFingerprint =
+            MediaFingerprint(listOf(hash), extent)
+
+        fun decode(encoded: String?, extent: Long?, version: Int): MediaFingerprint? {
+            if (encoded.isNullOrBlank() || version != CURRENT_VERSION) return null
+            val hashes = encoded.split(',').mapNotNull { token ->
+                runCatching { token.toULong(16).toLong() }.getOrNull()
+            }
+            return hashes.takeIf { it.isNotEmpty() }?.let { MediaFingerprint(it, extent, version) }
+        }
+    }
 }

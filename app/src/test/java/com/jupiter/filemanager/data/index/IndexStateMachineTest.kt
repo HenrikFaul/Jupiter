@@ -340,14 +340,24 @@ class IndexStateMachineTest {
                 ),
             )
             val base = 0b1111L
-            repo.putPerceptualHash(a.absolutePath, base)
-            repo.putPerceptualHash(b.absolutePath, base xor 0b11L) // distance 2 → near
-            repo.putPerceptualHash(c.absolutePath, base.inv()) // distance 64 → far
-            repo.putPerceptualHash(broken.absolutePath, PerceptualHash.UNHASHABLE)
+            repo.putPerceptualFingerprint(a.absolutePath, base, base, base)
+            repo.putPerceptualFingerprint(
+                b.absolutePath,
+                base xor 0b11L,
+                base xor 0b11L,
+                base xor 0b11L,
+            ) // distance 2 in every family → near
+            repo.putPerceptualFingerprint(c.absolutePath, base.inv(), base.inv(), base.inv())
+            repo.putPerceptualFingerprint(
+                broken.absolutePath,
+                PerceptualHash.UNHASHABLE,
+                PerceptualHash.UNHASHABLE,
+                PerceptualHash.UNHASHABLE,
+            )
 
             val near = repo.findNearDuplicateImages(
                 path = a.absolutePath,
-                hash = base,
+                fingerprint = PerceptualFingerprint(base, base, base),
                 threshold = PerceptualHash.DEFAULT_NEAR_THRESHOLD,
             )
             assertEquals(listOf(b.absolutePath), near.map { it.path })

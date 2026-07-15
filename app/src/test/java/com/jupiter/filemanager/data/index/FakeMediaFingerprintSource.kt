@@ -21,6 +21,24 @@ class FakeMediaFingerprintSource(
     override fun pdfRenderHash(path: String): Long? = lookup(path, pdf)
     override fun audioAcousticHash(path: String): Long? = lookup(path, audio)
 
+    override fun videoFingerprint(path: String): MediaFingerprint? =
+        lookup(path, video)?.let { hash ->
+            if (hash == StructuralHash.UNHASHABLE) MediaFingerprint.single(hash)
+            else MediaFingerprint(List(5) { hash }, extent = 10_000L)
+        }
+
+    override fun pdfFingerprint(path: String): MediaFingerprint? =
+        lookup(path, pdf)?.let { hash ->
+            if (hash == StructuralHash.UNHASHABLE) MediaFingerprint.single(hash)
+            else MediaFingerprint(List(3) { hash }, extent = 3L)
+        }
+
+    override fun audioFingerprint(path: String): MediaFingerprint? =
+        lookup(path, audio)?.let { hash ->
+            if (hash == StructuralHash.UNHASHABLE) MediaFingerprint.single(hash)
+            else MediaFingerprint(listOf(hash), extent = 10_000L)
+        }
+
     private fun lookup(path: String, map: Map<String, Long>): Long? = when {
         path in nullPaths -> null
         else -> map[path] ?: StructuralHash.UNHASHABLE

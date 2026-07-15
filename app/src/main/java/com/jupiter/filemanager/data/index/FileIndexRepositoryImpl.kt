@@ -74,6 +74,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                     // survives while identity is unchanged, else it is recomputed.
                     perceptualHash = if (identityKept) prior?.perceptualHash else null,
                     structuralHash = if (identityKept) prior?.structuralHash else null,
+                    structuralSignature = if (identityKept) prior?.structuralSignature else null,
+                    structuralExtent = if (identityKept) prior?.structuralExtent else null,
+                    structuralVersion = if (identityKept) prior?.structuralVersion ?: 0 else 0,
                     phash = if (identityKept) prior?.phash else null,
                     ahash = if (identityKept) prior?.ahash else null,
                     quickHash = if (identityKept) prior?.quickHash else null,
@@ -120,6 +123,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                 // backfill to re-decode the whole photo library.
                 perceptualHash = if (identityKept) prior?.perceptualHash else null,
                 structuralHash = if (identityKept) prior?.structuralHash else null,
+                structuralSignature = if (identityKept) prior?.structuralSignature else null,
+                structuralExtent = if (identityKept) prior?.structuralExtent else null,
+                structuralVersion = if (identityKept) prior?.structuralVersion ?: 0 else 0,
                 phash = if (identityKept) prior?.phash else null,
                 ahash = if (identityKept) prior?.ahash else null,
                 quickHash = if (identityKept) prior?.quickHash else null,
@@ -149,6 +155,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                     contentHash = unchanged?.contentHash,
                     perceptualHash = unchanged?.perceptualHash,
                     structuralHash = unchanged?.structuralHash,
+                    structuralSignature = unchanged?.structuralSignature,
+                    structuralExtent = unchanged?.structuralExtent,
+                    structuralVersion = unchanged?.structuralVersion ?: 0,
                     phash = unchanged?.phash,
                     ahash = unchanged?.ahash,
                     quickHash = unchanged?.quickHash,
@@ -208,6 +217,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                         contentHash = if (identityKept) entry.contentHash else null,
                         perceptualHash = if (identityKept) entry.perceptualHash else null,
                         structuralHash = if (identityKept) entry.structuralHash else null,
+                        structuralSignature = if (identityKept) entry.structuralSignature else null,
+                        structuralExtent = if (identityKept) entry.structuralExtent else null,
+                        structuralVersion = if (identityKept) entry.structuralVersion else 0,
                         phash = if (identityKept) entry.phash else null,
                         ahash = if (identityKept) entry.ahash else null,
                         quickHash = if (identityKept) entry.quickHash else null,
@@ -364,6 +376,17 @@ class FileIndexRepositoryImpl @Inject constructor(
         dao.updateStructuralHash(path, hash)
     }
 
+    override suspend fun putMediaFingerprint(path: String, fingerprint: MediaFingerprint) =
+        withContext(ioDispatcher) {
+            dao.updateMediaFingerprint(
+                path = path,
+                hash = fingerprint.primaryHash,
+                signature = fingerprint.encode(),
+                extent = fingerprint.extent,
+                version = fingerprint.version,
+            )
+        }
+
     override suspend fun findNearDuplicateText(
         path: String,
         simHash: Long,
@@ -400,26 +423,23 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun findNearDuplicateVideo(
         path: String,
-        hash: Long,
-        threshold: Int,
+        fingerprint: MediaFingerprint,
     ): List<FileItem> = withContext(ioDispatcher) {
-        nearByStructuralHamming(path, hash, threshold, VIDEO_TYPE_NAMES)
+        nearByMediaFingerprint(path, fingerprint, FileType.VIDEO, VIDEO_TYPE_NAMES)
     }
 
     override suspend fun findNearDuplicatePdf(
         path: String,
-        hash: Long,
-        threshold: Int,
+        fingerprint: MediaFingerprint,
     ): List<FileItem> = withContext(ioDispatcher) {
-        nearByStructuralHamming(path, hash, threshold, PDF_TYPE_NAMES)
+        nearByMediaFingerprint(path, fingerprint, FileType.PDF, PDF_TYPE_NAMES)
     }
 
     override suspend fun findNearDuplicateAudio(
         path: String,
-        hash: Long,
-        threshold: Int,
+        fingerprint: MediaFingerprint,
     ): List<FileItem> = withContext(ioDispatcher) {
-        nearByStructuralHamming(path, hash, threshold, AUDIO_TYPE_NAMES)
+        nearByMediaFingerprint(path, fingerprint, FileType.AUDIO, AUDIO_TYPE_NAMES)
     }
 
     /**
@@ -428,17 +448,24 @@ class FileIndexRepositoryImpl @Inject constructor(
      * memory, keep those within [threshold] Hamming distance, then materialize + existence-prune the
      * few matches. The UNHASHABLE sentinel is excluded by the query.
      */
-    private suspend fun nearByStructuralHamming(
+    private suspend fun nearByMediaFingerprint(
         path: String,
-        hash: Long,
-        threshold: Int,
+        fingerprint: MediaFingerprint,
+        type: FileType,
         typeNames: List<String>,
     ): List<FileItem> {
-        if (hash == StructuralHash.UNHASHABLE) return emptyList()
+        if (fingerprint.primaryHash == StructuralHash.UNHASHABLE) return emptyList()
         val nearPaths = dao.structuralHashesOfTypes(typeNames, StructuralHash.UNHASHABLE)
             .asSequence()
             .filter { it.path != path }
-            .filter { java.lang.Long.bitCount(hash xor it.structuralHash) <= threshold }
+            .filter { row ->
+                val existing = MediaFingerprint.decode(
+                    row.structuralSignature,
+                    row.structuralExtent,
+                    row.structuralVersion,
+                ) ?: return@filter false
+                MediaFingerprintMatcher.matches(type, fingerprint, existing)
+            }
             .map { it.path }
             .toList()
         if (nearPaths.isEmpty()) return emptyList()
@@ -452,17 +479,24 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun findNearDuplicateImages(
         path: String,
-        hash: Long,
+        fingerprint: PerceptualFingerprint,
         threshold: Int,
     ): List<FileItem> = withContext(ioDispatcher) {
-        if (hash == PerceptualHash.UNHASHABLE) return@withContext emptyList()
-        // Two-step: compare against the lean (path, hash) projection in memory — tens of
-        // thousands of 64-bit fingerprints are trivial to scan — then materialize full rows
-        // for the few matches only.
+        if (fingerprint.dhash == PerceptualHash.UNHASHABLE) return@withContext emptyList()
         val nearPaths = dao.allPerceptualHashes(PerceptualHash.UNHASHABLE)
             .asSequence()
             .filter { it.path != path }
-            .filter { PerceptualHash.isNear(hash, it.perceptualHash, threshold) }
+            .filter { row ->
+                PerceptualHash.isSamePicture(
+                    fingerprint.dhash,
+                    row.perceptualHash,
+                    fingerprint.phash,
+                    row.phash,
+                    fingerprint.ahash,
+                    row.ahash,
+                    dhashThreshold = threshold,
+                )
+            }
             .map { it.path }
             .toList()
         if (nearPaths.isEmpty()) return@withContext emptyList()
@@ -686,7 +720,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                                 // the weighted dHash+pHash+aHash score agrees (falls back to
                                 // dHash-only for legacy rows without the extra layers) — no
                                 // single hash family decides a match.
-                                if (PerceptualHash.isVisuallySimilar(
+                                if (PerceptualHash.isSamePicture(
                                         entries[ia].perceptualHash, entries[ib].perceptualHash,
                                         entries[ia].phash, entries[ib].phash,
                                         entries[ia].ahash, entries[ib].ahash,
@@ -709,16 +743,31 @@ class FileIndexRepositoryImpl @Inject constructor(
             val out = ArrayList<DuplicateGroup>()
             for (paths in clusters.values) {
                 if (paths.size < 2) continue
-                currentCoroutineContext().ensureActive()
-                val alive = existingOrPruned(dao.entriesForPaths(paths).map(::toFileItem))
-                if (alive.size < 2) continue
-                // Largest first so "keep the best" / "select extras" defaults to the highest-res copy.
-                val sorted = alive.sortedByDescending { it.sizeBytes }
-                out += DuplicateGroup(
-                    hash = "img:" + sorted.first().path,
-                    files = sorted,
-                    similar = true,
-                )
+                val rowsByPath = entries.asSequence().filter { it.path in paths }.toList()
+                // Union-find only generates candidates. Split every component into complete-link
+                // groups so EVERY pair is independently confirmed; A~B and B~C can no longer make
+                // unrelated A and C appear in the same cleanup card.
+                for (confirmed in completeLinkPartition(rowsByPath) { a, b ->
+                    PerceptualHash.isSamePicture(
+                        a.perceptualHash, b.perceptualHash,
+                        a.phash, b.phash,
+                        a.ahash, b.ahash,
+                        dhashThreshold = threshold,
+                    )
+                }) {
+                    if (confirmed.size < 2) continue
+                    currentCoroutineContext().ensureActive()
+                    val alive = existingOrPruned(
+                        dao.entriesForPaths(confirmed.map { it.path }).map(::toFileItem),
+                    )
+                    if (alive.size < 2) continue
+                    val sorted = alive.sortedByDescending { it.sizeBytes }
+                    out += DuplicateGroup(
+                        hash = "img:" + sorted.first().path,
+                        files = sorted,
+                        similar = true,
+                    )
+                }
             }
             out
         }
@@ -732,21 +781,9 @@ class FileIndexRepositoryImpl @Inject constructor(
                 threshold = StructuralHash.TEXT_NEAR_THRESHOLD,
                 prefix = "text",
             )
-            groups += hammingStructuralGroups(
-                typeNames = VIDEO_TYPE_NAMES,
-                threshold = StructuralHash.VIDEO_NEAR_THRESHOLD,
-                prefix = "video",
-            )
-            groups += hammingStructuralGroups(
-                typeNames = PDF_TYPE_NAMES,
-                threshold = StructuralHash.PDF_NEAR_THRESHOLD,
-                prefix = "pdf",
-            )
-            groups += hammingStructuralGroups(
-                typeNames = AUDIO_TYPE_NAMES,
-                threshold = StructuralHash.AUDIO_NEAR_THRESHOLD,
-                prefix = "audio",
-            )
+            groups += mediaStructuralGroups(FileType.VIDEO, VIDEO_TYPE_NAMES, prefix = "video")
+            groups += mediaStructuralGroups(FileType.PDF, PDF_TYPE_NAMES, prefix = "pdf")
+            groups += mediaStructuralGroups(FileType.AUDIO, AUDIO_TYPE_NAMES, prefix = "audio")
             groups
         }
 
@@ -828,19 +865,93 @@ class FileIndexRepositoryImpl @Inject constructor(
             clusters.getOrPut(find(i)) { mutableListOf() }.add(rows[i].path)
         }
         val out = ArrayList<DuplicateGroup>()
-        for ((clusterId, paths) in clusters.values.withIndex()) {
-            if (paths.size < 2) continue
+        var confirmedId = 0
+        val byPath = rows.associateBy { it.path }
+        for (paths in clusters.values) {
+            val candidateRows = paths.mapNotNull(byPath::get)
+            for (confirmed in completeLinkPartition(
+                candidateRows,
+                MAX_STRUCTURAL_PAIR_COMPARISONS,
+            ) { a, b ->
+                java.lang.Long.bitCount(a.structuralHash xor b.structuralHash) <= threshold
+            }) {
+                if (confirmed.size < 2) continue
+                currentCoroutineContext().ensureActive()
+                val alive = existingOrPruned(
+                    dao.entriesForPaths(confirmed.map { it.path }).map(::toFileItem),
+                )
+                if (alive.size >= 2) {
+                    out += DuplicateGroup(
+                        hash = "$prefix:${confirmedId++}:${alive.first().path}",
+                        files = alive.sortedByDescending { it.sizeBytes },
+                        similar = true,
+                    )
+                }
+            }
+        }
+        return out
+    }
+
+    /** Type-aware media grouping over v2 ordered signatures, with complete-link safety. */
+    private suspend fun mediaStructuralGroups(
+        type: FileType,
+        typeNames: List<String>,
+        prefix: String,
+    ): List<DuplicateGroup> {
+        val rows = dao.structuralHashesOfTypes(typeNames, StructuralHash.UNHASHABLE)
+            .mapNotNull { row ->
+                MediaFingerprint.decode(
+                    row.structuralSignature,
+                    row.structuralExtent,
+                    row.structuralVersion,
+                )?.let { row to it }
+            }
+        if (rows.size < 2) return emptyList()
+        val partitions = completeLinkPartition(rows, MAX_STRUCTURAL_PAIR_COMPARISONS) { a, b ->
+            MediaFingerprintMatcher.matches(type, a.second, b.second)
+        }
+        val out = ArrayList<DuplicateGroup>()
+        var id = 0
+        for (confirmed in partitions) {
+            if (confirmed.size < 2) continue
             currentCoroutineContext().ensureActive()
-            val alive = existingOrPruned(dao.entriesForPaths(paths).map(::toFileItem))
+            val alive = existingOrPruned(
+                dao.entriesForPaths(confirmed.map { it.first.path }).map(::toFileItem),
+            )
             if (alive.size >= 2) {
                 out += DuplicateGroup(
-                    hash = "$prefix:$clusterId:${alive.first().path}",
+                    hash = "$prefix:${id++}:${alive.first().path}",
                     files = alive.sortedByDescending { it.sizeBytes },
                     similar = true,
                 )
             }
         }
         return out
+    }
+
+    /** Greedy deterministic clique partition: a member joins only if it matches EVERY member. */
+    private fun <T> completeLinkPartition(
+        items: List<T>,
+        maxComparisons: Long = MAX_COMPLETE_LINK_COMPARISONS,
+        matches: (T, T) -> Boolean,
+    ): List<List<T>> {
+        val groups = ArrayList<MutableList<T>>()
+        var remaining = maxComparisons
+        for (item in items) {
+            var target: MutableList<T>? = null
+            groupLoop@ for (group in groups) {
+                for (member in group) {
+                    // Budget exhaustion fails closed: the item becomes a singleton and therefore
+                    // cannot surface as a review/delete candidate without full pair evidence.
+                    if (remaining-- <= 0L) break@groupLoop
+                    if (!matches(item, member)) continue@groupLoop
+                }
+                target = group
+                break
+            }
+            if (target == null) groups += mutableListOf(item) else target += item
+        }
+        return groups
     }
 
     override suspend fun hashCollidingSizes(minSizeBytes: Long) = withContext(ioDispatcher) {
@@ -945,6 +1056,9 @@ class FileIndexRepositoryImpl @Inject constructor(
 
         /** Backstop for text/video/pdf/audio near grouping; exact archive grouping has no pair loop. */
         const val MAX_STRUCTURAL_PAIR_COMPARISONS = 25_000_000L
+
+        /** Complete-link confirmation cap; exhaustion drops evidence rather than merging blindly. */
+        const val MAX_COMPLETE_LINK_COMPARISONS = 5_000_000L
 
         /**
          * Files below this size never trigger a duplicate ALERT: empty/near-empty files

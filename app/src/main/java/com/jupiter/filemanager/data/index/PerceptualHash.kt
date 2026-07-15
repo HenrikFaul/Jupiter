@@ -189,6 +189,32 @@ object PerceptualHash {
         )
         return score <= RELAXED_SCORE_THRESHOLD
     }
+
+    /**
+     * High-precision "same picture" decision used by duplicate cleanup/arrival alerts. Unlike the
+     * broader visual-similarity helper this never lets a lone dHash decide, and every family has an
+     * independent ceiling. Rows missing the stacked descriptor wait for backfill instead of being
+     * surfaced as a potentially destructive false positive.
+     */
+    fun isSamePicture(
+        dA: Long, dB: Long,
+        pA: Long?, pB: Long?,
+        aA: Long?, aB: Long?,
+        dhashThreshold: Int = DEFAULT_NEAR_THRESHOLD,
+    ): Boolean {
+        if (dA == UNHASHABLE || dB == UNHASHABLE ||
+            pA == null || pB == null || aA == null || aB == null ||
+            pA == UNHASHABLE || pB == UNHASHABLE || aA == UNHASHABLE || aB == UNHASHABLE
+        ) return false
+        val d = hammingDistance(dA, dB)
+        val p = hammingDistance(pA, pB)
+        val a = hammingDistance(aA, aB)
+        // dHash remains the candidate geometry gate, but at least one independent family must
+        // confirm it. pHash can be unstable on very smooth gradients (same JPEG may flip many
+        // near-zero DCT coefficients), while aHash remains stable there; requiring BOTH would miss
+        // genuine re-encodes, accepting dHash ALONE recreates false positives.
+        return d <= dhashThreshold && (p <= 10 || a <= 10)
+    }
 }
 
 /**

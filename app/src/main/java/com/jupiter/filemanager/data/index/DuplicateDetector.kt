@@ -193,7 +193,7 @@ class DuplicateDetector @Inject constructor(
                 }
                 val similar = indexRepository.findNearDuplicateImages(
                     path = item.path,
-                    hash = hash,
+                    fingerprint = fp,
                     threshold = PerceptualHash.DEFAULT_NEAR_THRESHOLD,
                 )
                 if (similar.isNotEmpty()) {
@@ -289,8 +289,8 @@ class DuplicateDetector @Inject constructor(
             val mediaAlert: DuplicateAlert? = when (item.type) {
                 FileType.VIDEO -> mediaNearCheck(
                     item = item,
-                    compute = mediaFingerprintSource::videoKeyframeHash,
-                    find = { p, h -> indexRepository.findNearDuplicateVideo(p, h, StructuralHash.VIDEO_NEAR_THRESHOLD) },
+                    compute = mediaFingerprintSource::videoFingerprint,
+                    find = indexRepository::findNearDuplicateVideo,
                     layer = SimilarityLayer.PERCEPTUAL,
                     similarity = 0.9,
                     noun = "video",
@@ -298,8 +298,8 @@ class DuplicateDetector @Inject constructor(
                 )
                 FileType.PDF -> mediaNearCheck(
                     item = item,
-                    compute = mediaFingerprintSource::pdfRenderHash,
-                    find = { p, h -> indexRepository.findNearDuplicatePdf(p, h, StructuralHash.PDF_NEAR_THRESHOLD) },
+                    compute = mediaFingerprintSource::pdfFingerprint,
+                    find = indexRepository::findNearDuplicatePdf,
                     layer = SimilarityLayer.PERCEPTUAL,
                     similarity = 0.9,
                     noun = "document",
@@ -307,8 +307,8 @@ class DuplicateDetector @Inject constructor(
                 )
                 FileType.AUDIO -> mediaNearCheck(
                     item = item,
-                    compute = mediaFingerprintSource::audioAcousticHash,
-                    find = { p, h -> indexRepository.findNearDuplicateAudio(p, h, StructuralHash.AUDIO_NEAR_THRESHOLD) },
+                    compute = mediaFingerprintSource::audioFingerprint,
+                    find = indexRepository::findNearDuplicateAudio,
                     layer = SimilarityLayer.PERCEPTUAL,
                     similarity = 0.88,
                     noun = "recording",
@@ -328,21 +328,21 @@ class DuplicateDetector @Inject constructor(
      */
     private suspend fun mediaNearCheck(
         item: FileItem,
-        compute: (String) -> Long?,
-        find: suspend (String, Long) -> List<FileItem>,
+        compute: (String) -> MediaFingerprint?,
+        find: suspend (String, MediaFingerprint) -> List<FileItem>,
         layer: SimilarityLayer,
         similarity: Double,
         noun: String,
         detail: String,
     ): DuplicateAlert? {
-        val hash = compute(item.path)
+        val fingerprint = compute(item.path)
             ?: throw TransientArrivalException("Media fingerprint temporarily unavailable")
-        indexRepository.putStructuralHash(item.path, hash)
-        if (hash == StructuralHash.UNHASHABLE) return null
+        indexRepository.putMediaFingerprint(item.path, fingerprint)
+        if (fingerprint.primaryHash == StructuralHash.UNHASHABLE) return null
         if (!ensureStructuralFingerprinted()) {
             throw TransientArrivalException("Existing media fingerprint coverage incomplete")
         }
-        val similar = find(item.path, hash)
+        val similar = find(item.path, fingerprint)
         if (similar.isEmpty()) return null
         val score = SimilarityScorer.score(
             type = TypeClass.fromFileType(item.type),
@@ -377,23 +377,32 @@ class DuplicateDetector @Inject constructor(
             var transientFailures = 0
             for (file in batch) {
                 currentCoroutineContext().ensureActive()
-                val fingerprint = when (file.type) {
-                    FileType.CODE -> structuralFingerprintSource.textSimHash(file.path)
+                val storedResult = when (file.type) {
+                    FileType.CODE -> structuralFingerprintSource.textSimHash(file.path)?.let { hash ->
+                        runCatching { indexRepository.putStructuralHash(file.path, hash) }
+                    }
                     FileType.ARCHIVE, FileType.APK ->
-                        structuralFingerprintSource.archiveTreeHash(file.path)
-                    FileType.VIDEO -> mediaFingerprintSource.videoKeyframeHash(file.path)
-                    FileType.PDF -> mediaFingerprintSource.pdfRenderHash(file.path)
-                    FileType.AUDIO -> mediaFingerprintSource.audioAcousticHash(file.path)
-                    else -> StructuralHash.UNHASHABLE // out of scope → mark so it leaves the list
+                        structuralFingerprintSource.archiveTreeHash(file.path)?.let { hash ->
+                            runCatching { indexRepository.putStructuralHash(file.path, hash) }
+                        }
+                    FileType.VIDEO -> mediaFingerprintSource.videoFingerprint(file.path)?.let { fp ->
+                        runCatching { indexRepository.putMediaFingerprint(file.path, fp) }
+                    }
+                    FileType.PDF -> mediaFingerprintSource.pdfFingerprint(file.path)?.let { fp ->
+                        runCatching { indexRepository.putMediaFingerprint(file.path, fp) }
+                    }
+                    FileType.AUDIO -> mediaFingerprintSource.audioFingerprint(file.path)?.let { fp ->
+                        runCatching { indexRepository.putMediaFingerprint(file.path, fp) }
+                    }
+                    else -> runCatching {
+                        indexRepository.putStructuralHash(file.path, StructuralHash.UNHASHABLE)
+                    }
                 }
-                if (fingerprint == null) {
+                if (storedResult == null) {
                     transientFailures++
                     continue
                 }
-                if (runCatching {
-                        indexRepository.putStructuralHash(file.path, fingerprint)
-                    }.isSuccess
-                ) {
+                if (storedResult.isSuccess) {
                     stored++
                 } else {
                     transientFailures++
