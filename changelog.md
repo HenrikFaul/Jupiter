@@ -1010,3 +1010,53 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 
 - A platform media decoder viselkedése codec/OEM-függő. A tiszta comparator, repository, Room és Robolectric út tesztelt, de a felhasználó konkrét Samsung videókorpuszán csak új APK-val végzett device rerun bizonyítja a tényleges találati arányt.
 - A similar algoritmus szándékosan precision-first: eltérő duration/page-count, háromnál kevesebb informatív videóframe vagy hiányos descriptor esetén inkább nem mutat jelöltet, mint idegen fájlt ajánljon takarításra.
+
+## [jupiscan:0.59.0] - 2026-07-16
+
+**Scope / miért:** a fájlindex metaadatai úgy bővülnek, hogy az exact és fájltípus-tudatos Similar keresés több, jobb minőségű döntési bizonyítékot kapjon, miközben a telefonon tárolt Room adatbázis a lehető legkisebb marad. A kör nem hoz létre második katalógust, nem olvassa újra szükségtelenül a fájlokat, és nem gyengíti az exact/keeper/Recycle Bin biztonsági szerződést.
+
+### Added
+
+- **[index/data]** `CompactMetadataCodec`: nyers 20 bájtos SHA-1, rendezett 64 bites médiavektor és egyetlen 64 bites mezőbe csomagolt kép-/videógeometria. A codec hibás/idegen legacy inputra fail-closed eredményt ad.
+- **[index/maintenance]** Verziózott, egyszer futó `IndexDatabaseCompactionWorker`: WAL checkpoint, `VACUUM` és `PRAGMA optimize` a logikailag felszabadított régi TEXT/index lapok fizikai visszaadására. Nem olvas felhasználói fájlt és nem töröl indexsort.
+- **[test]** Codec-, v9→v10 migrációs és repository-perzisztencia tesztek a bináris roundtripre, legacy megőrzésre, indexed lookupra, típusváltásra és a stale derivált metaadatok atomikus invalidálására.
+
+### Changed
+
+- **[index/schema]** Room v9→v10: `contentDigest`, `quickDigest`, `structuralSignatureBlob` BLOB és `visualGeometry` INTEGER. A termelési SHA-1 hot lookup indexe a bináris oszlopra került; az ismeretlen legacy tokenek veszteségmentesen TEXT-ben maradnak.
+- **[index/size]** A full SHA-1 payload 40 ASCII karakter helyett 20 bájt, a quick hash nem duplikálja a fájlméretet, az ötmintás médiavektor 84 ASCII bájt helyett 40 bájt. A geometria két külön szöveges/oszlopos érték helyett egy 8 bájtos integer.
+- **[index/identity]** Azonos byte-identitásnál a full/quick hash átnevezés és típusfelismerési változás során is megmarad. A fájltípus-specifikus kép-/média-deszkriptor csak változatlan típusnál őrizhető meg.
+- **[dedup/image-video]** A már egyébként is dekódolt kép/video szélesség és magasság eltárolódik; az orientációfüggetlen képarány-vétó kiszűri a nyilvánvalóan eltérő alakú, véletlen hash-közeli jelölteket, de hiányos legacy geometriánál nem rejt el valós találatot.
+- **[build/ui/docs]** `versionCode` 11, `versionName` 0.59.0; What's New és README a kompakt, eszközön maradó indexet írja le. A versioning vezérlő aktuális termékneve mindenütt Jupiscan.
+
+### Fixed
+
+- **[metadata correctness]** Külső fájlváltozás után egy frissen kiszámított content hash többé nem hagyhatja érvényesnek látszani a régi quick/perceptuális/strukturális/media metaadatot: a hash-frissítés és az összes derivált mező törlése egyetlen DAO UPDATE.
+- **[type safety]** Azonos méret/mtime melletti fájltípus-változás nem vihet át image descriptort videóra vagy fordítva; a byte-azonosság bizonyítéka ettől függetlenül megmarad.
+- **[database footprint]** A TEXT→BLOB migráció után a régi payload/index lapok nem csak újrahasznosíthatók, hanem a külön worker sikeres `VACUUM` futásával a fizikai adatbázisfájlból is kikerülnek.
+
+### Regression checks
+
+- Exact duplikátum továbbra is kizárólag teljes tartalomhash alapján készül; quick/perceptuális/media metadata csak jelölt- vagy Similar bizonyíték.
+- A v0.58 többmintás VIDEO/PDF/AUDIO matcher, stacked image ellenőrzés és complete-link csoportinvariáns megmaradt; a geometria új, additív vétó.
+- Legacy vagy nem szabványos teszt/hash token nem vész el; a repository dual-read útja a migráció idején BLOB-first, TEXT-fallback.
+- A korábbi explicit Room migrációk folytonosak v10-ig; destructive migration fallback továbbra sincs.
+- Arrival checkpoint/outbox, Select all/Deselect all, méretszűrés, quality-ranked keeper, Recycle Bin, fájlműveleti gateway, Vault, Remote és navigáció nem lett eltávolítva vagy átnevezve.
+
+### Verification
+
+- Kör elején `main`, `git pull --ff-only origin main` → **Already up to date**; az idegen `Requirements/` és `versioning.zip` untracked tartalom érintetlen.
+- `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin` → **BUILD SUCCESSFUL**.
+- Célzott codec/migráció/repository/dedup tesztek → **BUILD SUCCESSFUL**.
+- Teljes `:app:testDebugUnitTest` → **67 suite / 384 test / 0 failure / 0 error / 0 skipped**.
+- `:app:lintDebug :app:assembleDebug` → **BUILD SUCCESSFUL**. A report 220 projekt-szintű, korábban fennálló tételt tartalmaz; az új/módosított metadata-, migration- és compaction-fájlokon nincs új finding.
+- Lokális debug APK: `app/build/outputs/apk/debug/app-debug.apk`, **36 487 034 byte**, SHA-256 `5584AF40102FD8C99DA3381DBCDF6D55F5CEFBE1489B35CE7F4574668689FA9F`.
+- API 34 emulátor: `adb install -r` sikeres; 0.59.0-debug process elindult; SQLite header `user_version=10`; a WorkManager marker `compacted_schema=10`; nincs FATAL/Room migration/SQLite exception. A külön JVM migrációs teszt bizonyítja a seedelt v9 sorok veszteségmentes v10 átalakítását.
+- `git diff --check` → whitespace-hiba nincs; a repository CRLF-normalizációs figyelmeztetései nem patch-hibák.
+- Távoli commit/push és GitHub Actions eredmény: **a dokumentálás pillanatában folyamatban; csak konkrét run után egészíthető ki**.
+
+### Known issues / remaining risk
+
+- A tényleges megtakarítás az indexelt hash-ek és media descriptorok arányától, valamint a SQLite page-kihasználtságától függ; a payload-méret csökkenése determinisztikus, a teljes DB-fájl százalékos csökkenésére nem adunk hamis univerzális ígéretet.
+- A fizikai compaction battery-not-low WorkManager feladat és hiba esetén retry; ezért upgrade után nem feltétlen az első képkocka előtt fejeződik be. Az index addig is olvasható, a logikai migráció már kész.
+- A konkrét Samsung 40k+ korpusz tárhely- és p95/p99 benchmarkját ez az emulátoros/JVM kör nem helyettesíti; azt külön device instrumentation mérésnek kell rögzítenie.

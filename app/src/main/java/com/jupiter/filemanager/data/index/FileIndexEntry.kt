@@ -13,7 +13,8 @@ import androidx.room.PrimaryKey
  * @property path absolute path; primary key.
  * @property parentPath absolute path of the containing directory.
  * @property typeName the [com.jupiter.filemanager.domain.model.FileType] name.
- * @property contentHash optional content hash, populated by a later pass.
+ * @property contentHash legacy/non-standard content-hash token; production SHA-1 uses the compact
+ * [contentDigest] BLOB populated by a later pass.
  * @property indexedAt epoch-millis timestamp of when this row was written.
  */
 @Entity(
@@ -24,7 +25,7 @@ import androidx.room.PrimaryKey
         // Hot dedup/analytics query columns — without these, collidingSizes/filesOfSize/byHash/
         // largeFiles and the generation sweep full-scan a 100k-row table on every call.
         Index("sizeBytes"),
-        Index("contentHash"),
+        Index("contentDigest"),
         Index("perceptualHash"),
         Index("lastSeenGeneration"),
         Index("typeName"),
@@ -39,7 +40,10 @@ data class FileIndexEntry(
     val typeName: String,
     val isDirectory: Boolean,
     val extension: String,
+    /** Legacy/non-standard hash token. Production SHA-1 values live in [contentDigest]. */
     val contentHash: String? = null,
+    /** Raw 20-byte full-content SHA-1; half the payload of the historical hex TEXT value. */
+    val contentDigest: ByteArray? = null,
     val indexedAt: Long,
     /**
      * The scan generation that last saw this row. A full survey stamps every row it writes
@@ -62,22 +66,24 @@ data class FileIndexEntry(
      * (never retried, never matched). See [StructuralFingerprintSource].
      */
     val structuralHash: Long? = null,
-    /** Ordered v2 media signature (hex longs); null for text/archive and legacy media rows. */
+    /** Legacy ordered v2 media signature; retained only when an old value cannot be converted. */
     val structuralSignature: String? = null,
+    /** Ordered media fingerprint longs encoded directly as a compact 8*N-byte SQLite BLOB. */
+    val structuralSignatureBlob: ByteArray? = null,
     /** Video/audio duration in ms or PDF page count, used as a hard type-aware comparison gate. */
     val structuralExtent: Long? = null,
     /** Producer algorithm version; incompatible/legacy media descriptors are never compared. */
     val structuralVersion: Int = 0,
     /**
-     * Cheap head+tail pre-filter hash (SHA-1 over the first and last 64 KiB), computed lazily for
-     * same-size duplicate candidates so the expensive full-content hash only runs on files whose
-     * quick hash already collides. Null = not computed yet.
+     * Legacy quick-hash TEXT fallback. Production SHA-1 bytes live in [quickDigest].
      */
     val quickHash: String? = null,
+    /** Raw 20-byte head+tail SHA-1; file length already exists in [sizeBytes]. */
+    val quickDigest: ByteArray? = null,
     /**
      * DCT perceptual hash ([PerceptualHash.pHashFromLuminanceGrid]) — the second layer of the
-     * stacked image fingerprint. Null on rows fingerprinted before this layer existed (the
-     * comparison falls back to dHash-only); [PerceptualHash.UNHASHABLE] = undecodable.
+     * stacked image fingerprint. Null on rows fingerprinted before this layer existed (comparison
+     * fails closed until backfill); [PerceptualHash.UNHASHABLE] = undecodable.
      */
     val phash: Long? = null,
     /**
@@ -85,4 +91,6 @@ data class FileIndexEntry(
      * Same null/UNHASHABLE semantics as [phash].
      */
     val ahash: Long? = null,
+    /** Width/height packed into one Long; shared by image/video descriptors and aspect-ratio veto. */
+    val visualGeometry: Long? = null,
 )

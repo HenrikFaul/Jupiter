@@ -66,8 +66,12 @@ interface FileIndexDao {
      * Returns every indexed **file** (never a directory) whose content hash
      * equals [hash]. Used to surface content-duplicates regardless of name.
      */
+    @Query("SELECT * FROM file_index WHERE contentDigest = :digest AND isDirectory = 0")
+    suspend fun byContentDigest(digest: ByteArray): List<FileIndexEntry>
+
+    /** Compatibility lookup for non-standard/legacy hash tokens that cannot become a BLOB. */
     @Query("SELECT * FROM file_index WHERE contentHash = :hash AND isDirectory = 0")
-    suspend fun byHash(hash: String): List<FileIndexEntry>
+    suspend fun byLegacyHash(hash: String): List<FileIndexEntry>
 
     /** Deletes the single row for [path], if present. */
     @Query("DELETE FROM file_index WHERE path = :path")
@@ -94,11 +98,15 @@ interface FileIndexDao {
      * invalidated perfectly good hashes.
      */
     @Query(
-        "SELECT contentHash FROM file_index " +
+        "SELECT contentHash, contentDigest FROM file_index " +
             "WHERE path = :path AND sizeBytes = :sizeBytes " +
             "AND lastModified / 1000 = :lastModified / 1000",
     )
-    suspend fun hashIfUnchanged(path: String, sizeBytes: Long, lastModified: Long): String?
+    suspend fun hashIfUnchanged(
+        path: String,
+        sizeBytes: Long,
+        lastModified: Long,
+    ): StoredContentHash?
 
     /**
      * Refreshes ONLY the hash-related columns of an existing row, deliberately leaving
@@ -108,14 +116,38 @@ interface FileIndexDao {
      * A no-op when [path] is not indexed (0 rows updated).
      */
     @Query(
-        "UPDATE file_index SET contentHash = :hash, sizeBytes = :sizeBytes, " +
+        "UPDATE file_index SET contentHash = :legacyHash, contentDigest = :digest, " +
+            "sizeBytes = :sizeBytes, " +
             "lastModified = :lastModified, indexedAt = :indexedAt WHERE path = :path",
     )
     suspend fun updateHash(
         path: String,
         sizeBytes: Long,
         lastModified: Long,
-        hash: String,
+        legacyHash: String?,
+        digest: ByteArray?,
+        indexedAt: Long,
+    )
+
+    /**
+     * Stores a hash for bytes whose indexed identity changed and atomically drops every descriptor
+     * derived from the old bytes. Without this, the new mtime made stale quick/perceptual/media
+     * metadata look reusable on the next scan.
+     */
+    @Query(
+        "UPDATE file_index SET contentHash = :legacyHash, contentDigest = :digest, " +
+            "sizeBytes = :sizeBytes, lastModified = :lastModified, indexedAt = :indexedAt, " +
+            "quickHash = NULL, quickDigest = NULL, perceptualHash = NULL, phash = NULL, " +
+            "ahash = NULL, structuralHash = NULL, structuralSignature = NULL, " +
+            "structuralSignatureBlob = NULL, structuralExtent = NULL, structuralVersion = 0, " +
+            "visualGeometry = NULL WHERE path = :path",
+    )
+    suspend fun updateHashAndInvalidateDerived(
+        path: String,
+        sizeBytes: Long,
+        lastModified: Long,
+        legacyHash: String?,
+        digest: ByteArray?,
         indexedAt: Long,
     )
 
@@ -131,24 +163,31 @@ interface FileIndexDao {
      * UPDATE — same generation-stamp-preserving rationale as [updateHash].
      */
     @Query(
-        "UPDATE file_index SET perceptualHash = :dhash, phash = :phash, ahash = :ahash " +
-            "WHERE path = :path",
+        "UPDATE file_index SET perceptualHash = :dhash, phash = :phash, ahash = :ahash, " +
+            "visualGeometry = :visualGeometry WHERE path = :path",
     )
-    suspend fun updatePerceptualFingerprint(path: String, dhash: Long, phash: Long, ahash: Long)
+    suspend fun updatePerceptualFingerprint(
+        path: String,
+        dhash: Long,
+        phash: Long,
+        ahash: Long,
+        visualGeometry: Long?,
+    )
 
     /**
      * Stores the lazy head+tail quick hash. Targeted UPDATE; never touches the generation stamp.
      */
-    @Query("UPDATE file_index SET quickHash = :quickHash WHERE path = :path")
-    suspend fun updateQuickHash(path: String, quickHash: String)
+    @Query(
+        "UPDATE file_index SET quickHash = :legacyHash, quickDigest = :digest WHERE path = :path",
+    )
+    suspend fun updateQuickHash(path: String, legacyHash: String?, digest: ByteArray?)
 
     /**
      * Path + all stacked perceptual layers of every fingerprinted file (comparison set for
-     * near-dups). phash/ahash may be null on rows fingerprinted before those layers existed;
-     * the comparison falls back to dHash-only for them.
+     * near-dups). phash/ahash may be null on legacy rows; comparison fails closed until backfill.
      */
     @Query(
-        "SELECT path, perceptualHash, phash, ahash FROM file_index " +
+        "SELECT path, perceptualHash, phash, ahash, visualGeometry FROM file_index " +
             "WHERE perceptualHash IS NOT NULL AND perceptualHash != :unhashable " +
             "AND isDirectory = 0",
     )
@@ -179,21 +218,24 @@ interface FileIndexDao {
      */
     @Query(
         "UPDATE file_index SET structuralHash = :hash, structuralSignature = NULL, " +
-            "structuralExtent = NULL, structuralVersion = 0 WHERE path = :path",
+            "structuralSignatureBlob = NULL, structuralExtent = NULL, structuralVersion = 0, " +
+            "visualGeometry = NULL WHERE path = :path",
     )
     suspend fun updateStructuralHash(path: String, hash: Long)
 
     /** Atomically stores every component of a versioned media descriptor. */
     @Query(
-        "UPDATE file_index SET structuralHash = :hash, structuralSignature = :signature, " +
-            "structuralExtent = :extent, structuralVersion = :version WHERE path = :path",
+        "UPDATE file_index SET structuralHash = :hash, structuralSignature = NULL, " +
+            "structuralSignatureBlob = :signature, structuralExtent = :extent, " +
+            "structuralVersion = :version, visualGeometry = :visualGeometry WHERE path = :path",
     )
     suspend fun updateMediaFingerprint(
         path: String,
         hash: Long,
-        signature: String,
+        signature: ByteArray,
         extent: Long?,
         version: Int,
+        visualGeometry: Long?,
     )
 
     /**
@@ -203,7 +245,8 @@ interface FileIndexDao {
      */
     @Query(
         "SELECT path, structuralHash AS structuralHash, structuralSignature, " +
-            "structuralExtent, structuralVersion FROM file_index " +
+            "structuralSignatureBlob, structuralExtent, structuralVersion, visualGeometry " +
+            "FROM file_index " +
             "WHERE structuralHash IS NOT NULL AND structuralHash != :unhashable " +
             "AND isDirectory = 0 AND typeName IN (:typeNames)",
     )
@@ -256,7 +299,10 @@ interface FileIndexDao {
     @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0")
     suspend fun countFiles(): Int
 
-    @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND contentHash IS NOT NULL")
+    @Query(
+        "SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND (contentDigest IS NOT NULL OR contentHash IS NOT NULL)",
+    )
     suspend fun countFilesWithContentHash(): Int
 
     @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName = :imageTypeName")
@@ -353,6 +399,8 @@ data class PathPerceptualHash(
     val phash: Long? = null,
     /** Average-hash layer; same null semantics as [phash]. */
     val ahash: Long? = null,
+    /** Optional packed width/height; null while a legacy row is being backfilled. */
+    val visualGeometry: Long? = null,
 )
 
 /**
@@ -363,6 +411,14 @@ data class PathStructuralHash(
     val path: String,
     val structuralHash: Long,
     val structuralSignature: String? = null,
+    val structuralSignatureBlob: ByteArray? = null,
     val structuralExtent: Long? = null,
     val structuralVersion: Int = 0,
+    val visualGeometry: Long? = null,
+)
+
+/** Lean dual-format projection used while legacy hash strings roll into compact BLOBs. */
+data class StoredContentHash(
+    val contentHash: String? = null,
+    val contentDigest: ByteArray? = null,
 )

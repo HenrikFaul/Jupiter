@@ -200,12 +200,15 @@ object PerceptualHash {
         dA: Long, dB: Long,
         pA: Long?, pB: Long?,
         aA: Long?, aB: Long?,
+        geometryA: Long? = null,
+        geometryB: Long? = null,
         dhashThreshold: Int = DEFAULT_NEAR_THRESHOLD,
     ): Boolean {
         if (dA == UNHASHABLE || dB == UNHASHABLE ||
             pA == null || pB == null || aA == null || aB == null ||
             pA == UNHASHABLE || pB == UNHASHABLE || aA == UNHASHABLE || aB == UNHASHABLE
         ) return false
+        if (!CompactMetadataCodec.dimensionsCompatible(geometryA, geometryB)) return false
         val d = hammingDistance(dA, dB)
         val p = hammingDistance(pA, pB)
         val a = hammingDistance(aA, aB)
@@ -225,7 +228,12 @@ data class PerceptualFingerprint(
     val dhash: Long,
     val phash: Long,
     val ahash: Long,
+    val width: Int = 0,
+    val height: Int = 0,
 ) {
+    val visualGeometry: Long?
+        get() = CompactMetadataCodec.packDimensions(width, height)
+
     companion object {
         /** Fingerprint stored for undecodable files so they are never retried or matched. */
         val UNHASHABLE = PerceptualFingerprint(

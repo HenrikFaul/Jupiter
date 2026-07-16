@@ -1,9 +1,9 @@
-# Jupiter — versioning control
+# Jupiscan — versioning control
 
-This file governs **Jupiter** (the native Android file manager in this repo) development
+This file governs **Jupiscan** (the native Android file manager in this repo) development
 iterations. It is the authoritative, copy-able **control prompt**: give it to any AI or human
-who changes Jupiter and it tells them exactly how to record the change. It is NOT about files
-that Jupiter *manages* on a device — only about Jupiter's own evolution.
+who changes Jupiscan and it tells them exactly how to record the change. It is NOT about files
+that Jupiscan *manages* on a device — only about Jupiscan's own evolution.
 
 > **START HERE for every iteration** — read, in order:
 > 1. `changelog.md` (repo root) — forward-read the whole file, obey its "Kötelező changelog rutin".
@@ -24,7 +24,7 @@ that Jupiter *manages* on a device — only about Jupiter's own evolution.
 
 ---
 
-## Mandatory rule for every Jupiter development iteration
+## Mandatory rule for every Jupiscan development iteration
 
 ### Git synchronization contract
 
@@ -37,7 +37,7 @@ For this repository the owner requires direct integration on the default branch:
 3. After the required build/tests/docs gates pass, commit the complete scoped change and push the same
    default branch to `origin`. Record the pull/branch/commit/push evidence in the version summary.
 
-Before claiming a round complete, every change to Jupiter must update ALL of these:
+Before claiming a round complete, every change to Jupiscan must update ALL of these:
 
 1. `app/build.gradle.kts` **versionName** (and **versionCode** when shipping a build), bumped in step.
 2. `changelog.md` (append-only; obey the forward-read + append rules at the top of that file).
@@ -82,7 +82,7 @@ Each AI dev record MUST include:
 - **Completion rule** (not done until version + changelog + versioning + verification are updated and
   no prior capability regressed).
 
-## Jupiter invariants to assert in every "Regression checks" block
+## Jupiscan invariants to assert in every "Regression checks" block
 
 - **Build and tests are green in the available environment** (`assembleDebug` succeeds; unit tests
   pass). A local Gradle result and a GitHub Actions result are separate evidence: record each one that
@@ -101,4 +101,4 @@ Each AI dev record MUST include:
 
 ## Boundary
 
-These files describe Jupiter's evolution only. Do not generate or copy them into a device/managed-file tree.
+These files describe Jupiscan's evolution only. Do not generate or copy them into a device/managed-file tree.

@@ -165,6 +165,23 @@ class IndexingScheduler @Inject constructor(
         }
     }
 
+    /** Physically reclaims pages released by the compact v10 metadata migration. */
+    fun ensureMetadataCompaction() {
+        try {
+            workManager.enqueueUniqueWork(
+                IndexDatabaseCompactionWorker.UNIQUE_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<IndexDatabaseCompactionWorker>()
+                    .setConstraints(
+                        Constraints.Builder().setRequiresBatteryNotLow(true).build(),
+                    )
+                    .build(),
+            )
+        } catch (_: Exception) {
+            // Best-effort; logical metadata is already compact even if physical reclaim waits.
+        }
+    }
+
     /**
      * Runs the duplicate-detection catch-up ([DedupReconciler]): processes every MediaStore file
      * newer than the checkpoint (including ones that arrived while the app was dead) through the

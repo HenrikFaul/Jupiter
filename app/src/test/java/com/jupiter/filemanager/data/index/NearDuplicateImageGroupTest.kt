@@ -52,7 +52,13 @@ class NearDuplicateImageGroupTest {
     }
 
     /** Indexes a real image file with the given perceptual [hash] and returns its path. */
-    private suspend fun image(name: String, sizeBytes: Long, hash: Long): String {
+    private suspend fun image(
+        name: String,
+        sizeBytes: Long,
+        hash: Long,
+        width: Int = 0,
+        height: Int = 0,
+    ): String {
         val file = File(tempDir, name).apply { writeText("x") }
         val item = FileItem(
             path = file.absolutePath,
@@ -66,7 +72,7 @@ class NearDuplicateImageGroupTest {
         repo.upsert(listOf(item))
         // Production grouping requires the full stack; using the same scripted value for all
         // layers keeps this test focused on grouping/LSH rather than Android bitmap decoding.
-        repo.putPerceptualFingerprint(file.absolutePath, hash, hash, hash)
+        repo.putPerceptualFingerprint(file.absolutePath, hash, hash, hash, width, height)
         return file.absolutePath
     }
 
@@ -132,5 +138,14 @@ class NearDuplicateImageGroupTest {
         assertEquals(1, groups.size)
         assertEquals(setOf(a, b), groups.single().files.map { it.path }.toSet())
         assertTrue(groups.none { group -> group.files.any { it.path == c } })
+    }
+
+    @Test
+    fun identicalHashesWithIncompatibleAspectRatiosDoNotGroup() = runTest(dispatcher) {
+        val hash = 0x1234_5678_9ABC_DEF0L
+        image("landscape.jpg", 300, hash, width = 1920, height = 1080)
+        image("square.jpg", 200, hash, width = 1080, height = 1080)
+
+        assertTrue(repo.nearDuplicateImageGroups(threshold = 8).isEmpty())
     }
 }

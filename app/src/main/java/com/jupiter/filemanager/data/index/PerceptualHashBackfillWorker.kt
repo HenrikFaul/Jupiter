@@ -85,7 +85,9 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
                         is PerceptualBackfillDecision.Persist -> decision.fingerprint
                     }
                     val persisted = runCatching {
-                        indexRepository.putPerceptualFingerprint(item.path, fp.dhash, fp.phash, fp.ahash)
+                        indexRepository.putPerceptualFingerprint(
+                            item.path, fp.dhash, fp.phash, fp.ahash, fp.width, fp.height,
+                        )
                     }.isSuccess
                     if (persisted) {
                         processed++

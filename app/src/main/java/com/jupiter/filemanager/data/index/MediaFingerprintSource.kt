@@ -56,10 +56,19 @@ data class MediaFingerprint(
     val hashes: List<Long>,
     val extent: Long? = null,
     val version: Int = CURRENT_VERSION,
+    val width: Int = 0,
+    val height: Int = 0,
 ) {
     val primaryHash: Long get() = hashes.firstOrNull() ?: StructuralHash.UNHASHABLE
 
+    /** Legacy v2 TEXT representation; new writes use [encodeCompact]. */
     fun encode(): String = hashes.joinToString(",") { it.toULong().toString(16).padStart(16, '0') }
+
+    /** Minimal persistent representation: exactly eight bytes per ordered sample. */
+    fun encodeCompact(): ByteArray = CompactMetadataCodec.encodeLongVector(hashes)
+
+    val visualGeometry: Long?
+        get() = CompactMetadataCodec.packDimensions(width, height)
 
     companion object {
         /** v2 replaces the unsafe single-frame/single-page media descriptors. */
@@ -74,6 +83,28 @@ data class MediaFingerprint(
                 runCatching { token.toULong(16).toLong() }.getOrNull()
             }
             return hashes.takeIf { it.isNotEmpty() }?.let { MediaFingerprint(it, extent, version) }
+        }
+
+        /** Reads compact v10 metadata first, then the retained v9 TEXT fallback. */
+        fun decode(
+            compact: ByteArray?,
+            legacy: String?,
+            extent: Long?,
+            version: Int,
+            visualGeometry: Long?,
+        ): MediaFingerprint? {
+            if (version != CURRENT_VERSION) return null
+            val hashes = CompactMetadataCodec.decodeLongVector(compact)
+                ?: decode(legacy, extent, version)?.hashes
+                ?: return null
+            val dimensions = CompactMetadataCodec.unpackDimensions(visualGeometry)
+            return MediaFingerprint(
+                hashes = hashes,
+                extent = extent,
+                version = version,
+                width = dimensions?.first ?: 0,
+                height = dimensions?.second ?: 0,
+            )
         }
     }
 }

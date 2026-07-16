@@ -64,22 +64,27 @@ class FileIndexRepositoryImpl @Inject constructor(
                 // Second-precision identity (IndexPathRewrite.identityUnchanged): MediaStore and
                 // filesystem mtimes differ only in sub-second rounding for an untouched file, and
                 // exact equality here used to wipe every cached fingerprint on ordinary re-browse.
-                val identityKept = prior != null && IndexPathRewrite.identityUnchanged(
+                val byteIdentityKept = prior != null && IndexPathRewrite.identityUnchanged(
                     item.isDirectory, prior.sizeBytes, prior.lastModified,
                     item.sizeBytes, item.lastModified,
                 )
+                val descriptorIdentityKept = byteIdentityKept && prior?.typeName == item.type.name
                 toEntry(item, now).copy(
-                    contentHash = if (identityKept) prior?.contentHash else null,
+                    contentHash = if (byteIdentityKept) prior?.contentHash else null,
+                    contentDigest = if (byteIdentityKept) prior?.contentDigest else null,
                     // Same-content rule as the content hash: the perceptual fingerprint
                     // survives while identity is unchanged, else it is recomputed.
-                    perceptualHash = if (identityKept) prior?.perceptualHash else null,
-                    structuralHash = if (identityKept) prior?.structuralHash else null,
-                    structuralSignature = if (identityKept) prior?.structuralSignature else null,
-                    structuralExtent = if (identityKept) prior?.structuralExtent else null,
-                    structuralVersion = if (identityKept) prior?.structuralVersion ?: 0 else 0,
-                    phash = if (identityKept) prior?.phash else null,
-                    ahash = if (identityKept) prior?.ahash else null,
-                    quickHash = if (identityKept) prior?.quickHash else null,
+                    perceptualHash = if (descriptorIdentityKept) prior?.perceptualHash else null,
+                    structuralHash = if (descriptorIdentityKept) prior?.structuralHash else null,
+                    structuralSignature = if (descriptorIdentityKept) prior?.structuralSignature else null,
+                    structuralSignatureBlob = if (descriptorIdentityKept) prior?.structuralSignatureBlob else null,
+                    structuralExtent = if (descriptorIdentityKept) prior?.structuralExtent else null,
+                    structuralVersion = if (descriptorIdentityKept) prior?.structuralVersion ?: 0 else 0,
+                    phash = if (descriptorIdentityKept) prior?.phash else null,
+                    ahash = if (descriptorIdentityKept) prior?.ahash else null,
+                    visualGeometry = if (descriptorIdentityKept) prior?.visualGeometry else null,
+                    quickHash = if (byteIdentityKept) prior?.quickHash else null,
+                    quickDigest = if (byteIdentityKept) prior?.quickDigest else null,
                 )
             }
             dao.upsertAll(entries)
@@ -112,23 +117,28 @@ class FileIndexRepositoryImpl @Inject constructor(
         val existing = dao.entriesForPaths(items.map { it.path }).associateBy { it.path }
         val entries = items.map { item ->
             val prior = existing[item.path]
-            val identityKept = prior != null && IndexPathRewrite.identityUnchanged(
+            val byteIdentityKept = prior != null && IndexPathRewrite.identityUnchanged(
                 item.isDirectory, prior.sizeBytes, prior.lastModified,
                 item.sizeBytes, item.lastModified,
             )
+            val descriptorIdentityKept = byteIdentityKept && prior?.typeName == item.type.name
             toEntry(item, now).copy(
-                contentHash = if (identityKept) prior?.contentHash else null,
+                contentHash = if (byteIdentityKept) prior?.contentHash else null,
+                contentDigest = if (byteIdentityKept) prior?.contentDigest else null,
                 // Preserved on unchanged identity for the same reason as contentHash —
                 // otherwise every periodic survey would wipe all fingerprints and force the
                 // backfill to re-decode the whole photo library.
-                perceptualHash = if (identityKept) prior?.perceptualHash else null,
-                structuralHash = if (identityKept) prior?.structuralHash else null,
-                structuralSignature = if (identityKept) prior?.structuralSignature else null,
-                structuralExtent = if (identityKept) prior?.structuralExtent else null,
-                structuralVersion = if (identityKept) prior?.structuralVersion ?: 0 else 0,
-                phash = if (identityKept) prior?.phash else null,
-                ahash = if (identityKept) prior?.ahash else null,
-                quickHash = if (identityKept) prior?.quickHash else null,
+                perceptualHash = if (descriptorIdentityKept) prior?.perceptualHash else null,
+                structuralHash = if (descriptorIdentityKept) prior?.structuralHash else null,
+                structuralSignature = if (descriptorIdentityKept) prior?.structuralSignature else null,
+                structuralSignatureBlob = if (descriptorIdentityKept) prior?.structuralSignatureBlob else null,
+                structuralExtent = if (descriptorIdentityKept) prior?.structuralExtent else null,
+                structuralVersion = if (descriptorIdentityKept) prior?.structuralVersion ?: 0 else 0,
+                phash = if (descriptorIdentityKept) prior?.phash else null,
+                ahash = if (descriptorIdentityKept) prior?.ahash else null,
+                visualGeometry = if (descriptorIdentityKept) prior?.visualGeometry else null,
+                quickHash = if (byteIdentityKept) prior?.quickHash else null,
+                quickDigest = if (byteIdentityKept) prior?.quickDigest else null,
                 lastSeenGeneration = generation ?: prior?.lastSeenGeneration ?: 0L,
             )
         }
@@ -149,18 +159,23 @@ class FileIndexRepositoryImpl @Inject constructor(
                 )
             }
         }
+        val descriptorUnchanged = unchanged?.takeIf { it.typeName == item.type.name }
         dao.upsertAll(
             listOf(
                 toEntry(item, now).copy(
                     contentHash = unchanged?.contentHash,
-                    perceptualHash = unchanged?.perceptualHash,
-                    structuralHash = unchanged?.structuralHash,
-                    structuralSignature = unchanged?.structuralSignature,
-                    structuralExtent = unchanged?.structuralExtent,
-                    structuralVersion = unchanged?.structuralVersion ?: 0,
-                    phash = unchanged?.phash,
-                    ahash = unchanged?.ahash,
+                    contentDigest = unchanged?.contentDigest,
+                    perceptualHash = descriptorUnchanged?.perceptualHash,
+                    structuralHash = descriptorUnchanged?.structuralHash,
+                    structuralSignature = descriptorUnchanged?.structuralSignature,
+                    structuralSignatureBlob = descriptorUnchanged?.structuralSignatureBlob,
+                    structuralExtent = descriptorUnchanged?.structuralExtent,
+                    structuralVersion = descriptorUnchanged?.structuralVersion ?: 0,
+                    phash = descriptorUnchanged?.phash,
+                    ahash = descriptorUnchanged?.ahash,
+                    visualGeometry = descriptorUnchanged?.visualGeometry,
                     quickHash = unchanged?.quickHash,
+                    quickDigest = unchanged?.quickDigest,
                 ),
             ),
         )
@@ -209,20 +224,25 @@ class FileIndexRepositoryImpl @Inject constructor(
                 if (entry.path == oldRoot) {
                     // The moved/renamed root: adopt the authoritative new item's metadata,
                     // keeping the hashes only if its identity is unchanged.
-                    val identityKept = IndexPathRewrite.identityUnchanged(
+                    val byteIdentityKept = IndexPathRewrite.identityUnchanged(
                         toItem.isDirectory, entry.sizeBytes, entry.lastModified,
                         toItem.sizeBytes, toItem.lastModified,
                     )
+                    val descriptorIdentityKept = byteIdentityKept && entry.typeName == toItem.type.name
                     toEntry(toItem, now).copy(
-                        contentHash = if (identityKept) entry.contentHash else null,
-                        perceptualHash = if (identityKept) entry.perceptualHash else null,
-                        structuralHash = if (identityKept) entry.structuralHash else null,
-                        structuralSignature = if (identityKept) entry.structuralSignature else null,
-                        structuralExtent = if (identityKept) entry.structuralExtent else null,
-                        structuralVersion = if (identityKept) entry.structuralVersion else 0,
-                        phash = if (identityKept) entry.phash else null,
-                        ahash = if (identityKept) entry.ahash else null,
-                        quickHash = if (identityKept) entry.quickHash else null,
+                        contentHash = if (byteIdentityKept) entry.contentHash else null,
+                        contentDigest = if (byteIdentityKept) entry.contentDigest else null,
+                        perceptualHash = if (descriptorIdentityKept) entry.perceptualHash else null,
+                        structuralHash = if (descriptorIdentityKept) entry.structuralHash else null,
+                        structuralSignature = if (descriptorIdentityKept) entry.structuralSignature else null,
+                        structuralSignatureBlob = if (descriptorIdentityKept) entry.structuralSignatureBlob else null,
+                        structuralExtent = if (descriptorIdentityKept) entry.structuralExtent else null,
+                        structuralVersion = if (descriptorIdentityKept) entry.structuralVersion else 0,
+                        phash = if (descriptorIdentityKept) entry.phash else null,
+                        ahash = if (descriptorIdentityKept) entry.ahash else null,
+                        visualGeometry = if (descriptorIdentityKept) entry.visualGeometry else null,
+                        quickHash = if (byteIdentityKept) entry.quickHash else null,
+                        quickDigest = if (byteIdentityKept) entry.quickDigest else null,
                     )
                 } else {
                     entry.copy(
@@ -248,6 +268,7 @@ class FileIndexRepositoryImpl @Inject constructor(
             }
 
             val hash = dao.hashIfUnchanged(item.path, item.sizeBytes, item.lastModified)
+                ?.externalValue()
                 ?: computeHash(item.path)?.also { putHash(item, it) }
                 ?: return@withContext emptyList()
 
@@ -259,14 +280,17 @@ class FileIndexRepositoryImpl @Inject constructor(
             // collisions are rare) before the hash lookup.
             for (entry in dao.filesOfSize(item.sizeBytes)) {
                 currentCoroutineContext().ensureActive()
-                if (entry.path == item.path || entry.isDirectory || entry.contentHash != null) {
+                if (entry.path == item.path || entry.isDirectory || entry.hasContentHash()) {
                     continue
                 }
                 hashForEntry(entry) // computes and caches as a side effect
             }
 
+            val matchingRows = CompactMetadataCodec.sha1ToBytes(hash)?.let { digest ->
+                dao.byContentDigest(digest)
+            } ?: dao.byLegacyHash(hash)
             existingOrPruned(
-                dao.byHash(hash)
+                matchingRows
                     .asSequence()
                     .filter { it.path != item.path }
                     .map(::toFileItem)
@@ -340,22 +364,69 @@ class FileIndexRepositoryImpl @Inject constructor(
         return builder.toString()
     }
 
+    private fun StoredContentHash.externalValue(): String? =
+        contentDigest?.let(CompactMetadataCodec::bytesToHex) ?: contentHash
+
+    private fun FileIndexEntry.externalContentHash(): String? =
+        contentDigest?.let(CompactMetadataCodec::bytesToHex) ?: contentHash
+
+    private fun FileIndexEntry.hasContentHash(): Boolean =
+        contentDigest != null || contentHash != null
+
+    private fun FileIndexEntry.externalQuickHash(): String? =
+        quickDigest?.let { "$sizeBytes:${CompactMetadataCodec.bytesToHex(it)}" } ?: quickHash
+
     override suspend fun hashForUnchanged(
         path: String,
         sizeBytes: Long,
         lastModified: Long,
     ): String? = withContext(ioDispatcher) {
-        dao.hashIfUnchanged(path, sizeBytes, lastModified)
+        dao.hashIfUnchanged(path, sizeBytes, lastModified)?.externalValue()
     }
 
     override suspend fun putHash(item: FileItem, hash: String) = withContext(ioDispatcher) {
         val now = System.currentTimeMillis()
-        if (dao.getByPath(item.path) != null) {
+        val digest = CompactMetadataCodec.sha1ToBytes(hash)
+        val legacyHash = hash.takeIf { digest == null }
+        val existing = dao.getByPath(item.path)
+        if (existing != null) {
             // Targeted UPDATE: never rewrite the whole row from a snapshot — a concurrent
             // survey's generation stamp must survive (see updateHash).
-            dao.updateHash(item.path, item.sizeBytes, item.lastModified, hash, now)
+            val identityUnchanged = IndexPathRewrite.identityUnchanged(
+                item.isDirectory,
+                existing.sizeBytes,
+                existing.lastModified,
+                item.sizeBytes,
+                item.lastModified,
+            )
+            if (identityUnchanged) {
+                dao.updateHash(
+                    path = item.path,
+                    sizeBytes = item.sizeBytes,
+                    lastModified = item.lastModified,
+                    legacyHash = legacyHash,
+                    digest = digest,
+                    indexedAt = now,
+                )
+            } else {
+                dao.updateHashAndInvalidateDerived(
+                    path = item.path,
+                    sizeBytes = item.sizeBytes,
+                    lastModified = item.lastModified,
+                    legacyHash = legacyHash,
+                    digest = digest,
+                    indexedAt = now,
+                )
+            }
         } else {
-            dao.upsertAll(listOf(toEntry(item, now).copy(contentHash = hash)))
+            dao.upsertAll(
+                listOf(
+                    toEntry(item, now).copy(
+                        contentHash = legacyHash,
+                        contentDigest = digest,
+                    ),
+                ),
+            )
         }
     }
 
@@ -368,8 +439,16 @@ class FileIndexRepositoryImpl @Inject constructor(
         dhash: Long,
         phash: Long,
         ahash: Long,
+        width: Int,
+        height: Int,
     ) = withContext(ioDispatcher) {
-        dao.updatePerceptualFingerprint(path = path, dhash = dhash, phash = phash, ahash = ahash)
+        dao.updatePerceptualFingerprint(
+            path = path,
+            dhash = dhash,
+            phash = phash,
+            ahash = ahash,
+            visualGeometry = CompactMetadataCodec.packDimensions(width, height),
+        )
     }
 
     override suspend fun putStructuralHash(path: String, hash: Long) = withContext(ioDispatcher) {
@@ -381,9 +460,10 @@ class FileIndexRepositoryImpl @Inject constructor(
             dao.updateMediaFingerprint(
                 path = path,
                 hash = fingerprint.primaryHash,
-                signature = fingerprint.encode(),
+                signature = fingerprint.encodeCompact(),
                 extent = fingerprint.extent,
                 version = fingerprint.version,
+                visualGeometry = fingerprint.visualGeometry,
             )
         }
 
@@ -443,10 +523,8 @@ class FileIndexRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Shared near-lookup for the perceptual/dHash-style structural fingerprints (video keyframe, PDF
-     * render, audio envelope): scan the lean (path, structuralHash) projection of the given types in
-     * memory, keep those within [threshold] Hamming distance, then materialize + existence-prune the
-     * few matches. The UNHASHABLE sentinel is excluded by the query.
+     * Shared type-aware media lookup over the lean compact-signature projection. Only matcher-proven
+     * candidates are materialized and existence-pruned; the UNHASHABLE sentinel is excluded in SQL.
      */
     private suspend fun nearByMediaFingerprint(
         path: String,
@@ -460,9 +538,11 @@ class FileIndexRepositoryImpl @Inject constructor(
             .filter { it.path != path }
             .filter { row ->
                 val existing = MediaFingerprint.decode(
-                    row.structuralSignature,
-                    row.structuralExtent,
-                    row.structuralVersion,
+                    compact = row.structuralSignatureBlob,
+                    legacy = row.structuralSignature,
+                    extent = row.structuralExtent,
+                    version = row.structuralVersion,
+                    visualGeometry = row.visualGeometry,
                 ) ?: return@filter false
                 MediaFingerprintMatcher.matches(type, fingerprint, existing)
             }
@@ -494,6 +574,8 @@ class FileIndexRepositoryImpl @Inject constructor(
                     row.phash,
                     fingerprint.ahash,
                     row.ahash,
+                    geometryA = fingerprint.visualGeometry,
+                    geometryB = row.visualGeometry,
                     dhashThreshold = threshold,
                 )
             }
@@ -617,10 +699,17 @@ class FileIndexRepositoryImpl @Inject constructor(
         val currentMtime = runCatching { file.lastModified() }.getOrDefault(0L)
         val identityUnchanged = currentSize == entry.sizeBytes &&
             currentMtime / 1000 == entry.lastModified / 1000
-        if (identityUnchanged && entry.quickHash != null) return entry.quickHash
+        if (identityUnchanged) entry.externalQuickHash()?.let { return it }
 
         val computed = computeQuickHash(file) ?: return null
-        runCatching { dao.updateQuickHash(entry.path, computed) }
+        val digest = CompactMetadataCodec.legacyQuickHashToBytes(computed)
+        runCatching {
+            dao.updateQuickHash(
+                path = entry.path,
+                legacyHash = computed.takeIf { digest == null },
+                digest = digest,
+            )
+        }
         return computed
     }
 
@@ -724,6 +813,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                                         entries[ia].perceptualHash, entries[ib].perceptualHash,
                                         entries[ia].phash, entries[ib].phash,
                                         entries[ia].ahash, entries[ib].ahash,
+                                        entries[ia].visualGeometry, entries[ib].visualGeometry,
                                         dhashThreshold = threshold,
                                     )
                                 ) {
@@ -752,6 +842,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                         a.perceptualHash, b.perceptualHash,
                         a.phash, b.phash,
                         a.ahash, b.ahash,
+                        a.visualGeometry, b.visualGeometry,
                         dhashThreshold = threshold,
                     )
                 }) {
@@ -810,9 +901,8 @@ class FileIndexRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Union-finds near structural/media hashes by Hamming distance. These sets are normally tiny
-     * compared with the photo library, and the proactive backfill stores only one 64-bit descriptor
-     * per comparable file.
+     * Union-finds text SimHash candidates by Hamming distance. Media has a separate ordered-vector
+     * path below; archives use exact member-tree equality above.
      */
     private suspend fun hammingStructuralGroups(
         typeNames: List<String>,
@@ -901,9 +991,11 @@ class FileIndexRepositoryImpl @Inject constructor(
         val rows = dao.structuralHashesOfTypes(typeNames, StructuralHash.UNHASHABLE)
             .mapNotNull { row ->
                 MediaFingerprint.decode(
-                    row.structuralSignature,
-                    row.structuralExtent,
-                    row.structuralVersion,
+                    compact = row.structuralSignatureBlob,
+                    legacy = row.structuralSignature,
+                    extent = row.structuralExtent,
+                    version = row.structuralVersion,
+                    visualGeometry = row.visualGeometry,
                 )?.let { row to it }
             }
         if (rows.size < 2) return emptyList()
@@ -961,7 +1053,7 @@ class FileIndexRepositoryImpl @Inject constructor(
             if (candidates.size < 2) continue
             for (entry in candidates) {
                 currentCoroutineContext().ensureActive()
-                if (entry.contentHash != null) continue
+                if (entry.hasContentHash()) continue
                 hashForEntry(entry) // computes and caches as a side effect
             }
         }
@@ -992,7 +1084,7 @@ class FileIndexRepositoryImpl @Inject constructor(
         val identityUnchanged = currentSize == entry.sizeBytes &&
             currentMtime / 1000 == entry.lastModified / 1000
         if (identityUnchanged) {
-            entry.contentHash?.let { return it }
+            entry.externalContentHash()?.let { return it }
         }
 
         // Stale identity or no cached hash: hash the CURRENT bytes and refresh the row
@@ -1002,13 +1094,26 @@ class FileIndexRepositoryImpl @Inject constructor(
         // back a pre-hash snapshot would revert that stamp and the sweep would wrongly
         // delete a live file's row.
         val computed = computeHash(entry.path) ?: return null
-        dao.updateHash(
-            path = entry.path,
-            sizeBytes = currentSize,
-            lastModified = currentMtime,
-            hash = computed,
-            indexedAt = System.currentTimeMillis(),
-        )
+        val digest = CompactMetadataCodec.sha1ToBytes(computed)
+        if (identityUnchanged) {
+            dao.updateHash(
+                path = entry.path,
+                sizeBytes = currentSize,
+                lastModified = currentMtime,
+                legacyHash = computed.takeIf { digest == null },
+                digest = digest,
+                indexedAt = System.currentTimeMillis(),
+            )
+        } else {
+            dao.updateHashAndInvalidateDerived(
+                path = entry.path,
+                sizeBytes = currentSize,
+                lastModified = currentMtime,
+                legacyHash = computed.takeIf { digest == null },
+                digest = digest,
+                indexedAt = System.currentTimeMillis(),
+            )
+        }
         return computed
     }
 

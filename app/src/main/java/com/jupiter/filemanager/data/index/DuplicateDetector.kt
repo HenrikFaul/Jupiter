@@ -180,7 +180,9 @@ class DuplicateDetector @Inject constructor(
             if (item.type == FileType.IMAGE) {
                 val fp = perceptualHashSource.computeAll(item.path)
                     ?: throw TransientArrivalException("Image fingerprint temporarily unavailable")
-                indexRepository.putPerceptualFingerprint(item.path, fp.dhash, fp.phash, fp.ahash)
+                indexRepository.putPerceptualFingerprint(
+                    item.path, fp.dhash, fp.phash, fp.ahash, fp.width, fp.height,
+                )
                 val hash = fp.dhash
                 if (hash == PerceptualHash.UNHASHABLE) return null
                 // Ensure every already-indexed image carries a fingerprint BEFORE comparing, so a
@@ -439,7 +441,9 @@ class DuplicateDetector @Inject constructor(
                     continue
                 }
                 val ok = runCatching {
-                    indexRepository.putPerceptualFingerprint(image.path, fp.dhash, fp.phash, fp.ahash)
+                    indexRepository.putPerceptualFingerprint(
+                        image.path, fp.dhash, fp.phash, fp.ahash, fp.width, fp.height,
+                    )
                 }.isSuccess
                 if (ok) {
                     stored++

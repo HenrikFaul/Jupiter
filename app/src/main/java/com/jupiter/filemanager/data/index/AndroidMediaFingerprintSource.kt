@@ -41,6 +41,13 @@ class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSour
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
             if (durationMs <= 0L) return MediaFingerprint.single(StructuralHash.UNHASHABLE)
+            // Width/height are already available from the opened container. Persist them in one
+            // packed Long so the matcher can veto clearly different aspect ratios without another
+            // decode or a bulky metadata side table.
+            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                ?.toIntOrNull() ?: 0
+            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ?.toIntOrNull() ?: 0
 
             // A VIDEO is temporal content, not one thumbnail. Sample fixed 10/30/50/70/90%
             // positions (the same shape used by the desktop reference engine) and preserve the
@@ -73,7 +80,12 @@ class AndroidMediaFingerprintSource @Inject constructor() : MediaFingerprintSour
             ) {
                 return MediaFingerprint.single(StructuralHash.UNHASHABLE)
             }
-            MediaFingerprint(hashes = hashes, extent = durationMs)
+            MediaFingerprint(
+                hashes = hashes,
+                extent = durationMs,
+                width = width,
+                height = height,
+            )
         } catch (_: Exception) {
             // setDataSource throws for a non-media / unsupported container → conservative UNHASHABLE.
             MediaFingerprint.single(StructuralHash.UNHASHABLE)

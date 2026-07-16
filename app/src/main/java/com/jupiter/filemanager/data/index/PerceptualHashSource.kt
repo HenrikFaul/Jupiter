@@ -42,9 +42,19 @@ class PerceptualHashSource @Inject constructor() {
             val decoded = BitmapFactory.decodeFile(path, options)
                 ?: return PerceptualFingerprint.UNHASHABLE
 
-            val fingerprint = BitmapPerceptual.of(decoded) // one decode → all three layers
-            decoded.recycle()
-            fingerprint
+            val computed = try {
+                BitmapPerceptual.of(decoded)
+            } finally {
+                decoded.recycle()
+            }
+            if (computed.dhash == PerceptualHash.UNHASHABLE) {
+                computed
+            } else {
+                computed.copy(
+                    width = bounds.outWidth,
+                    height = bounds.outHeight,
+                ) // one decode -> all three layers + free bounds metadata
+            }
         } catch (oom: OutOfMemoryError) {
             // Pathological image; mark unhashable rather than retrying it forever.
             PerceptualFingerprint.UNHASHABLE

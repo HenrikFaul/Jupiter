@@ -12,6 +12,7 @@ import com.jupiter.filemanager.data.index.DedupCheckpointStore
 import com.jupiter.filemanager.data.index.DedupDecisionDao
 import com.jupiter.filemanager.data.index.DuplicateDetector
 import com.jupiter.filemanager.data.index.DuplicateNotificationPublisher
+import com.jupiter.filemanager.data.index.CompactMetadataCodec
 import com.jupiter.filemanager.data.index.FileIndexDao
 import com.jupiter.filemanager.data.index.FileIndexDatabase
 import com.jupiter.filemanager.data.index.FileIndexRepositoryImpl
@@ -42,8 +43,8 @@ import javax.inject.Singleton
  * Provides the Room [FileIndexDatabase] + its DAO and binds
  * [FileIndexRepository] to its Room-backed implementation. Known version hops carry a REAL
  * migration (the index holds expensive-to-recompute content/perceptual fingerprints — a wipe
- * forces a full re-survey AND a full photo re-analysis); only unknown/legacy hops fall back to
- * destructive recreation, after which the co-located index_state row correctly reads EMPTY.
+ * forces a full re-survey AND a full photo re-analysis). Every supported hop is explicit and no
+ * destructive fallback is enabled.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -153,6 +154,84 @@ object IndexModule {
         }
     }
 
+    /**
+     * v9 -> v10: compact high-volume duplicate metadata without re-reading any user file.
+     * Production SHA-1 strings become 20-byte BLOBs, and comma-separated media vectors become
+     * 8*N-byte BLOBs. Invalid/non-standard legacy tokens are deliberately retained as TEXT so the
+     * migration is lossless. One packed geometry INTEGER supports image/video aspect-ratio vetoes.
+     */
+    internal val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE file_index ADD COLUMN contentDigest BLOB")
+            db.execSQL("ALTER TABLE file_index ADD COLUMN quickDigest BLOB")
+            db.execSQL("ALTER TABLE file_index ADD COLUMN structuralSignatureBlob BLOB")
+            db.execSQL("ALTER TABLE file_index ADD COLUMN visualGeometry INTEGER")
+
+            migrateContentDigests(db)
+            migrateQuickDigests(db)
+            migrateMediaSignatures(db)
+
+            // New production lookups use the compact digest. The old TEXT column remains only as
+            // a lossless fallback, so retaining its index would waste pages on almost-all NULLs.
+            db.execSQL("DROP INDEX IF EXISTS `index_file_index_contentHash`")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_file_index_contentDigest` " +
+                    "ON `file_index` (`contentDigest`)",
+            )
+        }
+    }
+
+    private fun migrateContentDigests(db: SupportSQLiteDatabase) {
+        val update = db.compileStatement(
+            "UPDATE file_index SET contentDigest = ?, contentHash = NULL WHERE path = ?",
+        )
+        db.query("SELECT path, contentHash FROM file_index WHERE contentHash IS NOT NULL").use { cursor ->
+            while (cursor.moveToNext()) {
+                val digest = CompactMetadataCodec.sha1ToBytes(cursor.getString(1)) ?: continue
+                update.clearBindings()
+                update.bindBlob(1, digest)
+                update.bindString(2, cursor.getString(0))
+                update.executeUpdateDelete()
+            }
+        }
+    }
+
+    private fun migrateQuickDigests(db: SupportSQLiteDatabase) {
+        val update = db.compileStatement(
+            "UPDATE file_index SET quickDigest = ?, quickHash = NULL WHERE path = ?",
+        )
+        db.query("SELECT path, quickHash FROM file_index WHERE quickHash IS NOT NULL").use { cursor ->
+            while (cursor.moveToNext()) {
+                val digest = CompactMetadataCodec.legacyQuickHashToBytes(cursor.getString(1))
+                    ?: continue
+                update.clearBindings()
+                update.bindBlob(1, digest)
+                update.bindString(2, cursor.getString(0))
+                update.executeUpdateDelete()
+            }
+        }
+    }
+
+    private fun migrateMediaSignatures(db: SupportSQLiteDatabase) {
+        val update = db.compileStatement(
+            "UPDATE file_index SET structuralSignatureBlob = ?, structuralSignature = NULL " +
+                "WHERE path = ?",
+        )
+        db.query(
+            "SELECT path, structuralSignature FROM file_index " +
+                "WHERE structuralVersion = 2 AND structuralSignature IS NOT NULL",
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val signature = CompactMetadataCodec.legacyLongVectorToBlob(cursor.getString(1))
+                    ?: continue
+                update.clearBindings()
+                update.bindBlob(1, signature)
+                update.bindString(2, cursor.getString(0))
+                update.executeUpdateDelete()
+            }
+        }
+    }
+
     @Provides
     @Singleton
     fun provideFileIndexDatabase(
@@ -164,6 +243,7 @@ object IndexModule {
             .addMigrations(MIGRATION_6_7)
             .addMigrations(MIGRATION_7_8)
             .addMigrations(MIGRATION_8_9)
+            .addMigrations(MIGRATION_9_10)
             .build()
 
     @Provides

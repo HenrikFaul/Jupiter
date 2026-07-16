@@ -213,7 +213,14 @@ interface FileIndexRepository {
      * combined by the near-duplicate comparison so no single hash family's blind spot decides a
      * match. All three come from one decode.
      */
-    suspend fun putPerceptualFingerprint(path: String, dhash: Long, phash: Long, ahash: Long)
+    suspend fun putPerceptualFingerprint(
+        path: String,
+        dhash: Long,
+        phash: Long,
+        ahash: Long,
+        width: Int = 0,
+        height: Int = 0,
+    )
 
     /**
      * Precomputes content hashes for every file whose size collides with another

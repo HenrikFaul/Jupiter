@@ -376,7 +376,14 @@ class IndexStateMachineTest {
         val g = state.beginScan()
         repo.upsertScanned(listOf(file("/s/x", size = 9000L, mtime = 3L)), g)
 
-        db.fileIndexDao().updateHash("/s/x", 9000L, 3L, "HASH", 42L)
+        db.fileIndexDao().updateHash(
+            path = "/s/x",
+            sizeBytes = 9000L,
+            lastModified = 3L,
+            legacyHash = "HASH",
+            digest = null,
+            indexedAt = 42L,
+        )
 
         val row = db.fileIndexDao().getByPath("/s/x")!!
         assertEquals("HASH", row.contentHash)

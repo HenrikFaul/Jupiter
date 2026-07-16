@@ -83,6 +83,10 @@ class JupiterApp : Application(), Configuration.Provider, ImageLoaderFactory {
         // KEEP policy means a build already in progress is never restarted.
         appScope.launch {
             runCatching {
+                // v10 converts high-volume descriptor TEXT to compact BLOBs during migration;
+                // VACUUM must run later, outside Room's migration transaction, to return the freed
+                // pages to the phone. Versioned + idempotent, and independent of indexing opt-in.
+                indexingScheduler.ensureMetadataCompaction()
                 val enabled = settings.indexingEnabled.first()
                 // The live MediaStore delta observer is part of the indexing pipeline — it only
                 // starts when indexing is enabled (and Settings tears it down on disable), so

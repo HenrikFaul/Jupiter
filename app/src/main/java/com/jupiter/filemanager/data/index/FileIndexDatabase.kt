@@ -8,14 +8,13 @@ import androidx.room.RoomDatabase
  *
  * The index is a cache that CAN be rebuilt from the file system, but rebuilding the
  * content/perceptual fingerprints is expensive (a full photo re-analysis), so known version
- * hops migrate in place (see IndexModule.MIGRATION_4_5); only unknown hops fall back to a
- * destructive wipe. Crucially, the [IndexState] completeness row lives in THIS database, so
- * a destructive wipe resets the state to EMPTY together with the data — an empty index can
- * never appear "complete".
+ * hops migrate in place. No destructive fallback is enabled: an unsupported hop must fail
+ * explicitly instead of silently discarding expensive fingerprints. The [IndexState] completeness
+ * row lives in this database so lifecycle and content remain transactionally aligned.
  */
 @Database(
     entities = [FileIndexEntry::class, IndexState::class, DedupDecision::class],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class FileIndexDatabase : RoomDatabase() {

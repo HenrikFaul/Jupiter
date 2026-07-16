@@ -54,6 +54,13 @@ private data class WhatsNewHighlight(
  */
 private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
     WhatsNewHighlight(
+        icon = Icons.Filled.Storage,
+        title = "Smaller, smarter on-device index",
+        description = "Exact and quick hashes now use compact binary storage, media signatures " +
+            "take only eight bytes per sample, and image/video dimensions add a lightweight " +
+            "aspect-ratio safety check. Existing metadata is migrated without rescanning files.",
+    ),
+    WhatsNewHighlight(
         icon = Icons.Filled.Bolt,
         title = "High-precision duplicate review",
         description = "Videos are now compared across five timeline samples, PDFs across multiple " +
@@ -88,7 +95,7 @@ private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
 )
 
 /**
- * "What's New" screen listing recent highlights of the Jupiter app.
+ * "What's New" screen listing recent Jupiscan highlights.
  *
  * Purely static, informational content shown after an update so returning users can
  * discover newly shipped capabilities. It has no ViewModel and makes no claims beyond

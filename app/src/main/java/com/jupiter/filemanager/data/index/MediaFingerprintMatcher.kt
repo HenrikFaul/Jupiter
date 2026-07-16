@@ -29,6 +29,9 @@ object MediaFingerprintMatcher {
 
     private fun videoMatches(a: MediaFingerprint, b: MediaFingerprint): Boolean {
         if (!durationsCompatible(a.extent, b.extent)) return false
+        if (!CompactMetadataCodec.dimensionsCompatible(a.visualGeometry, b.visualGeometry)) {
+            return false
+        }
         val distances = alignedInformativeDistances(a.hashes, b.hashes)
         if (distances.size < MIN_VIDEO_EVIDENCE_FRAMES) return false
         val mean = distances.average()

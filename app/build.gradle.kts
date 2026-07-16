@@ -14,8 +14,8 @@ android {
         applicationId = "com.jupiter.filemanager"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.58.0"
+        versionCode = 11
+        versionName = "0.59.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

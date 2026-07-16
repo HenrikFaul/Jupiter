@@ -87,7 +87,9 @@ class QuickHashCascadeTest {
             groups.first().files.map { it.path }.toSet(),
         )
         // The quick hash was persisted for reuse on the next scan.
-        assertNotNull(db.fileIndexDao().getByPath(a.absolutePath)!!.quickHash)
+        val row = db.fileIndexDao().getByPath(a.absolutePath)!!
+        assertNotNull(row.quickDigest)
+        assertEquals("legacy TEXT must not consume duplicate storage", null, row.quickHash)
     }
 
     @Test
@@ -110,10 +112,14 @@ class QuickHashCascadeTest {
         )
         // Sanity: the quick hashes really did collide (head+tail identical), proving the
         // strong hash — not the quick pre-filter — made the final call.
-        val quickA = db.fileIndexDao().getByPath(a.absolutePath)!!.quickHash
+        val quickA = db.fileIndexDao().getByPath(a.absolutePath)!!.quickDigest
         val quickMiddle = db.fileIndexDao()
-            .getByPath(File(tempDir, "middle.bin").absolutePath)!!.quickHash
+            .getByPath(File(tempDir, "middle.bin").absolutePath)!!.quickDigest
         assertNotNull(quickA)
-        assertTrue("quick hashes must collide for a middle-only diff", quickA == quickMiddle)
+        assertNotNull(quickMiddle)
+        assertTrue(
+            "quick hashes must collide for a middle-only diff",
+            quickA!!.contentEquals(quickMiddle!!),
+        )
     }
 }

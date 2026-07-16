@@ -38,6 +38,26 @@ class MediaFingerprintMatcherTest {
     }
 
     @Test
+    fun `video geometry rejects different shapes but accepts resize and rotation`() {
+        val landscape = MediaFingerprint(
+            List(5) { base }, extent = 30_000L, width = 1920, height = 1080,
+        )
+        val resized = MediaFingerprint(
+            List(5) { base }, extent = 30_000L, width = 1280, height = 720,
+        )
+        val rotated = MediaFingerprint(
+            List(5) { base }, extent = 30_000L, width = 1080, height = 1920,
+        )
+        val square = MediaFingerprint(
+            List(5) { base }, extent = 30_000L, width = 1080, height = 1080,
+        )
+
+        assertTrue(MediaFingerprintMatcher.matches(FileType.VIDEO, landscape, resized))
+        assertTrue(MediaFingerprintMatcher.matches(FileType.VIDEO, landscape, rotated))
+        assertFalse(MediaFingerprintMatcher.matches(FileType.VIDEO, landscape, square))
+    }
+
+    @Test
     fun `pdf page count and audio duration are hard type gates`() {
         val pdf3 = MediaFingerprint(List(3) { base }, extent = 3L)
         val pdf4 = MediaFingerprint(List(3) { base }, extent = 4L)
