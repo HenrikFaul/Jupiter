@@ -1053,7 +1053,10 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - Lokális debug APK: `app/build/outputs/apk/debug/app-debug.apk`, **36 487 034 byte**, SHA-256 `5584AF40102FD8C99DA3381DBCDF6D55F5CEFBE1489B35CE7F4574668689FA9F`.
 - API 34 emulátor: `adb install -r` sikeres; 0.59.0-debug process elindult; SQLite header `user_version=10`; a WorkManager marker `compacted_schema=10`; nincs FATAL/Room migration/SQLite exception. A külön JVM migrációs teszt bizonyítja a seedelt v9 sorok veszteségmentes v10 átalakítását.
 - `git diff --check` → whitespace-hiba nincs; a repository CRLF-normalizációs figyelmeztetései nem patch-hibák.
-- Távoli commit/push és GitHub Actions eredmény: **a dokumentálás pillanatában folyamatban; csak konkrét run után egészíthető ki**.
+- Implementációs commit `c747ab08deec2c946b4081c15feb6713d197f872` közvetlenül `origin/main`-re pusholva.
+- GitHub Actions [Android CI run 29484855688](https://github.com/HenrikFaul/Jupiter/actions/runs/29484855688) → **SUCCESS**: 384 JVM teszt, debug/release assemble, artifact upload, időbélyeges archive és `build-latest` release-publikálás sikeres.
+- Publikált [app-debug.apk](https://github.com/HenrikFaul/Jupiter/releases/download/build-latest/app-debug.apk): **36 487 034 byte**, SHA-256 `3befde647aab0816d55c39c5a69e84f69c3bee14bb288405d5ab80437883afef`.
+- Publikált [app-release.apk](https://github.com/HenrikFaul/Jupiter/releases/download/build-latest/app-release.apk): **7 919 743 byte**, SHA-256 `3a102fb9ab9902b543e95a6ad37ceef1d516dda7ed4f4d4be603a0893712e4bc`.
 
 ### Known issues / remaining risk
 
