@@ -6,6 +6,12 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+ksp {
+    // Track Room's authoritative schema from v11 forward so future migrations can be validated
+    // against the actual generated contract instead of a hand-written approximation.
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
     namespace = "com.jupiter.filemanager"
     compileSdk = 35
@@ -14,8 +20,8 @@ android {
         applicationId = "com.jupiter.filemanager"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.59.0"
+        versionCode = 12
+        versionName = "0.60.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

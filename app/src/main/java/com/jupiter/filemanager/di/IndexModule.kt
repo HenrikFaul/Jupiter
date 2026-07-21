@@ -50,6 +50,37 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object IndexModule {
 
+    /** v1 → v2: preserve the original index while adding its co-located lifecycle authority. */
+    internal val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE file_index ADD COLUMN lastSeenGeneration INTEGER NOT NULL DEFAULT 0",
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `index_state` (" +
+                    "`volumeId` TEXT NOT NULL, `metadataStatus` TEXT NOT NULL, " +
+                    "`activeScanGeneration` INTEGER NOT NULL, " +
+                    "`lastCompleteGeneration` INTEGER NOT NULL, `scanStartedAt` INTEGER NOT NULL, " +
+                    "`scanCompletedAt` INTEGER NOT NULL, `filesSeen` INTEGER NOT NULL, " +
+                    "`lastError` TEXT, PRIMARY KEY(`volumeId`))",
+            )
+        }
+    }
+
+    /** v2 → v3: first-generation image dHash, nullable so existing rows backfill in place. */
+    internal val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE file_index ADD COLUMN perceptualHash INTEGER")
+        }
+    }
+
+    /** v3 → v4: shared type-aware structural hash, again additive and lossless. */
+    internal val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE file_index ADD COLUMN structuralHash INTEGER")
+        }
+    }
+
     /**
      * v4 → v5: adds the stacked-perceptual columns (phash/ahash), the quick head+tail hash
      * column, and the hot dedup/analytics query indexes — WITHOUT dropping the table, so the
@@ -181,6 +212,29 @@ object IndexModule {
         }
     }
 
+    /**
+     * v10 -> v11: make the image stack explicitly versioned. This is one additive small INTEGER;
+     * no user file is read during database open. Fully valid v10 rows keep their ready state,
+     * while rows missing the v10-added geometry remain version 0 and are truthfully requeued so
+     * the aspect-ratio veto cannot be reported ready while silently inactive.
+     */
+    internal val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE file_index ADD COLUMN perceptualVersion INTEGER NOT NULL DEFAULT 0",
+            )
+            db.execSQL(
+                "UPDATE file_index SET perceptualVersion = 1 WHERE isDirectory = 0 " +
+                    "AND typeName = 'IMAGE' AND ((perceptualHash = -9223372036854775808 " +
+                    "AND phash = -9223372036854775808 AND ahash = -9223372036854775808) " +
+                    "OR (perceptualHash IS NOT NULL AND phash IS NOT NULL AND ahash IS NOT NULL " +
+                    "AND perceptualHash != -9223372036854775808 " +
+                    "AND phash != -9223372036854775808 AND ahash != -9223372036854775808 " +
+                    "AND visualGeometry IS NOT NULL))",
+            )
+        }
+    }
+
     private fun migrateContentDigests(db: SupportSQLiteDatabase) {
         val update = db.compileStatement(
             "UPDATE file_index SET contentDigest = ?, contentHash = NULL WHERE path = ?",
@@ -232,18 +286,27 @@ object IndexModule {
         }
     }
 
+    /** Single ordered source of truth shared by production and full-chain migration tests. */
+    internal fun allMigrations(): Array<Migration> = arrayOf(
+        MIGRATION_1_2,
+        MIGRATION_2_3,
+        MIGRATION_3_4,
+        MIGRATION_4_5,
+        MIGRATION_5_6,
+        MIGRATION_6_7,
+        MIGRATION_7_8,
+        MIGRATION_8_9,
+        MIGRATION_9_10,
+        MIGRATION_10_11,
+    )
+
     @Provides
     @Singleton
     fun provideFileIndexDatabase(
         @ApplicationContext context: Context,
     ): FileIndexDatabase =
         Room.databaseBuilder(context, FileIndexDatabase::class.java, "jupiter_index.db")
-            .addMigrations(MIGRATION_4_5)
-            .addMigrations(MIGRATION_5_6)
-            .addMigrations(MIGRATION_6_7)
-            .addMigrations(MIGRATION_7_8)
-            .addMigrations(MIGRATION_8_9)
-            .addMigrations(MIGRATION_9_10)
+            .addMigrations(*allMigrations())
             .build()
 
     @Provides

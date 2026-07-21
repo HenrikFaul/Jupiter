@@ -1,6 +1,6 @@
 name: Android CI
 
-# Build the Jupiter file manager on pushes/PRs and on manual dispatch.
+# Build the Jupiscan file manager on pushes/PRs and on manual dispatch.
 # Produces an installable debug APK (always) and a release APK (best effort)
 # and publishes them as downloadable build artifacts.
 on:
@@ -58,7 +58,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: jupiter-debug-apk
+          name: jupiscan-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -77,7 +77,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: jupiter-release-apk
+          name: jupiscan-release-apk
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: warn
           retention-days: 30
@@ -103,7 +103,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: archive
-          name: Jupiter — build archive
+          name: Jupiscan — build archive
           body: |
             Accumulating archive of every build. Each APK is postfixed with a UTC
             `YYYYMMDD-HHMMSS` timestamp so older working builds can be rolled back to.
@@ -121,7 +121,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-latest
-          name: Jupiter — latest build (${{ github.sha }})
+          name: Jupiscan — latest build (${{ github.sha }})
           body: |
             Automated build of `${{ github.ref_name }}` @ `${{ github.sha }}`.
             - **app-debug.apk** — installable, recommended.

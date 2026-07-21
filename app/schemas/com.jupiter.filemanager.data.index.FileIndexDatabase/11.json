@@ -1,0 +1,405 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 11,
+    "identityHash": "7cf37a230797aa020b8f3b922cb64b61",
+    "entities": [
+      {
+        "tableName": "file_index",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`path` TEXT NOT NULL, `parentPath` TEXT NOT NULL, `name` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `lastModified` INTEGER NOT NULL, `typeName` TEXT NOT NULL, `isDirectory` INTEGER NOT NULL, `extension` TEXT NOT NULL, `contentHash` TEXT, `contentDigest` BLOB, `indexedAt` INTEGER NOT NULL, `lastSeenGeneration` INTEGER NOT NULL, `perceptualHash` INTEGER, `structuralHash` INTEGER, `structuralSignature` TEXT, `structuralSignatureBlob` BLOB, `structuralExtent` INTEGER, `structuralVersion` INTEGER NOT NULL, `quickHash` TEXT, `quickDigest` BLOB, `phash` INTEGER, `ahash` INTEGER, `visualGeometry` INTEGER, `perceptualVersion` INTEGER NOT NULL, PRIMARY KEY(`path`))",
+        "fields": [
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentPath",
+            "columnName": "parentPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastModified",
+            "columnName": "lastModified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "typeName",
+            "columnName": "typeName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDirectory",
+            "columnName": "isDirectory",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extension",
+            "columnName": "extension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentHash",
+            "columnName": "contentHash",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "contentDigest",
+            "columnName": "contentDigest",
+            "affinity": "BLOB",
+            "notNull": false
+          },
+          {
+            "fieldPath": "indexedAt",
+            "columnName": "indexedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenGeneration",
+            "columnName": "lastSeenGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "perceptualHash",
+            "columnName": "perceptualHash",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "structuralHash",
+            "columnName": "structuralHash",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "structuralSignature",
+            "columnName": "structuralSignature",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "structuralSignatureBlob",
+            "columnName": "structuralSignatureBlob",
+            "affinity": "BLOB",
+            "notNull": false
+          },
+          {
+            "fieldPath": "structuralExtent",
+            "columnName": "structuralExtent",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "structuralVersion",
+            "columnName": "structuralVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quickHash",
+            "columnName": "quickHash",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "quickDigest",
+            "columnName": "quickDigest",
+            "affinity": "BLOB",
+            "notNull": false
+          },
+          {
+            "fieldPath": "phash",
+            "columnName": "phash",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ahash",
+            "columnName": "ahash",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "visualGeometry",
+            "columnName": "visualGeometry",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "perceptualVersion",
+            "columnName": "perceptualVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "path"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_file_index_parentPath",
+            "unique": false,
+            "columnNames": [
+              "parentPath"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_file_index_parentPath` ON `${TABLE_NAME}` (`parentPath`)"
+          },
+          {
+            "name": "index_file_index_name",
+            "unique": false,
+            "columnNames": [
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_file_index_name` ON `${TABLE_NAME}` (`name`)"
+          },
+          {
+            "name": "index_file_index_sizeBytes",
+            "unique": false,
+            "columnNames": [
+              "sizeBytes"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_file_index_sizeBytes` ON `${TABLE_NAME}` (`sizeBytes`)"
+          },
+          {
+            "name": "index_file_index_contentDigest",
+            "unique": false,
+            "columnNames": [
+              "contentDigest"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_file_index_contentDigest` ON `${TABLE_NAME}` (`contentDigest`)"
+          },
+          {
+            "name": "index_file_index_perceptualHash",
+            "unique": false,
+            "columnNames": [
+              "perceptualHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_file_index_perceptualHash` ON `${TABLE_NAME}` (`perceptualHash`)"
+          },
+          {
+            "name": "index_file_index_lastSeenGeneration",
+            "unique": false,
+            "columnNames": [
+              "lastSeenGeneration"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_file_index_lastSeenGeneration` ON `${TABLE_NAME}` (`lastSeenGeneration`)"
+          },
+          {
+            "name": "index_file_index_typeName",
+            "unique": false,
+            "columnNames": [
+              "typeName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_file_index_typeName` ON `${TABLE_NAME}` (`typeName`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "index_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`volumeId` TEXT NOT NULL, `metadataStatus` TEXT NOT NULL, `activeScanGeneration` INTEGER NOT NULL, `lastCompleteGeneration` INTEGER NOT NULL, `scanStartedAt` INTEGER NOT NULL, `scanCompletedAt` INTEGER NOT NULL, `filesSeen` INTEGER NOT NULL, `checkpointJson` TEXT, `mediaStoreVersion` TEXT, `lastMediaStoreGeneration` INTEGER NOT NULL, `lastDeltaSyncAt` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`volumeId`))",
+        "fields": [
+          {
+            "fieldPath": "volumeId",
+            "columnName": "volumeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "metadataStatus",
+            "columnName": "metadataStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeScanGeneration",
+            "columnName": "activeScanGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastCompleteGeneration",
+            "columnName": "lastCompleteGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scanStartedAt",
+            "columnName": "scanStartedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scanCompletedAt",
+            "columnName": "scanCompletedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filesSeen",
+            "columnName": "filesSeen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "checkpointJson",
+            "columnName": "checkpointJson",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "mediaStoreVersion",
+            "columnName": "mediaStoreVersion",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lastMediaStoreGeneration",
+            "columnName": "lastMediaStoreGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastDeltaSyncAt",
+            "columnName": "lastDeltaSyncAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "volumeId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "dedup_decision",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`decisionKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `newPath` TEXT NOT NULL, `existingPaths` TEXT NOT NULL, `algorithmVersion` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `deliveryState` TEXT NOT NULL DEFAULT 'PENDING', `deliveryAttempts` INTEGER NOT NULL DEFAULT 0, `lastDeliveryAttemptAt` INTEGER NOT NULL DEFAULT 0, `deliveredAt` INTEGER, `lastDeliveryFailure` TEXT, PRIMARY KEY(`decisionKey`))",
+        "fields": [
+          {
+            "fieldPath": "decisionKey",
+            "columnName": "decisionKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "newPath",
+            "columnName": "newPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "existingPaths",
+            "columnName": "existingPaths",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "algorithmVersion",
+            "columnName": "algorithmVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deliveryState",
+            "columnName": "deliveryState",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'PENDING'"
+          },
+          {
+            "fieldPath": "deliveryAttempts",
+            "columnName": "deliveryAttempts",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "lastDeliveryAttemptAt",
+            "columnName": "lastDeliveryAttemptAt",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "deliveredAt",
+            "columnName": "deliveredAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lastDeliveryFailure",
+            "columnName": "lastDeliveryFailure",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "decisionKey"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7cf37a230797aa020b8f3b922cb64b61')"
+    ]
+  }
+}

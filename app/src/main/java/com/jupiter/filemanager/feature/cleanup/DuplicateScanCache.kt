@@ -158,6 +158,6 @@ class DuplicateScanCache @Inject constructor(
 
     private companion object {
         const val SNAPSHOT_NAME = "duplicate_scan_snapshot.tsv"
-        const val SNAPSHOT_HEADER = "#jupiscan-duplicate-cache-v2-media-signature-2"
+        const val SNAPSHOT_HEADER = "#jupiscan-duplicate-cache-v3-image-evidence-1-media-signature-2"
     }
 }

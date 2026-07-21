@@ -1063,3 +1063,98 @@ A formátum a *Keep a Changelog* mintát követi; a verziózás szemantikus.
 - A tényleges megtakarítás az indexelt hash-ek és media descriptorok arányától, valamint a SQLite page-kihasználtságától függ; a payload-méret csökkenése determinisztikus, a teljes DB-fájl százalékos csökkenésére nem adunk hamis univerzális ígéretet.
 - A fizikai compaction battery-not-low WorkManager feladat és hiba esetén retry; ezért upgrade után nem feltétlen az első képkocka előtt fejeződik be. Az index addig is olvasható, a logikai migráció már kész.
 - A konkrét Samsung 40k+ korpusz tárhely- és p95/p99 benchmarkját ez az emulátoros/JVM kör nem helyettesíti; azt külön device instrumentation mérésnek kell rögzítenie.
+
+## [jupiscan:0.60.0] - 2026-07-21
+
+**Scope / miért:** a képi duplikációs metadata korábban nem volt producer-verzióhoz kötve,
+a v10-ben bevezetett geometria hiánya nem került vissza backfillbe, egy harmadik hash-család teljes
+ellentmondását pedig elrejthette a régi OR-kapu. A kör ezt az Android-native bizonyítékláncot
+szigorítja minimális Room-többlettel, régi telepítések adatvesztés nélküli upgrade-jével.
+
+### Added
+
+- **[data/index]** `perceptualVersion`: egyetlen kis INTEGER az image descriptor producer-contracthoz;
+  nincs második metadata-adatbázis, side table, új index, Python runtime vagy ML dependency.
+- **[data/dedup]** `VisualMatchEvidence`: descriptor-teljesség, geometriaeredmény, dHash/pHash/aHash
+  távolság, kombinált score és végső döntés egyetlen production/test útvonalon.
+- **[data/migration]** Explicit v1→v2, v2→v3, v3→v4 és v10→v11 migrációk, közös rendezett
+  production/test migrációs lista; Room schema export és követett v11 JSON contract.
+- **[test]** Valódi v1→v11 Room-open, célzott v10→v11 megőrzés, live/batch readiness, keyset
+  backlog, 205 soros 100+100+5 lapozás, mixed-sentinel mátrix, fals-pozitív harmadik-family,
+  PNG/JPEG+resize és low-contrast JPEG q50 pozitív, distance-8/10 LSH és cache-version tesztek.
+
+### Changed
+
+- **[data/dedup]** Csak current, teljes IMAGE dHash+pHash+aHash+geometry sor léphet a fotó-matcherbe.
+  A dHash és független family kapu mellett a három távolság súlyozott bizonyítéka is kötelező; egy
+  szűk smooth-image fallback sem enged 32 bitnél nagyobb harmadik-family ellentmondást. A standard
+  8 bites dHash-kapun kívül csak pHash≤4 + aHash≤4 + score≤6 három-family konszenzus mehet 10 bitig.
+- **[data/performance]** A pHash DCT 8×32 cosine basis egyszer készül el a korábbi képenkénti
+  16 384 trigonometrikus számítás helyett; a tárolt hash formátuma nem változott.
+- **[data/index]** A változó szélességű LSH candidate-partíció lefedi a publikus inclusive
+  distance-8 határt és a szűk high-consensus 10 bites candidate-capet; a végső ellenőrzés továbbra
+  is budgetált, fail-closed, stacked és complete-link.
+- **[data/backfill]** `ORDER BY path` keyset lapozás: 100 átmenetileg olvashatatlan korai kép nem
+  blokkolja a későbbi galériát. A 50k futási cap minden meglátogatott sort számol, a lap végén teljes
+  backlog-recount fogja meg a cursor mögé került sort, a hibás sor hiányzó marad és retryt kér.
+- **[data/performance]** A worker és az arrival catch-up 100 descriptor írást egyetlen rövid Room
+  tranzakcióban ment, így a live readiness oldalanként, nem képenként invalidálódik.
+- **[data/readiness]** A StorageReadiness Room-observed aggregate-tel közvetlenül követi a descriptor
+  UPDATE-eket; nem kell hozzá mesterséges `index_state` írás.
+- **[build/ui]** versionCode 12 / versionName 0.60.0; What's New és README az új, bizonyított
+  descriptor-contractot írja le.
+- **[build/brand]** A GitHub Actions artifact- és release-nevek is Jupiscanre váltottak; a stabil
+  `build-latest` tag, APK fájlnevek és letöltési URL-ek változatlanok maradtak.
+
+### Fixed
+
+- **[dedup/precision]** Két közeli hash-család többé nem rejthet el egy teljesen ellentmondó harmadik
+  családot és nem tehet össze nem illő képeket ugyanabba a cleanup kártyába.
+- **[dedup/coverage]** Hiányzó aHash, geometria vagy régi producer-verzió most ténylegesen backfillre
+  kerül; readiness nem jelez kész állapotot aktív aspect-ratio védelem nélkül.
+- **[dedup/state]** Csak a mindhárom-UNHASHABLE terminális állapot vagy a mindhárom-valid+geometry
+  állapot kész; minden vegyes sentinel kombináció fail-closed módon visszakerül a backlogba.
+- **[dedup/cache]** A korábbi image decision contracttal mentett cold snapshot törlődik; friss scan
+  tölti fel v3 formátumban.
+- **[migration]** A v1-v3-ról közvetlenül frissítő telepítésekhez már nincs hiányzó Room hop;
+  destructive migration továbbra sincs.
+- **[type safety]** A photo comparison SQL kizárólag IMAGE típusú current descriptorokat olvas.
+
+### Regression checks
+
+- Exact identity továbbra is teljes current-byte content hash; Similar review-only.
+- Complete-link, keeper-védelem, méretszűrő, sorrend, Select all/Deselect all és Recycle Bin megmaradt.
+- Full/quick hash, media/text/archive descriptor, generation/checkpoint, notification outbox és
+  idempotencia v10→v11 alatt változatlan.
+- Csomag-, alkalmazás-, DB- és preference-azonosító megmaradt; user-visible brand Jupiscan.
+- D4/rotation/mirror/crop/semantic VISOR támogatás nincs hamisan késznek állítva.
+
+### Verification
+
+- Kör elején `main`; `git pull --ff-only origin main` → **Already up to date**; `Requirements/` és
+  `versioning.zip` érintetlen.
+- `:app:compileDebugKotlin` és a célzott evidence/cache/persistence/readiness/migration tesztek →
+  **BUILD SUCCESSFUL**.
+- Valódi v1 SQLite adatbázis production migrációkkal v11-re nyílik és Room schema-validációt teljesít.
+- Teljes `:app:testDebugUnitTest` → **71 suite / 407 test / 0 failure / 0 error / 0 skipped**.
+- `:app:lintDebug :app:assembleDebug :app:assembleRelease` → **BUILD SUCCESSFUL**. A 220 örökölt
+  lint tételből egyik sem az új/módosított index/descriptor/migration/cache fájlra mutat.
+- Debug APK: **36 503 418 byte**, SHA-256
+  `14EA07649D5CC7F66140ADC5C950ED11991A9A60A812F496894518E8A90CAEA9`.
+- Release APK: **7 936 127 byte**, SHA-256
+  `CDD7E5EDF7E0CE4CB580E96F5F12374BD31006F3A04C849C761AFDDC8C8B7F7D`.
+- API 34 retained-data próba: 0.56.0-debug/code 8, Room `user_version=8` → `adb install -r` →
+  0.60.0-debug/code 12, cold launch sikeres, process él, Room `user_version=11`, nincs releváns
+  FATAL/Room/Migration/SQLite exception.
+- A végső debug artifact megtartott v11 adatra `adb install -r` módban újratelepült; cold launch
+  2,201 ms alatt `Status: ok`, PID létrejött, a DB header 11 maradt és az izolált logcat tiszta.
+- Remote commit/CI/build-latest deploy eredménye csak a tényleges push és megfigyelt workflow után
+  kerül hozzáfűzésre.
+
+### Known issues / remaining risk
+
+- Fizikai 40k Samsung corpus p50/p95/p99 benchmark nem futott; ilyen teljesítményállítás nincs.
+- Rotation/mirror/crop/local-feature/semantic egyezés nem része a v0.60-nak; külön versioned
+  descriptor és kalibrált hard-negative corpus szükséges hozzá.
+- A lint report 42 error és 176 warning örökölt projekt-szintű tételt tartalmaz, mert a build jelenlegi
+  policyja `abortOnError=false`; ezek külön adósságot képeznek, az új scope-ban nincs finding.

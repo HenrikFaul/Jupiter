@@ -117,6 +117,7 @@ class CompactMetadataPersistenceTest {
         assertNull(row.phash)
         assertNull(row.ahash)
         assertNull(row.visualGeometry)
+        assertEquals(0, row.perceptualVersion)
     }
 
     @Test
@@ -144,5 +145,151 @@ class CompactMetadataPersistenceTest {
             assertNull(row.structuralSignatureBlob)
             assertNull(row.structuralExtent)
             assertNull(row.visualGeometry)
+            assertEquals(0, row.perceptualVersion)
         }
+
+
+    @Test
+    fun `complete image stack is tagged with the current descriptor version`() = runTest(dispatcher) {
+        val image = item(FileType.IMAGE).copy(
+            path = "/storage/emulated/0/DCIM/photo.jpg",
+            name = "photo.jpg",
+            extension = "jpg",
+        )
+        repo.upsert(listOf(image))
+        repo.putPerceptualFingerprint(image.path, 1L, 2L, 3L, width = 4032, height = 3024)
+
+        val row = db.fileIndexDao().getByPath(image.path)!!
+        assertEquals(PerceptualHash.CURRENT_DESCRIPTOR_VERSION, row.perceptualVersion)
+        assertNotNull(row.visualGeometry)
+        assertEquals(0, repo.imagesNeedingPerceptualHashCount())
+    }
+
+    @Test
+    fun `legacy dHash only write fails closed and remains queued for the full stack`() =
+        runTest(dispatcher) {
+            val image = item(FileType.IMAGE).copy(
+                path = "/storage/emulated/0/DCIM/legacy.jpg",
+                name = "legacy.jpg",
+                extension = "jpg",
+            )
+            repo.upsert(listOf(image))
+            repo.putPerceptualHash(image.path, 123L)
+
+            val row = db.fileIndexDao().getByPath(image.path)!!
+            assertEquals(0, row.perceptualVersion)
+            assertNull(row.phash)
+            assertNull(row.ahash)
+            assertEquals(listOf(image.path), repo.imagesNeedingPerceptualHash(10).map { it.path })
+        }
+
+    @Test
+    fun `only complete or all-unhashable stacks are ready and every other state is requeued`() =
+        runTest(dispatcher) {
+            val names = listOf(
+                "mixed-d", "mixed-p", "mixed-a", "all-unhashable",
+                "complete", "missing-geometry", "obsolete-version",
+            )
+            val images = names.associateWith { name ->
+                item(FileType.IMAGE).copy(
+                    path = "/storage/emulated/0/DCIM/$name.jpg",
+                    name = "$name.jpg",
+                    extension = "jpg",
+                )
+            }
+            repo.upsert(images.values.toList())
+            val sentinel = PerceptualHash.UNHASHABLE
+            val geometry = CompactMetadataCodec.packDimensions(1920, 1080)
+            val dao = db.fileIndexDao()
+            suspend fun write(
+                name: String,
+                d: Long,
+                p: Long,
+                a: Long,
+                packedGeometry: Long?,
+                version: Int = PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+            ) = dao.updatePerceptualFingerprint(
+                images.getValue(name).path, d, p, a, packedGeometry, version,
+            )
+
+            write("mixed-d", sentinel, 2L, 3L, geometry)
+            write("mixed-p", 1L, sentinel, 3L, geometry)
+            write("mixed-a", 1L, 2L, sentinel, geometry)
+            write("all-unhashable", sentinel, sentinel, sentinel, null)
+            write("complete", 1L, 2L, 3L, geometry)
+            write("missing-geometry", 1L, 2L, 3L, null)
+            write("obsolete-version", 1L, 2L, 3L, geometry, version = 0)
+
+            val missing = repo.imagesNeedingPerceptualHash(20).map { it.path }.toSet()
+            val ready = dao.countImagesWithDescriptors(
+                FileType.IMAGE.name,
+                PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+                sentinel,
+            )
+            assertEquals(2, ready)
+            assertEquals(5, repo.imagesNeedingPerceptualHashCount())
+            assertEquals(images.size, ready + missing.size)
+            assertEquals(
+                setOf("mixed-d", "mixed-p", "mixed-a", "missing-geometry", "obsolete-version")
+                    .map { images.getValue(it).path }
+                    .toSet(),
+                missing,
+            )
+        }
+
+    @Test
+    fun `descriptor page is persisted through the batch contract`() = runTest(dispatcher) {
+        val images = (1..2).map { number ->
+            item(FileType.IMAGE).copy(
+                path = "/storage/emulated/0/DCIM/batch-$number.jpg",
+                name = "batch-$number.jpg",
+                extension = "jpg",
+            )
+        }
+        repo.upsert(images)
+
+        repo.putPerceptualFingerprints(
+            images.mapIndexed { index, image ->
+                PathPerceptualFingerprint(
+                    image.path,
+                    PerceptualFingerprint(
+                        dhash = index.toLong() + 1,
+                        phash = index.toLong() + 2,
+                        ahash = index.toLong() + 3,
+                        width = 1920,
+                        height = 1080,
+                    ),
+                )
+            },
+        )
+
+        assertEquals(0, repo.imagesNeedingPerceptualHashCount())
+        images.forEach { image ->
+            assertEquals(
+                PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+                db.fileIndexDao().getByPath(image.path)!!.perceptualVersion,
+            )
+        }
+    }
+
+    @Test
+    fun `image backlog keyset advances beyond a fully retryable first page`() = runTest(dispatcher) {
+        val images = (0 until 205).map { index ->
+            item(FileType.IMAGE).copy(
+                path = "/storage/emulated/0/DCIM/${index.toString().padStart(3, '0')}.jpg",
+                name = "${index.toString().padStart(3, '0')}.jpg",
+                extension = "jpg",
+            )
+        }
+        repo.upsert(images)
+
+        val first = repo.imagesNeedingPerceptualHash(100)
+        val second = repo.imagesNeedingPerceptualHash(100, first.last().path)
+        val third = repo.imagesNeedingPerceptualHash(100, second.last().path)
+
+        assertEquals(100, first.size)
+        assertEquals(100, second.size)
+        assertEquals(5, third.size)
+        assertEquals(205, (first + second + third).map { it.path }.toSet().size)
+    }
 }

@@ -14,8 +14,8 @@ import androidx.room.RoomDatabase
  */
 @Database(
     entities = [FileIndexEntry::class, IndexState::class, DedupDecision::class],
-    version = 10,
-    exportSchema = false,
+    version = 11,
+    exportSchema = true,
 )
 abstract class FileIndexDatabase : RoomDatabase() {
     abstract fun fileIndexDao(): FileIndexDao

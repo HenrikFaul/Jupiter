@@ -5,6 +5,7 @@ import com.jupiter.filemanager.domain.model.FileItem
 import com.jupiter.filemanager.domain.model.IndexStats
 import com.jupiter.filemanager.data.index.MediaFingerprint
 import com.jupiter.filemanager.data.index.PerceptualFingerprint
+import com.jupiter.filemanager.data.index.PathPerceptualFingerprint
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -147,7 +148,7 @@ interface FileIndexRepository {
      * background backfill. Every returned row is guaranteed to be marked (hash or an
      * unhashable sentinel) by the caller, so repeated calls always make progress.
      */
-    suspend fun imagesNeedingPerceptualHash(limit: Int): List<FileItem>
+    suspend fun imagesNeedingPerceptualHash(limit: Int, afterPath: String = ""): List<FileItem>
 
     /** Clears the entire index. */
     suspend fun clear()
@@ -193,6 +194,7 @@ interface FileIndexRepository {
      * groups them). Each returned [DuplicateGroup] has `similar = true`, its files ordered
      * largest-first, and existence-pruned. Only images that already carry a perceptual hash
      * participate (the backfill worker populates them); returns empty when fewer than two match.
+     * [threshold] must be in 0..63 so threshold+1 candidate bands retain their coverage contract.
      */
     suspend fun nearDuplicateImageGroups(threshold: Int): List<DuplicateGroup>
 
@@ -221,6 +223,9 @@ interface FileIndexRepository {
         width: Int = 0,
         height: Int = 0,
     )
+
+    /** Persists one decoded backfill page atomically to bound Room invalidation work. */
+    suspend fun putPerceptualFingerprints(updates: List<PathPerceptualFingerprint>)
 
     /**
      * Precomputes content hashes for every file whose size collides with another

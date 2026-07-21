@@ -20,7 +20,7 @@ that Jupiscan *manages* on a device — only about Jupiscan's own evolution.
 > lesson in the version record for later synchronization.
 
 > Heritage: the format follows the Henris Forge versioning convention. Boundary: these files describe
-> **Jupiter's** development; never write them into a user's device/managed files.
+> **Jupiscan's** development; never write them into a user's device/managed files.
 
 ---
 
@@ -33,7 +33,7 @@ For this repository the owner requires direct integration on the default branch:
 1. Before implementation, confirm the current branch is `main` (or `master` only if that is the
    repository's actual default), fetch the remote, and run an `--ff-only` pull from that branch.
 2. Work directly on that synchronized default branch; do not create a parallel feature branch for
-   an ordinary Jupiter iteration. Preserve any pre-existing local work and stop rather than resetting it.
+   an ordinary Jupiscan iteration. Preserve any pre-existing local work and stop rather than resetting it.
 3. After the required build/tests/docs gates pass, commit the complete scoped change and push the same
    default branch to `origin`. Record the pull/branch/commit/push evidence in the version summary.
 
@@ -57,7 +57,7 @@ Before claiming a round complete, every change to Jupiscan must update ALL of th
 ## Required versioning-summary depth
 
 Each summary MUST include:
-- version · date · change-package id · scope (Jupiter app, not managed files);
+- version · date · change-package id · scope (Jupiscan app, not managed files);
 - **Goal / why the change exists** (tie to the authoritative user requirement, quoted);
 - **Added** (every new file/module, one line each);
 - **Modified** (every changed file + what changed);

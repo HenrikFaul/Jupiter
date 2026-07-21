@@ -50,6 +50,33 @@ class PerceptualStackTest {
             (235 - 9 * (kotlin.math.abs(x - cx) + kotlin.math.abs(y - cy))).coerceIn(0, 255)
         }
 
+    /** Pre-optimization reference: direct 2-D DCT with cosine evaluated inside the loops. */
+    private fun directPHash(gray: IntArray): Long {
+        val n = PerceptualHash.PHASH_GRID
+        val block = PerceptualHash.AHASH_GRID
+        val coefficients = DoubleArray(block * block)
+        for (v in 0 until block) {
+            for (u in 0 until block) {
+                var sum = 0.0
+                for (y in 0 until n) {
+                    val cosY = kotlin.math.cos((2 * y + 1) * v * Math.PI / (2.0 * n))
+                    for (x in 0 until n) {
+                        val cosX = kotlin.math.cos((2 * x + 1) * u * Math.PI / (2.0 * n))
+                        sum += gray[y * n + x] * cosX * cosY
+                    }
+                }
+                coefficients[v * block + u] = sum
+            }
+        }
+        val sorted = coefficients.copyOfRange(1, coefficients.size).sortedArray()
+        val median = (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0
+        var hash = 0L
+        for (index in 1 until coefficients.size) {
+            if (coefficients[index] > median) hash = hash or (1L shl index)
+        }
+        return hash
+    }
+
     @Test
     fun pHashToleratesSmallPerturbationButSeparatesDifferentContent() {
         val n = PerceptualHash.PHASH_GRID
@@ -118,5 +145,118 @@ class PerceptualStackTest {
         assertFalse(
             PerceptualHash.isVisuallySimilar(PerceptualHash.UNHASHABLE, 0L, null, null, null, null),
         )
+    }
+
+    @Test
+    fun precomputedCosineBasisPreservesThePersistedPHashBits() {
+        val n = PerceptualHash.PHASH_GRID
+        val richGrid = IntArray(n * n) { index ->
+            val x = index % n
+            val y = index / n
+            (index * 73 + y * 29 + x * y * 7).and(255)
+        }
+
+        assertEquals(
+            "the DCT speed-up must not change stored descriptor meaning",
+            directPHash(richGrid),
+            PerceptualHash.pHashFromLuminanceGrid(richGrid),
+        )
+    }
+
+    @Test
+    fun samePictureEvidenceRejectsAThirdFamilyCatastrophicDisagreement() {
+        // This passed the old `d <= 8 && (p <= 10 || a <= 10)` gate because dHash+pHash happened
+        // to agree. The fused score now exposes that aHash is the exact opposite instead of letting
+        // a single OR branch place unrelated images in one cleanup card.
+        val evidence = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0L,
+            pA = 0L,
+            pB = 0L,
+            aA = 0L,
+            aB = -1L,
+        )
+
+        assertTrue(evidence.descriptorComplete)
+        assertEquals(64, evidence.aHashDistance)
+        assertFalse(evidence.matches)
+    }
+
+    @Test
+    fun samePictureEvidenceAcceptsBalancedCloseStacksAndFailsClosedWhenIncomplete() {
+        val close = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0xFFL,
+            pA = 0L,
+            pB = 0x3FFL,
+            aA = 0L,
+            aB = 0x3FFL,
+        )
+        assertTrue(close.matches)
+        assertTrue(close.combinedScore!! <= PerceptualHash.SAME_PICTURE_SCORE_THRESHOLD)
+
+        val incomplete = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0L,
+            pA = null,
+            pB = 0L,
+            aA = 0L,
+            aB = 0L,
+        )
+        assertFalse(incomplete.descriptorComplete)
+        assertFalse(incomplete.matches)
+    }
+
+    @Test
+    fun samePictureEvidenceRecoversOnlyThreeFamilyConsensusBeyondTheStandardDhashGate() {
+        val smoothReencode = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0x3FFL, // ten dHash bits: two beyond the standard gate
+            pA = 0L,
+            pB = 0b11L,
+            aA = 0L,
+            aB = 0b111L,
+        )
+        assertTrue(smoothReencode.matches)
+
+        val oneMoreDhashBit = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0x7FFL,
+            pA = 0L,
+            pB = 0b11L,
+            aA = 0L,
+            aB = 0b111L,
+        )
+        assertFalse(oneMoreDhashBit.matches)
+
+        val thirdFamilyDisagrees = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0x3FFL,
+            pA = 0L,
+            pB = 0b11L,
+            aA = 0L,
+            aB = 0x1FL,
+        )
+        assertFalse(thirdFamilyDisagrees.matches)
+
+        val smoothPHashAtBound = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0b11L,
+            pA = 0L,
+            pB = 0xFFFF_FFFFL,
+            aA = 0L,
+            aB = 0b1111L,
+        )
+        assertTrue(smoothPHashAtBound.matches)
+
+        val smoothPHashBeyondBound = PerceptualHash.samePictureEvidence(
+            dA = 0L,
+            dB = 0b11L,
+            pA = 0L,
+            pB = 0x1_FFFF_FFFFL,
+            aA = 0L,
+            aB = 0b1111L,
+        )
+        assertFalse(smoothPHashBeyondBound.matches)
     }
 }

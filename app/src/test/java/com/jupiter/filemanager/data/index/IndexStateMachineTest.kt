@@ -59,13 +59,14 @@ class IndexStateMachineTest {
         size: Long = 10L,
         mtime: Long = 1L,
         dir: Boolean = false,
+        type: FileType = FileType.OTHER,
     ) = FileItem(
         path = path,
         name = path.trimEnd('/').substringAfterLast('/'),
         isDirectory = dir,
         sizeBytes = if (dir) 0L else size,
         lastModified = mtime,
-        type = FileType.OTHER,
+        type = type,
         extension = "",
     )
 
@@ -333,21 +334,30 @@ class IndexStateMachineTest {
             val broken = File(dir, "broken.jpg").apply { writeText("x") }
             repo.upsert(
                 listOf(
-                    file(a.absolutePath, size = 5_000L),
-                    file(b.absolutePath, size = 6_000L),
-                    file(c.absolutePath, size = 7_000L),
-                    file(broken.absolutePath, size = 8_000L),
+                    file(a.absolutePath, size = 5_000L, type = FileType.IMAGE),
+                    file(b.absolutePath, size = 6_000L, type = FileType.IMAGE),
+                    file(c.absolutePath, size = 7_000L, type = FileType.IMAGE),
+                    file(broken.absolutePath, size = 8_000L, type = FileType.IMAGE),
                 ),
             )
             val base = 0b1111L
-            repo.putPerceptualFingerprint(a.absolutePath, base, base, base)
+            repo.putPerceptualFingerprint(a.absolutePath, base, base, base, 100, 100)
             repo.putPerceptualFingerprint(
                 b.absolutePath,
                 base xor 0b11L,
                 base xor 0b11L,
                 base xor 0b11L,
+                100,
+                100,
             ) // distance 2 in every family → near
-            repo.putPerceptualFingerprint(c.absolutePath, base.inv(), base.inv(), base.inv())
+            repo.putPerceptualFingerprint(
+                c.absolutePath,
+                base.inv(),
+                base.inv(),
+                base.inv(),
+                100,
+                100,
+            )
             repo.putPerceptualFingerprint(
                 broken.absolutePath,
                 PerceptualHash.UNHASHABLE,

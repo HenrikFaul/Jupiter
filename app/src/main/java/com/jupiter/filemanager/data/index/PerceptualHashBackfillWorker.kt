@@ -25,11 +25,9 @@ import kotlinx.coroutines.flow.first
  * arriving after the feature shipped. This is the ONLY proactive bulk writer of `perceptualHash`,
  * so duplicate-photo detection on a pre-existing gallery depends entirely on it.
  *
- * It drains the ENTIRE "missing fingerprint" backlog in a single run (no per-run cap) and promotes
- * itself to a FOREGROUND service for a large backlog, so Doze / background-execution limits can't
- * throttle it into never finishing — the previous 2,000-per-run cap under WorkManager's exponential
- * retry backoff took ~20 hours-apart runs to cover a 40k-image library, which meant the duplicate
- * screen saw an essentially empty fingerprint set for a long time. Crucially, a transient decode or
+ * It visits up to 50k missing-fingerprint rows per run and promotes itself to a FOREGROUND service
+ * for a large backlog, so the reported 40k-photo corpus fits in one contiguous attempt instead of
+ * the old 2k/20k backoff-spaced runs. Crucially, a transient decode or
  * database failure is NOT written as [PerceptualHash.UNHASHABLE]: doing so turns a temporary OEM
  * decoder/provider hiccup into a permanent `Similar photos (0)` false negative. Truly undecodable
  * files are still marked with that sentinel by [PerceptualHashSource], while retryable rows remain
@@ -52,9 +50,20 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
                 )
             ) return Result.success()
 
-            // Peek the backlog. Nothing to do → cheap success (no notification flashes).
-            var batch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
-            if (batch.isEmpty()) return Result.success()
+            // Peek the backlog. An empty page is verified against the authoritative full count
+            // below: a concurrent insert/rename can otherwise land behind the keyset cursor and
+            // incorrectly turn this run into a terminal success.
+            val firstBatch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
+            if (firstBatch.isEmpty()) {
+                val remaining = try {
+                    indexRepository.imagesNeedingPerceptualHashCount()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    return Result.retry()
+                }
+                return if (remaining > 0) Result.retry() else Result.success()
+            }
 
             // A large backlog (first run on an existing gallery) must run to completion, which can
             // take a few minutes of decoding — promote to a foreground service so the OS lets it.
@@ -63,52 +72,50 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
             val foreground = remaining >= FOREGROUND_THRESHOLD
             if (foreground) runCatching { setForeground(foregroundInfo(0, remaining)) }
 
-            var processed = 0
-            while (batch.isNotEmpty()) {
-                currentCoroutineContext().ensureActive()
-                if (isStopped) return Result.retry()
-                var persistedThisBatch = 0
-                var retryableFailureSeen = false
-                for (item in batch) {
+            val run = runPerceptualBackfillPages(
+                initialBatch = firstBatch.map { it.path },
+                batchSize = BATCH_SIZE,
+                maxVisitedRows = MAX_PER_RUN,
+                loadAfter = { afterPath, limit ->
                     currentCoroutineContext().ensureActive()
-                    if (isStopped) return Result.retry()
+                    indexRepository.imagesNeedingPerceptualHash(limit, afterPath).map { it.path }
+                },
+                compute = { path ->
+                    currentCoroutineContext().ensureActive()
                     // `null` means retryable: preserve the missing state so it is never silently
                     // excluded from Similar photos. UNHASHABLE is an explicit non-null result for
                     // a genuinely unsupported/corrupt image and is safe to persist once.
-                    val fp = when (val decision = perceptualBackfillDecision(
-                        perceptualHashSource.computeAll(item.path),
+                    when (val decision = perceptualBackfillDecision(
+                        perceptualHashSource.computeAll(path),
                     )) {
-                        PerceptualBackfillDecision.Retry -> {
-                            retryableFailureSeen = true
-                            continue
+                        PerceptualBackfillDecision.Retry -> null
+                        is PerceptualBackfillDecision.Persist -> {
+                            PathPerceptualFingerprint(path, decision.fingerprint)
                         }
-                        is PerceptualBackfillDecision.Persist -> decision.fingerprint
                     }
-                    val persisted = runCatching {
-                        indexRepository.putPerceptualFingerprint(
-                            item.path, fp.dhash, fp.phash, fp.ahash, fp.width, fp.height,
-                        )
-                    }.isSuccess
-                    if (persisted) {
-                        processed++
-                        persistedThisBatch++
-                    } else {
-                        retryableFailureSeen = true
+                },
+                persistBatch = { updates ->
+                    try {
+                        indexRepository.putPerceptualFingerprints(updates)
+                        true
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Exception) {
+                        false
                     }
-                }
-                if (foreground) runCatching { setForeground(foregroundInfo(processed, remaining)) }
-                // If the current batch made no durable progress, querying it again would spin on the
-                // same transient rows. Yield to WorkManager instead; the missing rows remain a
-                // truthful coverage signal and the next attempt can recover after the OEM/provider
-                // has settled.
-                if (persistedThisBatch == 0 && retryableFailureSeen) return Result.retry()
-                // Keep an exceptionally large library bounded per foreground execution. The 50k
-                // ceiling covers the reported 40k-photo corpus in one contiguous attempt instead of
-                // splitting it into old 2k/20k backoff-spaced runs.
-                if (processed >= MAX_PER_RUN) return Result.retry()
-                batch = indexRepository.imagesNeedingPerceptualHash(BATCH_SIZE)
+                },
+                countRemaining = indexRepository::imagesNeedingPerceptualHashCount,
+                shouldStop = { isStopped },
+                onBatchCompleted = { persisted ->
+                    if (foreground) {
+                        runCatching { setForeground(foregroundInfo(persisted, remaining)) }
+                    }
+                },
+            )
+            when (run.outcome) {
+                PerceptualBackfillLoopOutcome.Success -> Result.success()
+                PerceptualBackfillLoopOutcome.Retry -> Result.retry()
             }
-            Result.success()
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
@@ -172,4 +179,98 @@ class PerceptualHashBackfillWorker @AssistedInject constructor(
         private const val NOTIFICATION_CHANNEL_ID = "photo-analysis"
         private const val NOTIFICATION_ID = 4243
     }
+}
+
+/** Terminal decision and counters from one bounded keyset-pagination pass. */
+internal data class PerceptualBackfillLoopResult(
+    val outcome: PerceptualBackfillLoopOutcome,
+    /** Every row offered to the compute step, including retryable decode failures. */
+    val visitedRows: Int,
+    val persistedRows: Int,
+)
+
+internal enum class PerceptualBackfillLoopOutcome { Success, Retry }
+
+/**
+ * Testable keyset-pagination core for [PerceptualHashBackfillWorker].
+ *
+ * [maxVisitedRows] bounds actual decode/database attempts, not only successful writes. After the
+ * cursor reaches the end (or the visit budget is exhausted), [countRemaining] rechecks the whole
+ * backlog. That authoritative check catches retryable rows as well as concurrent inserts/renames
+ * that sort behind the current cursor. A failed count is fail-closed and requests another run.
+ */
+internal suspend fun <T> runPerceptualBackfillPages(
+    initialBatch: List<String>,
+    batchSize: Int,
+    maxVisitedRows: Int,
+    loadAfter: suspend (afterPath: String, limit: Int) -> List<String>,
+    compute: suspend (path: String) -> T?,
+    /** Atomically persists every computed update in one page; false keeps the whole page retryable. */
+    persistBatch: suspend (updates: List<T>) -> Boolean,
+    countRemaining: suspend () -> Int,
+    shouldStop: () -> Boolean = { false },
+    onBatchCompleted: suspend (persistedRows: Int) -> Unit = {},
+): PerceptualBackfillLoopResult {
+    require(batchSize > 0) { "batchSize must be positive" }
+    require(maxVisitedRows > 0) { "maxVisitedRows must be positive" }
+
+    var batch = initialBatch
+    var visitedRows = 0
+    var persistedRows = 0
+
+    suspend fun finish(): PerceptualBackfillLoopResult {
+        val remaining = try {
+            countRemaining()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+        return PerceptualBackfillLoopResult(
+            outcome = if (remaining == 0) {
+                PerceptualBackfillLoopOutcome.Success
+            } else {
+                PerceptualBackfillLoopOutcome.Retry
+            },
+            visitedRows = visitedRows,
+            persistedRows = persistedRows,
+        )
+    }
+
+    while (batch.isNotEmpty()) {
+        if (shouldStop()) {
+            return PerceptualBackfillLoopResult(
+                PerceptualBackfillLoopOutcome.Retry,
+                visitedRows,
+                persistedRows,
+            )
+        }
+        val pageUpdates = mutableListOf<T>()
+        var budgetExhaustedMidPage = false
+        for (path in batch) {
+            if (shouldStop()) {
+                return PerceptualBackfillLoopResult(
+                    PerceptualBackfillLoopOutcome.Retry,
+                    visitedRows,
+                    persistedRows,
+                )
+            }
+            if (visitedRows >= maxVisitedRows) {
+                budgetExhaustedMidPage = true
+                break
+            }
+            visitedRows++
+            compute(path)?.let(pageUpdates::add)
+        }
+        if (pageUpdates.isNotEmpty() && persistBatch(pageUpdates)) {
+            persistedRows += pageUpdates.size
+        }
+        onBatchCompleted(persistedRows)
+
+        if (budgetExhaustedMidPage || visitedRows >= maxVisitedRows) return finish()
+        val afterPath = batch.last()
+        batch = loadAfter(afterPath, batchSize)
+    }
+
+    return finish()
 }

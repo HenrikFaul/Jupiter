@@ -71,6 +71,23 @@ class DuplicateScanCacheTest {
         assertTrue("unsafe v1 cache must be removed", !snapshot.exists())
     }
 
+    @Test
+    fun previousImageDecisionSnapshotIsRejected() = runTest {
+        snapshot.writeText(
+            "#jupiscan-duplicate-cache-v2-media-signature-2\n" +
+                "img:old\ttrue\t/storage/emulated/0/a.jpg\ta.jpg\t100\t1\tIMAGE\tjpg\n" +
+                "img:old\ttrue\t/storage/emulated/0/b.jpg\tb.jpg\t100\t1\tIMAGE\tjpg\n",
+        )
+
+        val restored = DuplicateScanCache(
+            context,
+            UnconfinedTestDispatcher(testScheduler),
+        ).load()
+
+        assertNull(restored)
+        assertTrue("v2 image decisions must not survive the versioned gate", !snapshot.exists())
+    }
+
     private fun item(path: String) = FileItem(
         path = path,
         name = path.substringAfterLast('/'),

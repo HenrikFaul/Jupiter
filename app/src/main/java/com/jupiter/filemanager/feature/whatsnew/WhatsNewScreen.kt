@@ -54,6 +54,14 @@ private data class WhatsNewHighlight(
  */
 private val whatsNewHighlights: List<WhatsNewHighlight> = listOf(
     WhatsNewHighlight(
+        icon = Icons.Filled.ContentCopy,
+        title = "Safer photo duplicate evidence",
+        description = "Photo fingerprints are now versioned and compared through one bounded " +
+            "three-hash decision. Missing geometry is rebuilt, stale cached groups are discarded, " +
+            "and candidate banding now covers the inclusive eight-bit boundary before " +
+            "budgeted, fail-closed verification.",
+    ),
+    WhatsNewHighlight(
         icon = Icons.Filled.Storage,
         title = "Smaller, smarter on-device index",
         description = "Exact and quick hashes now use compact binary storage, media signatures " +
@@ -151,8 +159,9 @@ fun WhatsNewScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Version 0.56 restores visual duplicate coverage and corrects retail " +
-                            "storage totals without changing safe duplicate selection or deletion rules.",
+                        text = "Version 0.60 hardens photo duplicate evidence and safely upgrades " +
+                            "older on-device indexes without changing exact-copy, keeper, selection, " +
+                            "or Recycle Bin rules.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

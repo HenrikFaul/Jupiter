@@ -83,6 +83,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                     phash = if (descriptorIdentityKept) prior?.phash else null,
                     ahash = if (descriptorIdentityKept) prior?.ahash else null,
                     visualGeometry = if (descriptorIdentityKept) prior?.visualGeometry else null,
+                    perceptualVersion = if (descriptorIdentityKept) prior?.perceptualVersion ?: 0 else 0,
                     quickHash = if (byteIdentityKept) prior?.quickHash else null,
                     quickDigest = if (byteIdentityKept) prior?.quickDigest else null,
                 )
@@ -137,6 +138,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                 phash = if (descriptorIdentityKept) prior?.phash else null,
                 ahash = if (descriptorIdentityKept) prior?.ahash else null,
                 visualGeometry = if (descriptorIdentityKept) prior?.visualGeometry else null,
+                perceptualVersion = if (descriptorIdentityKept) prior?.perceptualVersion ?: 0 else 0,
                 quickHash = if (byteIdentityKept) prior?.quickHash else null,
                 quickDigest = if (byteIdentityKept) prior?.quickDigest else null,
                 lastSeenGeneration = generation ?: prior?.lastSeenGeneration ?: 0L,
@@ -174,6 +176,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                     phash = descriptorUnchanged?.phash,
                     ahash = descriptorUnchanged?.ahash,
                     visualGeometry = descriptorUnchanged?.visualGeometry,
+                    perceptualVersion = descriptorUnchanged?.perceptualVersion ?: 0,
                     quickHash = unchanged?.quickHash,
                     quickDigest = unchanged?.quickDigest,
                 ),
@@ -241,6 +244,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                         phash = if (descriptorIdentityKept) entry.phash else null,
                         ahash = if (descriptorIdentityKept) entry.ahash else null,
                         visualGeometry = if (descriptorIdentityKept) entry.visualGeometry else null,
+                        perceptualVersion = if (descriptorIdentityKept) entry.perceptualVersion else 0,
                         quickHash = if (byteIdentityKept) entry.quickHash else null,
                         quickDigest = if (byteIdentityKept) entry.quickDigest else null,
                     )
@@ -448,8 +452,14 @@ class FileIndexRepositoryImpl @Inject constructor(
             phash = phash,
             ahash = ahash,
             visualGeometry = CompactMetadataCodec.packDimensions(width, height),
+            version = PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
         )
     }
+
+    override suspend fun putPerceptualFingerprints(updates: List<PathPerceptualFingerprint>) =
+        withContext(ioDispatcher) {
+            if (updates.isNotEmpty()) dao.updatePerceptualFingerprints(updates)
+        }
 
     override suspend fun putStructuralHash(path: String, hash: Long) = withContext(ioDispatcher) {
         dao.updateStructuralHash(path, hash)
@@ -563,7 +573,11 @@ class FileIndexRepositoryImpl @Inject constructor(
         threshold: Int,
     ): List<FileItem> = withContext(ioDispatcher) {
         if (fingerprint.dhash == PerceptualHash.UNHASHABLE) return@withContext emptyList()
-        val nearPaths = dao.allPerceptualHashes(PerceptualHash.UNHASHABLE)
+        val nearPaths = dao.allPerceptualHashes(
+            FileType.IMAGE.name,
+            PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+            PerceptualHash.UNHASHABLE,
+        )
             .asSequence()
             .filter { it.path != path }
             .filter { row ->
@@ -585,13 +599,23 @@ class FileIndexRepositoryImpl @Inject constructor(
         existingOrPruned(dao.entriesForPaths(nearPaths).map(::toFileItem))
     }
 
-    override suspend fun imagesNeedingPerceptualHash(limit: Int): List<FileItem> =
+    override suspend fun imagesNeedingPerceptualHash(limit: Int, afterPath: String): List<FileItem> =
         withContext(ioDispatcher) {
-            dao.imagesMissingPerceptualHash(FileType.IMAGE.name, limit).map(::toFileItem)
+            dao.imagesMissingPerceptualHash(
+                FileType.IMAGE.name,
+                PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+                PerceptualHash.UNHASHABLE,
+                afterPath,
+                limit,
+            ).map(::toFileItem)
         }
 
     override suspend fun imagesNeedingPerceptualHashCount(): Int = withContext(ioDispatcher) {
-        dao.countImagesMissingPerceptualHash(FileType.IMAGE.name)
+        dao.countImagesMissingPerceptualHash(
+            FileType.IMAGE.name,
+            PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+            PerceptualHash.UNHASHABLE,
+        )
     }
 
     override suspend fun clear() = withContext(ioDispatcher) {
@@ -742,9 +766,16 @@ class FileIndexRepositoryImpl @Inject constructor(
 
     override suspend fun nearDuplicateImageGroups(threshold: Int): List<DuplicateGroup> =
         withContext(ioDispatcher) {
+            require(threshold in 0 until Long.SIZE_BITS) {
+                "image near-duplicate threshold must be between 0 and 63"
+            }
             // Every fingerprinted image as a lean (path, dHash) pair — scanning tens of thousands of
             // 64-bit hashes in memory is trivial.
-            val entries = dao.allPerceptualHashes(PerceptualHash.UNHASHABLE)
+            val entries = dao.allPerceptualHashes(
+                FileType.IMAGE.name,
+                PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+                PerceptualHash.UNHASHABLE,
+            )
             val n = entries.size
             if (n < 2) return@withContext emptyList()
 
@@ -779,21 +810,32 @@ class FileIndexRepositoryImpl @Inject constructor(
                 if (prev != null) union(i, prev)
             }
 
-            // Pass 2 — near-merge via LSH banding, so near copies whose dHash is a few bits off also
-            // group (a re-encode/resize can shift 1–3 bits). Split the 64-bit hash into 8 one-byte
-            // bands; two hashes within [threshold] Hamming distance necessarily share ≥1 band
-            // UNCHANGED whenever fewer than 8 bits differ (pigeonhole across 8 bands) — which real
-            // near-dups always are. Only same-band candidates are compared, so the work is ~n per
-            // band instead of the n² that made a 40k-image library skip this step entirely. A
+            // Pass 2 — near-merge via candidateThreshold+1 LSH bands. The narrow high-consensus
+            // recovery path permits two extra dHash bits only when pHash+aHash both strongly agree,
+            // so candidate generation covers that cap as well. Pigeonhole guarantees that two
+            // 64-bit hashes within the candidate cap share at least one unchanged band. Only
+            // same-band candidates are compared, so the work stays far below n². A
             // comparison budget backstops any pathological skew, and already-unioned pairs are
             // skipped (identical-hash copies were merged in pass 1).
-            if (threshold > 0) {
+            val candidateSlack = if (threshold >= PerceptualHash.DEFAULT_NEAR_THRESHOLD) {
+                PerceptualHash.HIGH_CONSENSUS_DHASH_SLACK
+            } else {
+                0
+            }
+            val candidateThreshold = (threshold + candidateSlack)
+                .coerceAtMost(Long.SIZE_BITS - 1)
+            if (candidateThreshold > 0) {
                 var budget = MAX_NEAR_PAIR_COMPARISONS
-                bands@ for (band in 0 until 8) {
-                    val shift = band * 8
-                    val buckets = HashMap<Int, MutableList<Int>>()
+                val bandCount = candidateThreshold + 1
+                val baseBits = Long.SIZE_BITS / bandCount
+                val wideBands = Long.SIZE_BITS % bandCount
+                var shift = 0
+                bands@ for (band in 0 until bandCount) {
+                    val bitCount = baseBits + if (band < wideBands) 1 else 0
+                    val mask = if (bitCount == Long.SIZE_BITS) -1L else (1L shl bitCount) - 1L
+                    val buckets = HashMap<Long, MutableList<Int>>()
                     for (i in 0 until n) {
-                        val key = ((entries[i].perceptualHash ushr shift) and 0xFFL).toInt()
+                        val key = (entries[i].perceptualHash ushr shift) and mask
                         buckets.getOrPut(key) { ArrayList() }.add(i)
                     }
                     for (bucket in buckets.values) {
@@ -822,6 +864,7 @@ class FileIndexRepositoryImpl @Inject constructor(
                             }
                         }
                     }
+                    shift += bitCount
                 }
             }
 

@@ -140,7 +140,7 @@ interface FileIndexDao {
             "quickHash = NULL, quickDigest = NULL, perceptualHash = NULL, phash = NULL, " +
             "ahash = NULL, structuralHash = NULL, structuralSignature = NULL, " +
             "structuralSignatureBlob = NULL, structuralExtent = NULL, structuralVersion = 0, " +
-            "visualGeometry = NULL WHERE path = :path",
+            "visualGeometry = NULL, perceptualVersion = 0 WHERE path = :path",
     )
     suspend fun updateHashAndInvalidateDerived(
         path: String,
@@ -155,7 +155,10 @@ interface FileIndexDao {
      * Stores an image's perceptual (dHash) fingerprint. Targeted UPDATE for the same reason
      * as [updateHash]: it must never disturb a concurrent survey's generation stamp.
      */
-    @Query("UPDATE file_index SET perceptualHash = :hash WHERE path = :path")
+    @Query(
+        "UPDATE file_index SET perceptualHash = :hash, phash = NULL, ahash = NULL, " +
+            "visualGeometry = NULL, perceptualVersion = 0 WHERE path = :path",
+    )
     suspend fun updatePerceptualHash(path: String, hash: Long)
 
     /**
@@ -164,7 +167,7 @@ interface FileIndexDao {
      */
     @Query(
         "UPDATE file_index SET perceptualHash = :dhash, phash = :phash, ahash = :ahash, " +
-            "visualGeometry = :visualGeometry WHERE path = :path",
+            "visualGeometry = :visualGeometry, perceptualVersion = :version WHERE path = :path",
     )
     suspend fun updatePerceptualFingerprint(
         path: String,
@@ -172,7 +175,27 @@ interface FileIndexDao {
         phash: Long,
         ahash: Long,
         visualGeometry: Long?,
+        version: Int,
     )
+
+    /**
+     * Persists one decoded page atomically. Room publishes table invalidation after the transaction,
+     * so live readiness performs one aggregate refresh per page instead of one per image.
+     */
+    @Transaction
+    suspend fun updatePerceptualFingerprints(updates: List<PathPerceptualFingerprint>) {
+        for (update in updates) {
+            val fingerprint = update.fingerprint
+            updatePerceptualFingerprint(
+                path = update.path,
+                dhash = fingerprint.dhash,
+                phash = fingerprint.phash,
+                ahash = fingerprint.ahash,
+                visualGeometry = fingerprint.visualGeometry,
+                version = PerceptualHash.CURRENT_DESCRIPTOR_VERSION,
+            )
+        }
+    }
 
     /**
      * Stores the lazy head+tail quick hash. Targeted UPDATE; never touches the generation stamp.
@@ -189,9 +212,16 @@ interface FileIndexDao {
     @Query(
         "SELECT path, perceptualHash, phash, ahash, visualGeometry FROM file_index " +
             "WHERE perceptualHash IS NOT NULL AND perceptualHash != :unhashable " +
-            "AND isDirectory = 0",
+            "AND phash IS NOT NULL AND phash != :unhashable " +
+            "AND ahash IS NOT NULL AND ahash != :unhashable AND visualGeometry IS NOT NULL " +
+            "AND isDirectory = 0 AND typeName = :imageTypeName " +
+            "AND perceptualVersion = :currentVersion",
     )
-    suspend fun allPerceptualHashes(unhashable: Long): List<PathPerceptualHash>
+    suspend fun allPerceptualHashes(
+        imageTypeName: String,
+        currentVersion: Int,
+        unhashable: Long,
+    ): List<PathPerceptualHash>
 
     /**
      * Image rows that still need (any layer of) the perceptual fingerprint — the backfill work
@@ -200,17 +230,36 @@ interface FileIndexDao {
      * so an unhashable row never reappears here).
      */
     @Query(
-        "SELECT * FROM file_index WHERE (perceptualHash IS NULL OR phash IS NULL) " +
-            "AND isDirectory = 0 AND typeName = :imageTypeName LIMIT :limit",
+        "SELECT * FROM file_index WHERE isDirectory = 0 AND typeName = :imageTypeName " +
+            "AND path > :afterPath AND (perceptualVersion != :currentVersion OR NOT (" +
+            "perceptualHash IS NOT NULL AND phash IS NOT NULL AND ahash IS NOT NULL AND (" +
+            "(perceptualHash = :unhashable AND phash = :unhashable AND ahash = :unhashable) " +
+            "OR (perceptualHash != :unhashable AND phash != :unhashable " +
+            "AND ahash != :unhashable AND visualGeometry IS NOT NULL)))) " +
+            "ORDER BY path LIMIT :limit",
     )
-    suspend fun imagesMissingPerceptualHash(imageTypeName: String, limit: Int): List<FileIndexEntry>
+    suspend fun imagesMissingPerceptualHash(
+        imageTypeName: String,
+        currentVersion: Int,
+        unhashable: Long,
+        afterPath: String,
+        limit: Int,
+    ): List<FileIndexEntry>
 
     /** How many image rows still need a perceptual fingerprint (backfill progress denominator). */
     @Query(
-        "SELECT COUNT(*) FROM file_index WHERE (perceptualHash IS NULL OR phash IS NULL) " +
-            "AND isDirectory = 0 AND typeName = :imageTypeName",
+        "SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName = :imageTypeName " +
+            "AND (perceptualVersion != :currentVersion OR NOT (" +
+            "perceptualHash IS NOT NULL AND phash IS NOT NULL AND ahash IS NOT NULL AND (" +
+            "(perceptualHash = :unhashable AND phash = :unhashable AND ahash = :unhashable) " +
+            "OR (perceptualHash != :unhashable AND phash != :unhashable " +
+            "AND ahash != :unhashable AND visualGeometry IS NOT NULL))))",
     )
-    suspend fun countImagesMissingPerceptualHash(imageTypeName: String): Int
+    suspend fun countImagesMissingPerceptualHash(
+        imageTypeName: String,
+        currentVersion: Int,
+        unhashable: Long,
+    ): Int
 
     /**
      * Stores a text/archive structural fingerprint. Targeted UPDATE for the same reason as
@@ -310,9 +359,17 @@ interface FileIndexDao {
 
     @Query(
         "SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName = :imageTypeName " +
-            "AND perceptualHash IS NOT NULL AND phash IS NOT NULL AND ahash IS NOT NULL",
+            "AND perceptualVersion = :currentVersion AND perceptualHash IS NOT NULL " +
+            "AND phash IS NOT NULL AND ahash IS NOT NULL AND (" +
+            "(perceptualHash = :unhashable AND phash = :unhashable AND ahash = :unhashable) " +
+            "OR (perceptualHash != :unhashable AND phash != :unhashable " +
+            "AND ahash != :unhashable AND visualGeometry IS NOT NULL))",
     )
-    suspend fun countImagesWithDescriptors(imageTypeName: String): Int
+    suspend fun countImagesWithDescriptors(
+        imageTypeName: String,
+        currentVersion: Int,
+        unhashable: Long,
+    ): Int
 
     @Query("SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND typeName IN (:typeNames)")
     suspend fun countStructuralCandidates(typeNames: List<String>): Int
@@ -322,6 +379,63 @@ interface FileIndexDao {
             "AND structuralHash IS NOT NULL",
     )
     suspend fun countStructuralReady(typeNames: List<String>): Int
+
+    /**
+     * Live aggregate used by StorageReadiness. Because the query reads file_index, Room emits
+     * again for targeted descriptor UPDATEs; readiness no longer stays stale until index_state
+     * happens to change.
+     */
+    @Query(
+        "SELECT " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0) AS fileTotal, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND " +
+            "(contentDigest IS NOT NULL OR contentHash IS NOT NULL)) AS exactReady, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName = :imageTypeName) AS imageTotal, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName = :imageTypeName AND perceptualVersion = :currentVersion " +
+            "AND perceptualHash IS NOT NULL AND phash IS NOT NULL AND ahash IS NOT NULL AND (" +
+            "(perceptualHash = :unhashable AND phash = :unhashable AND ahash = :unhashable) " +
+            "OR (perceptualHash != :unhashable AND phash != :unhashable " +
+            "AND ahash != :unhashable AND visualGeometry IS NOT NULL))) AS imageReady, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName IN (:structuralTypeNames)) AS structuralTotal, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName IN (:structuralTypeNames) " +
+            "AND structuralHash IS NOT NULL) AS structuralReady",
+    )
+    fun observeDescriptorCoverage(
+        imageTypeName: String,
+        currentVersion: Int,
+        unhashable: Long,
+        structuralTypeNames: List<String>,
+    ): Flow<DescriptorCoverageSnapshot>
+
+    @Query(
+        "SELECT " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0) AS fileTotal, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 AND " +
+            "(contentDigest IS NOT NULL OR contentHash IS NOT NULL)) AS exactReady, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName = :imageTypeName) AS imageTotal, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName = :imageTypeName AND perceptualVersion = :currentVersion " +
+            "AND perceptualHash IS NOT NULL AND phash IS NOT NULL AND ahash IS NOT NULL AND (" +
+            "(perceptualHash = :unhashable AND phash = :unhashable AND ahash = :unhashable) " +
+            "OR (perceptualHash != :unhashable AND phash != :unhashable " +
+            "AND ahash != :unhashable AND visualGeometry IS NOT NULL))) AS imageReady, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName IN (:structuralTypeNames)) AS structuralTotal, " +
+            "(SELECT COUNT(*) FROM file_index WHERE isDirectory = 0 " +
+            "AND typeName IN (:structuralTypeNames) " +
+            "AND structuralHash IS NOT NULL) AS structuralReady",
+    )
+    suspend fun descriptorCoverage(
+        imageTypeName: String,
+        currentVersion: Int,
+        unhashable: Long,
+        structuralTypeNames: List<String>,
+    ): DescriptorCoverageSnapshot
 
     /**
      * Number of indexed **files** (directories excluded). Used as a fast, one-shot
@@ -386,6 +500,15 @@ interface FileIndexDao {
     @Query("DELETE FROM file_index WHERE parentPath = :parentPath AND path NOT IN (:keepPaths)")
     suspend fun deleteStale(parentPath: String, keepPaths: List<String>)
 }
+
+data class DescriptorCoverageSnapshot(
+    val fileTotal: Long,
+    val exactReady: Long,
+    val imageTotal: Long,
+    val imageReady: Long,
+    val structuralTotal: Long,
+    val structuralReady: Long,
+)
 
 /**
  * Lean projection for the near-duplicate comparison set: comparing a new image against tens

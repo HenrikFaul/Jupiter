@@ -56,8 +56,10 @@ class NearDuplicateImageGroupTest {
         name: String,
         sizeBytes: Long,
         hash: Long,
-        width: Int = 0,
-        height: Int = 0,
+        width: Int = 100,
+        height: Int = 100,
+        phash: Long = hash,
+        ahash: Long = hash,
     ): String {
         val file = File(tempDir, name).apply { writeText("x") }
         val item = FileItem(
@@ -72,7 +74,7 @@ class NearDuplicateImageGroupTest {
         repo.upsert(listOf(item))
         // Production grouping requires the full stack; using the same scripted value for all
         // layers keeps this test focused on grouping/LSH rather than Android bitmap decoding.
-        repo.putPerceptualFingerprint(file.absolutePath, hash, hash, hash, width, height)
+        repo.putPerceptualFingerprint(file.absolutePath, hash, phash, ahash, width, height)
         return file.absolutePath
     }
 
@@ -127,6 +129,37 @@ class NearDuplicateImageGroupTest {
     }
 
     @Test
+    fun lshCoversTheExactEightBitThresholdBoundary() = runTest(dispatcher) {
+        val base = image("boundary-base.jpg", sizeBytes = 200, hash = 0L)
+        // One bit differs in every old one-byte band. The previous 8-band index shared no band and
+        // missed this valid distance-8 candidate; threshold+1 candidate bands cover the boundary
+        // before the separately budgeted, fail-closed comparison stage.
+        val boundary = image("boundary-near.jpg", sizeBytes = 100, hash = 0x0101010101010101L)
+
+        val groups = repo.nearDuplicateImageGroups(threshold = 8)
+
+        assertEquals(1, groups.size)
+        assertEquals(setOf(base, boundary), groups.single().files.map { it.path }.toSet())
+    }
+
+    @Test
+    fun lshSurfacesTheBoundedTenBitThreeFamilyConsensusCandidate() = runTest(dispatcher) {
+        val base = image("consensus-base.jpg", 200, hash = 0L, phash = 0L, ahash = 0L)
+        val reencode = image(
+            "consensus-reencode.jpg",
+            100,
+            hash = 0x3FFL,
+            phash = 0b11L,
+            ahash = 0b111L,
+        )
+
+        val groups = repo.nearDuplicateImageGroups(threshold = 8)
+
+        assertEquals(1, groups.size)
+        assertEquals(setOf(base, reencode), groups.single().files.map { it.path }.toSet())
+    }
+
+    @Test
     fun imageBridgeCannotTransitivelyMergeUnrelatedEndpoints() = runTest(dispatcher) {
         val baseHash = 0x1234_5678_9ABC_DEF0L
         val a = image("bridge-a.jpg", 300, baseHash)
@@ -147,5 +180,16 @@ class NearDuplicateImageGroupTest {
         image("square.jpg", 200, hash, width = 1080, height = 1080)
 
         assertTrue(repo.nearDuplicateImageGroups(threshold = 8).isEmpty())
+    }
+
+    @Test
+    fun rejectsThresholdThatCannotBeCoveredByAtMostSixtyFourBands() = runTest(dispatcher) {
+        var rejected = false
+        try {
+            repo.nearDuplicateImageGroups(threshold = 64)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
     }
 }

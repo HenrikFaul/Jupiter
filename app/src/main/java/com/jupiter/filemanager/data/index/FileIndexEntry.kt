@@ -93,4 +93,11 @@ data class FileIndexEntry(
     val ahash: Long? = null,
     /** Width/height packed into one Long; shared by image/video descriptors and aspect-ratio veto. */
     val visualGeometry: Long? = null,
+    /**
+     * Producer version of the stacked IMAGE descriptor. A row is comparison-ready only when this
+     * equals [PerceptualHash.CURRENT_DESCRIPTOR_VERSION] and the complete stack/geometry is present.
+     * Keeping this as one small SQLite INTEGER lets a future algorithm requeue only stale images
+     * instead of silently comparing incompatible fingerprints or adding another metadata table.
+     */
+    val perceptualVersion: Int = 0,
 )

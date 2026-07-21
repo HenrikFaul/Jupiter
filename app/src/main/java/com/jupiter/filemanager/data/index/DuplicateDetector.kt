@@ -420,7 +420,8 @@ class DuplicateDetector @Inject constructor(
      * near-duplicate comparison set is COMPLETE — an original that arrived before the feature
      * shipped (or that the periodic backfill has not yet reached) is what a newly-downloaded copy
      * gets compared against. Drains the whole "missing fingerprint" work list in bounded batches;
-     * progress is persisted per row, so the first image arrival pays a one-time cost and every
+     * each decoded page is persisted in one Room transaction, so the first image arrival pays a
+     * one-time cost without triggering one readiness aggregate refresh per row, and every
      * later arrival finds nothing to do (a single cheap empty-list query). Cancellable; a decode
      * failure is marked [PerceptualHash.UNHASHABLE] so the list always shrinks and a corrupt image
      * can never loop forever. Honours cancellation; per-file failures are isolated (compute never
@@ -431,7 +432,7 @@ class DuplicateDetector @Inject constructor(
             currentCoroutineContext().ensureActive()
             val batch = indexRepository.imagesNeedingPerceptualHash(FINGERPRINT_BATCH)
             if (batch.isEmpty()) return true
-            var stored = 0
+            val updates = ArrayList<PathPerceptualFingerprint>(batch.size)
             var transientFailures = 0
             for (image in batch) {
                 currentCoroutineContext().ensureActive()
@@ -440,15 +441,19 @@ class DuplicateDetector @Inject constructor(
                     transientFailures++
                     continue
                 }
-                val ok = runCatching {
-                    indexRepository.putPerceptualFingerprint(
-                        image.path, fp.dhash, fp.phash, fp.ahash, fp.width, fp.height,
-                    )
-                }.isSuccess
-                if (ok) {
-                    stored++
-                } else {
+                updates += PathPerceptualFingerprint(image.path, fp)
+            }
+            val stored = if (updates.isEmpty()) {
+                0
+            } else {
+                try {
+                    indexRepository.putPerceptualFingerprints(updates)
+                    updates.size
+                } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
                     transientFailures++
+                    0
                 }
             }
             // Termination guarantee: every row is marked (hash or UNHASHABLE), so a non-empty batch

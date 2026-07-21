@@ -17,6 +17,9 @@ package com.jupiter.filemanager.data.index
  */
 object PerceptualHash {
 
+    /** Persisted descriptor producer version. Increment before changing the stored hash meaning. */
+    const val CURRENT_DESCRIPTOR_VERSION = 1
+
     /** Grid is 9 wide × 8 tall: 8 horizontal comparisons per row × 8 rows = 64 bits. */
     const val GRID_WIDTH = 9
     const val GRID_HEIGHT = 8
@@ -83,6 +86,15 @@ object PerceptualHash {
     const val PHASH_GRID = 32
     const val PHASH_SIZE = PHASH_GRID * PHASH_GRID
 
+    /** Shared DCT-II cosine basis: 256 values instead of recalculating 16,384 cosines per image. */
+    private val dctCosineBasis: Array<DoubleArray> = Array(AHASH_GRID) { frequency ->
+        DoubleArray(PHASH_GRID) { sample ->
+            kotlin.math.cos(
+                (2 * sample + 1) * frequency * Math.PI / (2.0 * PHASH_GRID),
+            )
+        }
+    }
+
     /**
      * Average hash: bit i is set when sample i is above the grid mean. Cheap and robust to
      * re-compression; blind to brightness-preserving edits (which dHash/pHash catch).
@@ -116,7 +128,7 @@ object PerceptualHash {
             for (u in 0 until AHASH_GRID) {
                 var acc = 0.0
                 for (x in 0 until n) {
-                    acc += gray[y * n + x] * kotlin.math.cos((2 * x + 1) * u * Math.PI / (2.0 * n))
+                    acc += gray[y * n + x] * dctCosineBasis[u][x]
                 }
                 rowPass[y][u] = acc
             }
@@ -126,7 +138,7 @@ object PerceptualHash {
             for (u in 0 until AHASH_GRID) {
                 var acc = 0.0
                 for (y in 0 until n) {
-                    acc += rowPass[y][u] * kotlin.math.cos((2 * y + 1) * v * Math.PI / (2.0 * n))
+                    acc += rowPass[y][u] * dctCosineBasis[v][y]
                 }
                 coeffs[v * AHASH_GRID + u] = acc
             }
@@ -156,6 +168,25 @@ object PerceptualHash {
      * surfaced for review, never auto-acted on. Unrelated images average ~30.
      */
     const val RELAXED_SCORE_THRESHOLD = 10.0
+
+    /**
+     * Production same-picture ceiling. The old decision allowed one confirming family to hide a
+     * catastrophic disagreement in the third family. Requiring bounded fused evidence removes
+     * that false-positive path while retaining the independently bounded dHash candidate gate.
+     */
+    const val SAME_PICTURE_SCORE_THRESHOLD = 10.0
+
+    /** Extra dHash tolerance only when both independent families agree exceptionally closely. */
+    const val HIGH_CONSENSUS_DHASH_SLACK = 2
+
+    /** pHash and aHash must each stay within this ceiling for the high-consensus recovery path. */
+    const val HIGH_CONSENSUS_FAMILY_THRESHOLD = 4
+
+    /** Weighted-score ceiling for the narrowly bounded high-consensus recovery path. */
+    const val HIGH_CONSENSUS_SCORE_THRESHOLD = 6.0
+
+    /** Smooth-image pHash instability may be tolerated only below this hard contradiction cap. */
+    const val MAX_SMOOTH_FALLBACK_DISTANCE = 32
 
     /**
      * Weighted Hamming score across the three layers — lower is more similar:
@@ -196,6 +227,54 @@ object PerceptualHash {
      * independent ceiling. Rows missing the stacked descriptor wait for backfill instead of being
      * surfaced as a potentially destructive false positive.
      */
+    fun samePictureEvidence(
+        dA: Long, dB: Long,
+        pA: Long?, pB: Long?,
+        aA: Long?, aB: Long?,
+        geometryA: Long? = null,
+        geometryB: Long? = null,
+        dhashThreshold: Int = DEFAULT_NEAR_THRESHOLD,
+    ): VisualMatchEvidence {
+        if (dA == UNHASHABLE || dB == UNHASHABLE ||
+            pA == null || pB == null || aA == null || aB == null ||
+            pA == UNHASHABLE || pB == UNHASHABLE || aA == UNHASHABLE || aB == UNHASHABLE
+        ) return VisualMatchEvidence.incomplete()
+        val geometryCompatible = CompactMetadataCodec.dimensionsCompatible(geometryA, geometryB)
+        val d = hammingDistance(dA, dB)
+        val p = hammingDistance(pA, pB)
+        val a = hammingDistance(aA, aB)
+        val score = combinedScore(d, p, a)
+        val independentConfirmation = p <= 10 || a <= 10
+        val standardMatch = d <= dhashThreshold && independentConfirmation &&
+            score <= SAME_PICTURE_SCORE_THRESHOLD
+        // Near-zero DCT coefficients in smooth gradients can make pHash unstable even when dHash
+        // and aHash remain virtually identical. Keep that established recovery path tightly
+        // bounded; a 33..64-bit third-family contradiction cannot pass it.
+        val smoothTwoFamilyMatch = d <= 2 && minOf(p, a) <= 4 &&
+            maxOf(p, a) <= MAX_SMOOTH_FALLBACK_DISTANCE
+        // Smooth/low-contrast re-encodes can move dHash just beyond eight while both independent
+        // families remain almost identical. Recover only that three-family consensus: unlike the
+        // old OR gate, neither pHash nor aHash may disagree, and the fused score remains bounded.
+        val highConsensusMatch = dhashThreshold >= DEFAULT_NEAR_THRESHOLD &&
+            d <= (dhashThreshold + HIGH_CONSENSUS_DHASH_SLACK)
+            .coerceAtMost(Long.SIZE_BITS - 1) &&
+            p <= HIGH_CONSENSUS_FAMILY_THRESHOLD &&
+            a <= HIGH_CONSENSUS_FAMILY_THRESHOLD &&
+            score <= HIGH_CONSENSUS_SCORE_THRESHOLD
+        val matches = geometryCompatible &&
+            (standardMatch || smoothTwoFamilyMatch || highConsensusMatch)
+        return VisualMatchEvidence(
+            descriptorComplete = true,
+            geometryCompatible = geometryCompatible,
+            dHashDistance = d,
+            pHashDistance = p,
+            aHashDistance = a,
+            combinedScore = score,
+            matches = matches,
+        )
+    }
+
+    /** Production boolean facade; all callers share [samePictureEvidence]'s bounded decision. */
     fun isSamePicture(
         dA: Long, dB: Long,
         pA: Long?, pB: Long?,
@@ -203,20 +282,31 @@ object PerceptualHash {
         geometryA: Long? = null,
         geometryB: Long? = null,
         dhashThreshold: Int = DEFAULT_NEAR_THRESHOLD,
-    ): Boolean {
-        if (dA == UNHASHABLE || dB == UNHASHABLE ||
-            pA == null || pB == null || aA == null || aB == null ||
-            pA == UNHASHABLE || pB == UNHASHABLE || aA == UNHASHABLE || aB == UNHASHABLE
-        ) return false
-        if (!CompactMetadataCodec.dimensionsCompatible(geometryA, geometryB)) return false
-        val d = hammingDistance(dA, dB)
-        val p = hammingDistance(pA, pB)
-        val a = hammingDistance(aA, aB)
-        // dHash remains the candidate geometry gate, but at least one independent family must
-        // confirm it. pHash can be unstable on very smooth gradients (same JPEG may flip many
-        // near-zero DCT coefficients), while aHash remains stable there; requiring BOTH would miss
-        // genuine re-encodes, accepting dHash ALONE recreates false positives.
-        return d <= dhashThreshold && (p <= 10 || a <= 10)
+    ): Boolean = samePictureEvidence(
+        dA, dB, pA, pB, aA, aB, geometryA, geometryB, dhashThreshold,
+    ).matches
+}
+
+/** Explainable, testable evidence used by every production image-comparison surface. */
+data class VisualMatchEvidence(
+    val descriptorComplete: Boolean,
+    val geometryCompatible: Boolean,
+    val dHashDistance: Int?,
+    val pHashDistance: Int?,
+    val aHashDistance: Int?,
+    val combinedScore: Double?,
+    val matches: Boolean,
+) {
+    companion object {
+        fun incomplete() = VisualMatchEvidence(
+            descriptorComplete = false,
+            geometryCompatible = false,
+            dHashDistance = null,
+            pHashDistance = null,
+            aHashDistance = null,
+            combinedScore = null,
+            matches = false,
+        )
     }
 }
 
@@ -243,3 +333,9 @@ data class PerceptualFingerprint(
         )
     }
 }
+
+/** One path-bound image descriptor write; batches are persisted in a single Room transaction. */
+data class PathPerceptualFingerprint(
+    val path: String,
+    val fingerprint: PerceptualFingerprint,
+)
